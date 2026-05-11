@@ -1,0 +1,43 @@
+# Convenience wrapper around the multi-stage Dockerfile.
+#
+#   docker compose up -d                  # production on http://localhost:8080
+#   docker compose --profile dev up       # dev server  on http://localhost:5173
+#   docker compose down                   # stop everything
+
+services:
+  # ─────────────── Production: nginx serves the built bundle ───────────────
+  web:
+    build:
+      context: .
+      target: prod
+    image: dead-perimeter:latest
+    container_name: dead-perimeter
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+  # ─────────────── Development: Vite dev server with HMR ───────────────────
+  # Activated with: docker compose --profile dev up
+  dev:
+    profiles: ["dev"]
+    build:
+      context: .
+      target: dev
+    image: dead-perimeter:dev
+    container_name: dead-perimeter-dev
+    ports:
+      - "5173:5173"
+    volumes:
+      # Mount source for hot reload, but keep node_modules from the image
+      - .:/app
+      - /app/node_modules
+    environment:
+      - CHOKIDAR_USEPOLLING=true   # reliable file watching across bind mounts
+    stdin_open: true
+    tty: true

@@ -1,0 +1,32 @@
+# Build artefacts and dependencies (rebuilt inside the image)
+node_modules
+dist
+.vite
+
+# VCS metadata (Docker doesn't need it; smaller context)
+.git
+.gitignore
+.github
+
+# Editor / OS junk
+.DS_Store
+.idea
+.vscode
+*.swp
+*.swo
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Local env
+.env
+.env.*
+*.local
+
+# Docker artefacts themselves
+docker-compose.yml
+Dockerfile
+.dockerignore
