@@ -81,6 +81,65 @@ The game is fully client-side. `dist/` can be served by any static host
 
 ---
 
+## Running with Docker
+
+The repo ships with a multi-stage `Dockerfile` and a `docker-compose.yml`
+so you can run the game in a fully isolated container — no local Node
+install required.
+
+### Production (nginx serves the static bundle)
+
+```bash
+docker compose up -d                # → http://localhost:8080
+docker compose logs -f              # tail nginx logs
+docker compose down                 # stop and remove the container
+```
+
+The image is built by the `prod` stage:
+- Stage 1 (`deps`)  → `node:20-alpine`, installs dependencies via `npm ci`.
+- Stage 2 (`build`) → runs `npm run build`, emits `/app/dist`.
+- Stage 3 (`prod`)  → `nginx:1.27-alpine` with our `nginx.conf` (gzip,
+  hashed-asset caching, SPA fallback), serving `dist/` on port 80.
+- Built-in `HEALTHCHECK` hits `http://127.0.0.1/`.
+
+You can also build it directly with the Docker CLI:
+
+```bash
+docker build -t dead-perimeter .
+docker run --rm -p 8080:80 dead-perimeter
+```
+
+### Development (Vite dev server with hot reload)
+
+```bash
+docker compose --profile dev up     # → http://localhost:5173
+```
+
+This builds the `dev` stage of the Dockerfile, mounts your source tree
+into `/app`, and starts `npm run dev`. Edits on the host trigger HMR
+inside the container. `CHOKIDAR_USEPOLLING=true` is set so file watching
+is reliable across the bind mount on every host platform.
+
+Direct CLI equivalent:
+
+```bash
+docker build --target dev -t dead-perimeter:dev .
+docker run --rm -it -p 5173:5173 \
+  -v "$PWD":/app -v /app/node_modules \
+  dead-perimeter:dev
+```
+
+### Notes
+
+- Image size: ~50 MB for the prod image (alpine + nginx + ~1 MB of static
+  assets) and ~350 MB for the dev image (alpine + Node 20 + node_modules).
+- The Dockerfile uses no privileged build flags and no BuildKit-only
+  syntax — it builds on any Docker ≥ 20.10.
+- `.dockerignore` excludes `node_modules`, `dist`, `.git`, and editor /
+  OS junk from the build context.
+
+---
+
 ## Controls
 
 ### Siege screen
