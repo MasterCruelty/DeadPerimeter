@@ -11,6 +11,7 @@ import { mkSoldier } from './entities/soldier.js';
 import { mkBarricade } from './entities/barricade.js';
 import { mkWave, mkHumanWave } from './entities/wave.js';
 import { mkGS } from './entities/gameState.js';
+import { hasSavedGame, saveGame, loadGame, clearSave } from './entities/persistence.js';
 
 import { dBg } from './render/background.js';
 import { dBase } from './render/base.js';
@@ -31,7 +32,10 @@ export default function DeadPerimeter() {
   const cvs = useRef(null), gsRef = useRef(null), rafId = useRef(null), prevT = useRef(0), mutedR = useRef(false);
   const missionRef = useRef(null);
   const inputRef = useRef({ left: false, right: false, shoot: false });
+  const pausedRef = useRef(false);
   const [scr, setScr] = useState('menu'), [ui, setUi] = useState(null), [muted, setMuted] = useState(false);
+  const [paused, setPaused] = useState(false);
+  const [hasSave, setHasSave] = useState(false);
   const [, setMissionTick] = useState(0);
   const [expSoldierIdx, setExpSoldierIdx] = useState(null);
   const [expDestIdx, setExpDestIdx] = useState(null);
@@ -51,6 +55,16 @@ export default function DeadPerimeter() {
     if (am) am.mute(n);
   }, []);
 
+  const togglePause = useCallback(() => {
+    const n = !pausedRef.current;
+    pausedRef.current = n; setPaused(n);
+    const am = getAM();
+    if (am) { if (n) am.stopBg(); else if (!mutedR.current) am.startBg(); }
+  }, []);
+
+  // Detect existing save on mount
+  useEffect(() => { setHasSave(hasSavedGame()); }, []);
+
   // Expedition animation ticker
   useEffect(() => {
     if (expPhase !== 'running') return;
@@ -65,8 +79,17 @@ export default function DeadPerimeter() {
 
   const newGame = useCallback(() => {
     const am = getAM(); if (am) am.resume();
+    clearSave();
     const gs = mkGS();
     gs.soldiers.forEach(s => { s.ammo = WPN[s.weapon].ammo; gs.resources.ammo -= WPN[s.weapon].ammoCost; });
+    gsRef.current = gs; setUi({ ...gs }); setScr('management');
+    setHasSave(false);
+  }, []);
+
+  const continueGame = useCallback(() => {
+    const am = getAM(); if (am) am.resume();
+    const gs = loadGame(mkGS);
+    if (!gs) return;
     gsRef.current = gs; setUi({ ...gs }); setScr('management');
   }, []);
 
@@ -163,6 +186,7 @@ export default function DeadPerimeter() {
     gs.usedNames.add(name);
     const ns = mkSoldier(name, weapon, 270, 100, Math.floor(Math.random() * 3));
     ns.ammo = 0; gs.soldiers.push(ns);
+    saveGame(gs); setHasSave(true);
     setUi({ ...gs, soldiers: gs.soldiers.map(s => ({ ...s })) });
   }, []);
 
@@ -172,6 +196,7 @@ export default function DeadPerimeter() {
     gs.resources.materials -= 15;
     const x = WX + 160 + rng(0, 3) * 70;
     gs.barricades.push(mkBarricade(x));
+    saveGame(gs); setHasSave(true);
     setUi({ ...gs });
   }, []);
 
@@ -181,6 +206,7 @@ export default function DeadPerimeter() {
     const s = gs.soldiers[idx]; if (!s || s.state === 'dead') return;
     gs.resources.medicine -= 5;
     s.hp = Math.min(s.maxHp, s.hp + 40);
+    saveGame(gs); setHasSave(true);
     setUi({ ...gs, soldiers: gs.soldiers.map(s => ({ ...s })) });
   }, []);
 
@@ -251,6 +277,14 @@ export default function DeadPerimeter() {
     };
 
     const onKeyDown = e => {
+      if (e.key === 'Escape' || e.key === 'Esc') {
+        // Pause/resume only during siege. Missions and menus ignore Esc.
+        const gs = gsRef.current;
+        if (gs && gs.phase === 'siege' && !missionRef.current) {
+          togglePause(); e.preventDefault();
+        }
+        return;
+      }
       if (missionRef.current && missionRef.current.state === 'active') {
         if (e.key === 'ArrowLeft'  || e.key === 'a' || e.key === 'A') { inputRef.current.left = true;  e.preventDefault(); }
         if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') { inputRef.current.right = true; e.preventDefault(); }
@@ -271,8 +305,47 @@ export default function DeadPerimeter() {
     };
     const onMouseUp = () => { inputRef.current.shoot = false; };
 
+    // Mobile touch: tap on canvas in siege = click; in mission =
+    // shoot while held + half-screen virtual D-pad.
+    const onTouchStart = e => {
+      if (missionRef.current && missionRef.current.state === 'active') {
+        e.preventDefault();
+        const r = canvas.getBoundingClientRect();
+        for (const t of e.changedTouches) {
+          const tx = (t.clientX - r.left) * (CW / r.width);
+          const ty = (t.clientY - r.top) * (CH / r.height);
+          if (ty < 40) continue;
+          if (tx < CW * 0.33) inputRef.current.left = true;
+          else if (tx > CW * 0.66) inputRef.current.right = true;
+          else inputRef.current.shoot = true;
+        }
+        return;
+      }
+      // Siege / other phases: translate to a synthetic click on touch start
+      const gs = gsRef.current;
+      if (gs && gs.phase === 'siege') {
+        e.preventDefault();
+        const t = e.changedTouches[0]; if (!t) return;
+        onClick({ clientX: t.clientX, clientY: t.clientY });
+      }
+    };
+    const onTouchEnd = e => {
+      if (missionRef.current && missionRef.current.state === 'active') {
+        e.preventDefault();
+        // Clear all inputs when last touch lifts (simple model).
+        if (e.touches.length === 0) {
+          inputRef.current.left = false;
+          inputRef.current.right = false;
+          inputRef.current.shoot = false;
+        }
+      }
+    };
+
     canvas.addEventListener('click', onClick);
     canvas.addEventListener('mousedown', onMouseDown);
+    canvas.addEventListener('touchstart', onTouchStart, { passive: false });
+    canvas.addEventListener('touchend', onTouchEnd, { passive: false });
+    canvas.addEventListener('touchcancel', onTouchEnd, { passive: false });
     window.addEventListener('mouseup', onMouseUp);
     window.addEventListener('keydown', onKeyDown);
     window.addEventListener('keyup', onKeyUp);
@@ -306,10 +379,16 @@ export default function DeadPerimeter() {
       }
 
       if (gs && gs.phase === 'siege') {
-        update(gs, now, dt);
-        processSounds(gs.soundQ, getAM(), mutedR);
+        if (!pausedRef.current) {
+          update(gs, now, dt);
+          processSounds(gs.soundQ, getAM(), mutedR);
+        }
         if (gs.phase !== 'siege') {
           const am = getAM(); if (am) am.stopBg();
+          // Auto-save whenever we transition to management or gameover
+          if (gs.phase === 'management') saveGame(gs);
+          else if (gs.phase === 'gameover') clearSave();
+          setHasSave(hasSavedGame());
           setUi(mkSnap(gs));
           setScr(gs.phase);
         } else {
@@ -328,6 +407,14 @@ export default function DeadPerimeter() {
           gs.bullets.forEach(b => dBlt(ctx, b));
           dSquadMarker(ctx, gs.squadTarget, gs.squadLane, now);
           dHUD(ctx, gs, now, mutedR.current);
+          if (pausedRef.current) {
+            ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(0, 0, CW, CH);
+            ctx.fillStyle = C.acc; ctx.font = 'bold 32px monospace'; ctx.textAlign = 'center';
+            ctx.fillText('⏸ PAUSED', CW / 2, CH / 2 - 6);
+            ctx.fillStyle = C.txt; ctx.font = '12px monospace';
+            ctx.fillText('press Esc to resume', CW / 2, CH / 2 + 22);
+            ctx.textAlign = 'left';
+          }
           ctx.restore();
           if (Math.floor(now / 250) !== Math.floor((now - dt) / 250)) setUi(mkSnap(gs));
         }
@@ -339,11 +426,14 @@ export default function DeadPerimeter() {
       cancelAnimationFrame(rafId.current);
       canvas.removeEventListener('click', onClick);
       canvas.removeEventListener('mousedown', onMouseDown);
+      canvas.removeEventListener('touchstart', onTouchStart);
+      canvas.removeEventListener('touchend', onTouchEnd);
+      canvas.removeEventListener('touchcancel', onTouchEnd);
       window.removeEventListener('mouseup', onMouseUp);
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
     };
-  }, [toggleMute]);
+  }, [toggleMute, togglePause]);
 
   // ── STYLES ───────────────────────────────────────────────────
   const F = "'Courier New',monospace";
@@ -473,6 +563,7 @@ export default function DeadPerimeter() {
               </div>
             ))}
             <button style={ctrlBtn} onClick={() => moveSquad('advance')}>ADVANCE ▶</button>
+            <button style={mbtn} onClick={togglePause}>{paused ? '▶ RESUME' : '⏸ PAUSE'}</button>
             <button style={mbtn} onClick={toggleMute}>{muted ? '🔇' : '🔊'}</button>
           </div>
         )}
@@ -480,9 +571,7 @@ export default function DeadPerimeter() {
           <div style={{ display: 'flex', gap: '8px', marginTop: '8px', flexWrap: 'wrap', justifyContent: 'center', alignItems: 'center', width: '100%', maxWidth: CW }}>
             {missionRef.current && missionRef.current.state === 'active' ? (
               <>
-                <span style={{ color: '#888', fontSize: '10px' }}>← / A : LEFT</span>
-                <span style={{ color: '#888', fontSize: '10px' }}>→ / D : RIGHT</span>
-                <span style={{ color: '#888', fontSize: '10px' }}>SPACE / CLICK : FIRE</span>
+                <span style={{ color: '#888', fontSize: '10px' }}>← / A or tap-left  ·  → / D or tap-right  ·  SPACE / tap-center : FIRE</span>
                 <button style={mbtn} onClick={toggleMute}>{muted ? '🔇' : '🔊'}</button>
               </>
             ) : (
@@ -503,9 +592,12 @@ export default function DeadPerimeter() {
               Defend <span style={{ color: C.acc }}>Fort Omega</span> across 3 depth lanes.<br />
               <span style={{ color: C.wrn }}>Click front/mid/back to position your squad.</span><br />
               Ammo is scarce. Build barricades. Send expeditions.<br />
-              <span style={{ color: '#444' }}>🔊 Sound included.</span>
+              <span style={{ color: '#444' }}>🔊 Sound · Esc to pause · saves between waves</span>
             </p>
             <button style={btn()} onClick={newGame}>⚔  BEGIN OPERATION</button>
+            {hasSave && (
+              <button style={btn('#1a3a18', '#558844')} onClick={continueGame}>↻ CONTINUE SAVED RUN</button>
+            )}
           </div>
         </div>
       )}

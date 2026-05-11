@@ -266,14 +266,24 @@ Implemented in this V8 Modular release. See `data/humans.js`,
 `entities/{human,wave}.js`, `render/human.js`, `update/siege.js`,
 `render/hud.js`, and `DeadPerimeter.jsx` (`startWave` + management banner).
 
-### Priority 2 — Polish
+### ✅ Priority 2 — Polish (mostly shipped)
 
-- Pause / resume with `Esc`.
-- Save / load to `localStorage`.
-- Mobile touch controls.
-- Real audio samples (optional).
-- Sprite caching for performance (offscreen canvas per entity type).
-- Configurable wave difficulty curve.
+- ✅ Pause / resume with `Esc` — `pausedRef` + render guard + overlay in
+  `DeadPerimeter.jsx`.
+- ✅ Save / load to `localStorage` — `entities/persistence.js`.
+  Autosaved on management entry, recruit, barricade, heal. Restored from
+  menu via `↻ CONTINUE SAVED RUN`. Cleared on game over / new game.
+- ✅ Mobile touch controls — `onTouchStart` / `onTouchEnd` on the canvas.
+  Siege: tap = click. Mission: tap-left = move left, tap-right = move
+  right, tap-center = fire.
+- ✅ Configurable wave difficulty curve — `data/difficulty.js`. Both
+  `mkWave` and `mkHumanWave` read these constants.
+- ⏳ Real audio samples (optional). The procedural engine is enough for
+  now; swapping in samples is a clean change in `audio/AudioEngine.js`.
+- ⏳ Sprite caching for performance (offscreen canvas per entity type).
+  Not necessary at current entity counts.
+
+See `CODE.md` for the full module-by-module reference.
 
 ---
 

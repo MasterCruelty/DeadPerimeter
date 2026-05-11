@@ -109,6 +109,8 @@ Lanes are picked by Y coordinate of the click:
 
 ---
 
+For module-by-module developer documentation see [`CODE.md`](./CODE.md).
+
 ## Architecture overview
 
 ```
@@ -155,9 +157,10 @@ Architectural rules worth preserving (see `PROJECT_STATE.md` §18):
 Tracked in [`PROJECT_STATE.md`](./PROJECT_STATE.md) §17.
 
 - ✅ Hostile human survivor waves (Priority 1, shipped)
-- ⏳ Pause / resume with `Esc`
-- ⏳ Save / load to `localStorage`
-- ⏳ Mobile touch controls
+- ✅ Pause / resume with `Esc` (shipped)
+- ✅ Save / load to `localStorage` (shipped)
+- ✅ Mobile touch controls (shipped)
+- ✅ Configurable wave difficulty curve (shipped, `data/difficulty.js`)
 - ⏳ Optional real audio samples
 - ⏳ Sprite caching (offscreen canvas) for perf
 
