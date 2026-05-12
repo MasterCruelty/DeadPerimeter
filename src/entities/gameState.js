@@ -19,6 +19,10 @@ export const mkGS = () => {
     squadTarget: null, squadLane: null, selectedSoldierId: null,
     expeditionResult: null,
     isHumanWave: false,
+    // Reserve roster: civilians / extras saved when the active squad is full.
+    // Auto-promoted to active duty on wave clear when a slot opens up.
+    // Items shape: { name, weapon, civilian }
+    reserve: [],
     usedNames: new Set(['Alpha', 'Bravo', 'Charlie', 'Delta']),
   };
 };

@@ -34,6 +34,7 @@ export function saveGame(gs) {
       })),
       barricades: gs.barricades.map(b => ({ id: b.id, x: b.x, hp: b.hp, maxHp: b.maxHp })),
       score: gs.score, kills: gs.kills,
+      reserve: (gs.reserve || []).map(r => ({ name: r.name, weapon: r.weapon, civilian: !!r.civilian })),
       usedNames: Array.from(gs.usedNames || []),
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot));
@@ -67,6 +68,7 @@ export function loadGame(mkGS) {
     }));
     gs.barricades = data.barricades.map(b => ({ ...b }));
     gs.score = data.score || 0; gs.kills = data.kills || 0;
+    gs.reserve = (data.reserve || []).map(r => ({ ...r }));
     gs.usedNames = new Set(data.usedNames || []);
     gs.phase = 'management';
     return gs;
