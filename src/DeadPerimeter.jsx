@@ -12,6 +12,7 @@ import { mkBarricade } from './entities/barricade.js';
 import { mkWave, mkHumanWave } from './entities/wave.js';
 import { mkGS } from './entities/gameState.js';
 import { hasSavedGame, saveGame, loadGame, clearSave } from './entities/persistence.js';
+import { BALANCE } from './data/difficulty.js';
 
 import { dBg } from './render/background.js';
 import { dBase } from './render/base.js';
@@ -141,8 +142,14 @@ export default function DeadPerimeter() {
     if (result.reward.sniperAmmo) gs.resources.sniperAmmo = Math.min(99,  (gs.resources.sniperAmmo || 0) + result.reward.sniperAmmo);
     if (result.recruit) {
       const r = result.recruit;
-      const ns = mkSoldier(r.name, r.weapon, 270, r.hp, Math.floor(Math.random() * 3), true);
-      ns.ammo = 0; gs.soldiers.push(ns);
+      const activeCount = gs.soldiers.filter(s => s.state !== 'dead').length;
+      if (activeCount < BALANCE.maxActiveSoldiers) {
+        const ns = mkSoldier(r.name, r.weapon, 270, r.hp, Math.floor(Math.random() * 3), true);
+        ns.ammo = 0; gs.soldiers.push(ns);
+      } else if ((gs.reserve?.length || 0) < BALANCE.maxReserveSoldiers) {
+        gs.reserve = gs.reserve || [];
+        gs.reserve.push({ name: r.name, weapon: r.weapon, civilian: true });
+      }
     }
     const events = genEvents(soldier.name, dest, result.outcome, result.dmgTaken, result.recruit);
     setExpEvents(events); setExpVisible(0); setExpResult(result); setExpPhase('running');
@@ -156,7 +163,20 @@ export default function DeadPerimeter() {
     const soldier = gs.soldiers[si];
     if (!soldier || soldier.state === 'dead') return;
     const dest = EXPEDITION_DESTS[di];
+
+    // Issue ammo from Fort Omega's pool, capped at the magazine size.
+    // Sniper draws from sniperAmmo; everyone else from the main ammo pool.
+    // The soldier keeps whatever they still had in their mag from the siege
+    // and we only top up the difference. Leftovers come back via finishMission.
+    const isSniper = soldier.weapon === 'sniper';
+    const poolKey = isSniper ? 'sniperAmmo' : 'ammo';
+    const want = Math.max(0, soldier.maxAmmo - (soldier.ammo || 0));
+    const give = Math.min(want, gs.resources[poolKey] || 0);
+    gs.resources[poolKey] = (gs.resources[poolKey] || 0) - give;
+    soldier.ammo = (soldier.ammo || 0) + give;
+
     const m = mkMission(soldier, dest);
+    m._poolKey = poolKey; // remember which pool to refund leftovers to
     soldier.onExpedition = true;
     missionRef.current = m;
     inputRef.current = { left: false, right: false, shoot: false };
@@ -192,7 +212,7 @@ export default function DeadPerimeter() {
 
   const buildBarricade = useCallback(() => {
     const gs = gsRef.current;
-    if (gs.resources.materials < 15 || gs.barricades.length >= 2) return;
+    if (gs.resources.materials < 15 || gs.barricades.length >= BALANCE.maxBarricades) return;
     gs.resources.materials -= 15;
     const x = WX + 160 + rng(0, 3) * 70;
     gs.barricades.push(mkBarricade(x));
@@ -355,6 +375,7 @@ export default function DeadPerimeter() {
       resources: { ...gs.resources },
       soldiers: gs.soldiers.map(s => ({ ...s })),
       barricades: gs.barricades.map(b => ({ ...b })),
+      reserve: (gs.reserve || []).map(r => ({ ...r })),
       kills: gs.kills, score: gs.score,
       isHumanWave: gs.isHumanWave,
     });
@@ -452,8 +473,9 @@ export default function DeadPerimeter() {
 
   const gs = ui || gsRef.current;
   const aliveSols = gs?.soldiers?.filter(s => s.state !== 'dead' && !s.onExpedition) || [];
-  const canRecruit  = gs && gs.resources.food >= 20 && gs.resources.materials >= 15 && gs.soldiers.filter(s => s.state !== 'dead').length < 6;
-  const canBarricadeFlag = gs && gs.resources.materials >= 15 && (gs.barricades?.length || 0) < 2;
+  const canRecruit  = gs && gs.resources.food >= 20 && gs.resources.materials >= 15 && gs.soldiers.filter(s => s.state !== 'dead').length < BALANCE.maxActiveSoldiers;
+  const canBarricadeFlag = gs && gs.resources.materials >= 15 && (gs.barricades?.length || 0) < BALANCE.maxBarricades;
+  const reserveCount = gs?.reserve?.length || 0;
   const nextWaveIsHuman = gs && isHumanWaveNumber(gs.wave);
 
   const resetExp = () => {
@@ -633,7 +655,11 @@ export default function DeadPerimeter() {
               ))}
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div style={h2}>👥 SOLDIERS ({gs?.soldiers?.filter(s => s.state !== 'dead').length}/6 active{gs?.soldiers?.filter(s => s.state === 'dead').length > 0 ? ` · ${gs?.soldiers?.filter(s => s.state === 'dead').length} KIA` : ''})</div>
+              <div style={h2}>
+                👥 SOLDIERS ({gs?.soldiers?.filter(s => s.state !== 'dead').length}/{BALANCE.maxActiveSoldiers} active
+                {gs?.soldiers?.filter(s => s.state === 'dead').length > 0 ? ` · ${gs?.soldiers?.filter(s => s.state === 'dead').length} KIA` : ''}
+                {reserveCount > 0 ? ` · ${reserveCount} in reserve` : ''})
+              </div>
               <div style={{ display: 'flex', gap: '5px' }}>
                 <button style={{ ...btn('#1a3028', '#226644'), fontSize: '10px', padding: '4px 10px' }} disabled={!canRecruit} onClick={recruit}>+RECRUIT (🥫20 🔧15)</button>
                 <button style={{ ...btn('#2a1e08', '#885522'), fontSize: '10px', padding: '4px 10px' }} disabled={!canBarricadeFlag} onClick={buildBarricade}>🪵 BARRICADE (🔧15)</button>
@@ -656,9 +682,28 @@ export default function DeadPerimeter() {
                 </div>
               ))}
             </div>
+            {reserveCount > 0 && (
+              <>
+                <div style={h2}>🛏 RESERVE ROSTER ({reserveCount}/{BALANCE.maxReserveSoldiers})</div>
+                <div style={{ fontSize: '9px', color: C.txt, opacity: 0.55, marginBottom: '6px' }}>
+                  Civilians and recruits at rest. They are auto-promoted to active duty when a slot opens up after each wave.
+                </div>
+                <div style={row}>
+                  {gs.reserve.map((r, i) => (
+                    <div key={i} style={{ ...card, minWidth: '110px', borderColor: '#1a3a52', background: 'rgba(12,20,30,0.85)' }}>
+                      <div style={{ color: '#88ddff', fontWeight: 'bold', fontSize: '11px' }}>
+                        {r.name} <span style={{ color: '#88ddff', fontSize: '8px' }}>· civ</span>
+                      </div>
+                      <div style={{ fontSize: '9px', color: C.txt }}>{WPN[r.weapon]?.name}</div>
+                      <div style={{ fontSize: '8px', color: C.txt, opacity: 0.6, marginTop: '2px' }}>standby</div>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
             {(gs?.barricades?.length || 0) > 0 && (
               <>
-                <div style={h2}>🪵 BARRICADES ({gs.barricades.length}/4)</div>
+                <div style={h2}>🪵 BARRICADES ({gs.barricades.length}/{BALANCE.maxBarricades})</div>
                 <div style={row}>
                   {gs?.barricades?.map(b => (
                     <div key={b.id} style={{ ...card, minWidth: '90px' }}>
