@@ -1,5 +1,6 @@
 import { rng } from '../constants.js';
 import { RECRUIT_NAMES, RECRUIT_WEAPONS } from '../data/expeditions.js';
+import { BALANCE } from '../data/difficulty.js';
 import { mkSoldier } from '../entities/soldier.js';
 
 export function finishMission(m, gs) {
@@ -20,14 +21,21 @@ export function finishMission(m, gs) {
   let recruit = null;
   if (m.collected.civilian && outcome === 'success') {
     const availNames = RECRUIT_NAMES.filter(n => !gs.usedNames.has(n));
-    if (availNames.length > 0 && gs.soldiers.filter(s => s.state !== 'dead').length < 6) {
+    if (availNames.length > 0) {
       const name = availNames[Math.floor(Math.random() * availNames.length)];
       const weapon = RECRUIT_WEAPONS[Math.floor(Math.random() * RECRUIT_WEAPONS.length)];
       recruit = { name, weapon, hp: rng(55, 85) };
       gs.usedNames.add(name);
-      const ns = mkSoldier(name, weapon, 270, recruit.hp, Math.floor(Math.random() * 3), true);
-      ns.ammo = 0;
-      gs.soldiers.push(ns);
+      // Push to active duty if there is room, otherwise to the reserve.
+      const activeCount = gs.soldiers.filter(s => s.state !== 'dead').length;
+      if (activeCount < BALANCE.maxActiveSoldiers) {
+        const ns = mkSoldier(name, weapon, 270, recruit.hp, Math.floor(Math.random() * 3), true);
+        ns.ammo = 0;
+        gs.soldiers.push(ns);
+      } else if ((gs.reserve?.length || 0) < BALANCE.maxReserveSoldiers) {
+        gs.reserve = gs.reserve || [];
+        gs.reserve.push({ name, weapon, civilian: true });
+      }
     }
   }
   return { soldierName: m.soldier.name, destName: m.dest.name, outcome, reward, recruit, dmgTaken: m.soldier.maxHp - m.soldier.hp };

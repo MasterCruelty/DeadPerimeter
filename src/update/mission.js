@@ -2,6 +2,7 @@ import { C, CH, uid, rng } from '../constants.js';
 import { WPN } from '../data/weapons.js';
 import { ZTP } from '../data/zombies.js';
 import { MISSION_W, MISSION_VIEW, MGY, objIcons } from '../data/expeditions.js';
+import { BALANCE } from '../data/difficulty.js';
 import { dZombie } from '../render/zombie.js';
 import { dSoldier } from '../render/soldier.js';
 import { dFx, dBlt } from '../render/effects.js';
@@ -47,10 +48,13 @@ export function mkMission(soldier, dest) {
     obstacles.push({ x: 200 + i * MISSION_W / 7 + rng(-50, 50), type: Math.random() < 0.5 ? 'car' : 'crate' });
   }
 
+  // Ammo loadout: respect what we patched onto the soldier in playMission
+  // (drawn from gs.resources.ammo / sniperAmmo before the mission started).
+  // If the caller didn't pre-charge it, fall back to the soldier's residual.
   const msol = {
     id: uid(), origId: soldier.id, name: soldier.name, weapon: soldier.weapon,
     x: 80, lane: 0, hp: soldier.hp, maxHp: soldier.maxHp,
-    ammo: soldier.ammo > 0 ? soldier.ammo : Math.min(soldier.maxAmmo, 15),
+    ammo: Math.max(0, soldier.ammo | 0),
     maxAmmo: soldier.maxAmmo,
     state: 'idle', facing: 1,
     lastShot: 0, reloadStart: 0, shootAt: 0, knifeTimer: 0,
@@ -64,6 +68,8 @@ export function mkMission(soldier, dest) {
     cameraX: 0,
     inputLeft: false, inputRight: false, inputShoot: false,
     state: 'active',
+    // Activation tracking for the goal kill-ratio gate
+    activatedCount: 0, killedCount: 0, _lastGoalHint: 0,
     collected: { ammo: 0, medicine: 0, food: 0, materials: 0, sniperAmmo: 0, civilian: null },
     startedAt: 0, endedAt: 0,
   };
@@ -85,8 +91,9 @@ export function updateMission(m, now, dt) {
   m.cameraX = Math.max(0, Math.min(MISSION_W - MISSION_VIEW, s.x - MISSION_VIEW / 2));
 
   m.zombies.forEach(z => {
-    if (!z.activated && Math.abs(z.x - s.x) < 400) {
-      z.activated = true; m.soundQ.push({ t: 'groan', now, zt: z.type });
+    if (!z.activated && Math.abs(z.x - s.x) < BALANCE.missionActivationRange) {
+      z.activated = true; m.activatedCount++;
+      m.soundQ.push({ t: 'groan', now, zt: z.type });
     }
   });
 
@@ -144,7 +151,7 @@ export function updateMission(m, now, dt) {
         m.soundQ.push({ t: 'zatk' });
         m.effects.push({ type: 'slash', x: meleeTgt.x + s.facing * 10, y: MGY - 28, at: now, dur: 230 });
         m.effects.push({ type: 'txt', x: meleeTgt.x, y: MGY - 58, v: '-10', col: '#ffcc44', at: now, dur: 600 });
-        if (meleeTgt.hp <= 0) { meleeTgt.hp = 0; meleeTgt.state = 'dead'; meleeTgt.deadAt = now; m.soundQ.push({ t: 'zdie', zt: meleeTgt.type }); }
+        if (meleeTgt.hp <= 0) { meleeTgt.hp = 0; meleeTgt.state = 'dead'; meleeTgt.deadAt = now; m.soundQ.push({ t: 'zdie', zt: meleeTgt.type }); m.killedCount++; }
       }
     } else { s.knifeTimer = 0; if (s.state === 'knife' && now - s.shootAt > 300) s.state = 'idle'; }
   }
@@ -158,7 +165,7 @@ export function updateMission(m, now, dt) {
       m.effects.push({ type: 'blood', x: b.x, y: b.y, drops: Array.from({ length: 6 }, () => ({ x: 0, y: 0, vx: (Math.random() - 0.5) * 3.5, vy: -Math.random() * 2.5 - 0.5, r: 1.5 + Math.random() * 3 })), at: now, dur: 600 });
       m.effects.push({ type: 'hit', x: b.x, y: b.y, at: now, dur: 200 });
       m.effects.push({ type: 'txt', x: hit.x, y: MGY - 60, v: `-${Math.round(b.dmg)}`, col: C.bld, at: now, dur: 680 });
-      if (hit.hp <= 0) { hit.hp = 0; hit.state = 'dead'; hit.deadAt = now; m.soundQ.push({ t: 'zdie', zt: hit.type }); }
+      if (hit.hp <= 0) { hit.hp = 0; hit.state = 'dead'; hit.deadAt = now; m.soundQ.push({ t: 'zdie', zt: hit.type }); m.killedCount++; }
       return false;
     }
     return true;
@@ -174,7 +181,27 @@ export function updateMission(m, now, dt) {
   });
 
   m.effects = m.effects.filter(e => now - e.at < e.dur);
-  if (s.x >= MISSION_W - 50) { m.state = 'won'; m.endedAt = now; }
+
+  // Goal gate: cannot exit until you've cleared enough of the hostiles you
+  // woke up. Prevents "sprint past everything for free".
+  if (s.x >= MISSION_W - 50) {
+    const need = Math.ceil(m.activatedCount * BALANCE.missionGoalKillRatio);
+    if (m.killedCount >= need) {
+      m.state = 'won'; m.endedAt = now;
+    } else {
+      // Pin the soldier just before the goal and surface a hint
+      s.x = MISSION_W - 50;
+      if (!m._lastGoalHint || now - m._lastGoalHint > 1500) {
+        m._lastGoalHint = now;
+        const left = need - m.killedCount;
+        m.effects.push({
+          type: 'txt', x: s.x, y: MGY - 70,
+          v: `${left} HOSTILE${left === 1 ? '' : 'S'} LEFT`,
+          col: '#cc3333', at: now, dur: 1400,
+        });
+      }
+    }
+  }
 }
 
 export function dMissionWorld(ctx, m, now) {
@@ -275,6 +302,13 @@ export function dMissionHUD(ctx, m, now) {
   ctx.fillStyle = C.acc; ctx.fillRect(px, 14, pw * pct, ph);
   ctx.strokeStyle = C.uib; ctx.strokeRect(px, 14, pw, ph);
   ctx.fillStyle = C.acc; ctx.fillText('★', px + pw + 4, 23);
+
+  // Hostiles-cleared counter (the goal-gate condition).
+  const need = Math.ceil(m.activatedCount * BALANCE.missionGoalKillRatio);
+  const cleared = Math.min(m.killedCount, need);
+  ctx.fillStyle = m.killedCount >= need && need > 0 ? C.acc : C.wrn;
+  ctx.font = '9px monospace';
+  ctx.fillText(`HOSTILES ${cleared}/${need || 0}`, px, 35);
 
   ctx.fillStyle = C.txt; ctx.font = '10px monospace';
   ctx.fillText(`HP ${m.soldier.hp}/${m.soldier.maxHp}`, CW_ - 200, 18);
