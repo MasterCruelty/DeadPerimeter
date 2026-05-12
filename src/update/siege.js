@@ -1,8 +1,17 @@
 import { C, CW, GY, WX, uid, rng, laneY, laneSc } from '../constants.js';
 import { WPN } from '../data/weapons.js';
-import { HUMAN_AMMO_DROP, HTP } from '../data/humans.js';
+import { HUMAN_AMMO_DROP } from '../data/humans.js';
+import { BALANCE } from '../data/difficulty.js';
 import { mkZombie } from '../entities/zombie.js';
 import { mkHuman } from '../entities/human.js';
+import { mkSoldier } from '../entities/soldier.js';
+
+// Returns true if there is a live barricade in the same lane between
+// the attacker (coming from outside the base) and the soldier (closer
+// to the wall). Used to halve melee damage.
+function isBehindBarricade(gs, soldier, attackerX) {
+  return gs.barricades.some(b => b.hp > 0 && b.x > soldier.x && b.x < attackerX);
+}
 
 export function update(gs, now, dt) {
   if (gs.phase !== 'siege') return;
@@ -49,12 +58,19 @@ export function update(gs, now, dt) {
           if (bar && Math.abs(bar.x - z.x) < 30) {
             bar.hp -= z.z.dmg; gs.soundQ.push({ t: 'bhit' });
             gs.effects.push({ type: 'txt', x: bar.x, y: laneY(0) - 50, v: `-${z.z.dmg}`, col: C.wrn, at: now, dur: 700 });
+            // Barbed-wire reflective damage on the attacker
+            z.hp -= BALANCE.barricadeReflectDmg; z.hurtTimer = 210;
+            gs.effects.push({ type: 'txt', x: z.x, y: laneY(z.lane) - 60, v: `-${BALANCE.barricadeReflectDmg}`, col: '#ff7733', at: now, dur: 600 });
             if (bar.hp <= 0) { gs.barricades = gs.barricades.filter(b => b.id !== z.targetBarId); z.state = 'walk'; z.targetBarId = null; }
+            if (z.hp <= 0) killTarget(gs, z, now, null);
           } else { z.state = 'walk'; z.targetBarId = null; }
         } else {
           const sol = z.targetSolId ? gs.soldiers.find(s => s.id === z.targetSolId) : null;
           if (sol && sol.state !== 'dead' && sol.lane === z.lane && Math.abs(sol.x - z.x) < 55) {
-            sol.hp -= z.z.dmg; sol.hurtTimer = 360; gs.soundQ.push({ t: 'zatk' });
+            const dmg = isBehindBarricade(gs, sol, z.x)
+              ? Math.max(1, Math.round(z.z.dmg * BALANCE.behindBarricadeDmgMul))
+              : z.z.dmg;
+            sol.hp -= dmg; sol.hurtTimer = 360; gs.soundQ.push({ t: 'zatk' });
             if (sol.hp <= 0) { sol.hp = 0; sol.state = 'dead'; z.targetSolId = null; z.state = 'walk'; }
           } else {
             const ns2 = gs.soldiers.find(s => s.state !== 'dead' && !s.onExpedition && s.lane === z.lane && Math.abs(s.x - z.x) < 55);
@@ -122,12 +138,19 @@ export function update(gs, now, dt) {
             if (bar && Math.abs(bar.x - h.x) < 30) {
               bar.hp -= meta.dmg; gs.soundQ.push({ t: 'bhit' });
               gs.effects.push({ type: 'txt', x: bar.x, y: laneY(0) - 50, v: `-${meta.dmg}`, col: C.wrn, at: now, dur: 700 });
+              // Barbed-wire reflective damage
+              h.hp -= BALANCE.barricadeReflectDmg; h.hurtTimer = 210;
+              gs.effects.push({ type: 'txt', x: h.x, y: laneY(h.lane) - 60, v: `-${BALANCE.barricadeReflectDmg}`, col: '#ff7733', at: now, dur: 600 });
               if (bar.hp <= 0) { gs.barricades = gs.barricades.filter(b => b.id !== h.targetBarId); h.state = 'walk'; h.targetBarId = null; }
+              if (h.hp <= 0) killTarget(gs, h, now, null);
             } else { h.state = 'walk'; h.targetBarId = null; }
           } else {
             const sol = h.targetSolId ? gs.soldiers.find(s => s.id === h.targetSolId) : null;
             if (sol && sol.state !== 'dead' && sol.lane === h.lane && Math.abs(sol.x - h.x) < 55) {
-              sol.hp -= meta.dmg; sol.hurtTimer = 360; gs.soundQ.push({ t: 'zatk' });
+              const dmg = isBehindBarricade(gs, sol, h.x)
+                ? Math.max(1, Math.round(meta.dmg * BALANCE.behindBarricadeDmgMul))
+                : meta.dmg;
+              sol.hp -= dmg; sol.hurtTimer = 360; gs.soundQ.push({ t: 'zatk' });
               gs.effects.push({ type: 'slash', x: sol.x - h.facing * 10, y: laneY(sol.lane) - 28, at: now, dur: 230 });
               if (sol.hp <= 0) { sol.hp = 0; sol.state = 'dead'; h.targetSolId = null; h.state = 'walk'; }
             } else {
@@ -375,13 +398,26 @@ export function update(gs, now, dt) {
         s.x = WX - 40; s.lane = 0; s.state = 'idle'; s.facing = 1;
       }
     });
+    // Auto-promote from reserve: refill the active squad up to the cap.
+    if (Array.isArray(gs.reserve) && gs.reserve.length > 0) {
+      while (
+        gs.reserve.length > 0 &&
+        gs.soldiers.filter(s => s.state !== 'dead' && !s.onExpedition).length < BALANCE.maxActiveSoldiers
+      ) {
+        const r = gs.reserve.shift();
+        const ns = mkSoldier(r.name, r.weapon, 270, 100, Math.floor(Math.random() * 3), !!r.civilian);
+        ns.ammo = 0;
+        gs.soldiers.push(ns);
+      }
+    }
   }
   if (gs.phase === 'siege' && (gs.baseHp <= 0 || gs.soldiers.filter(s => !s.onExpedition).every(s => s.state === 'dead'))) {
     gs.phase = 'gameover';
   }
 }
 
-// Helper: target died — credit shooter, award score, and drop ammo if human.
+// Helper: target died — credit shooter, award score, and drop ammo if armed.
+// Only gunmen drop ammo (knifemen have no firearm to scavenge).
 function killTarget(gs, target, now, shooter) {
   target.hp = 0; target.state = 'dead'; target.deadAt = now;
   if (target.type === 'walker' || target.type === 'runner' || target.type === 'tank') {
@@ -389,10 +425,14 @@ function killTarget(gs, target, now, shooter) {
     gs.kills++;
     gs.score += target.type === 'tank' ? 50 : target.type === 'runner' ? 20 : 10;
   } else {
-    // Human — drop ammo
-    gs.soundQ.push({ t: 'zdie', zt: 'walker' }); // reuse death sound
+    // Human
+    gs.soundQ.push({ t: 'zdie', zt: 'walker' });
     gs.kills++;
     gs.score += target.type === 'gunman' ? 25 : 15;
+    if (target.type !== 'gunman') {
+      if (shooter) shooter.kills = (shooter.kills || 0) + 1;
+      return;
+    }
     const drop = rng(HUMAN_AMMO_DROP[0], HUMAN_AMMO_DROP[1]);
     gs.resources.ammo = Math.min(999, gs.resources.ammo + drop);
     gs.effects.push({
