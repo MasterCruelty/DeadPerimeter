@@ -64,6 +64,27 @@ export function mkMission(soldier, dest) {
     props.push({ x: px + rng(-30, 30), type: biome.propType });
   }
 
+  // Hazards: mines (one-shot AoE) + acid pools (slow + dot).
+  // Density scales with risk so HIGH runs feel actively dangerous.
+  const hazards = [];
+  const mineCount = dest.risk === 'LOW' ? 0 : dest.risk === 'MED' ? rng(1, 2) : rng(2, 4);
+  const acidCount = dest.risk === 'LOW' ? 0 : dest.risk === 'MED' ? rng(0, 1) : rng(1, 3);
+  for (let i = 0; i < mineCount; i++) {
+    hazards.push({
+      id: uid(), type: 'mine',
+      x: 350 + Math.random() * (MISSION_W - 600),
+      dmg: 30, triggered: false, triggeredAt: 0,
+    });
+  }
+  for (let i = 0; i < acidCount; i++) {
+    const cx = 400 + Math.random() * (MISSION_W - 700);
+    hazards.push({
+      id: uid(), type: 'acid',
+      x: cx, w: 50 + Math.floor(Math.random() * 40),
+      dmg: 2, // per tick
+    });
+  }
+
   // Accept either a single soldier (legacy callers) or an array.
   // The first soldier becomes the player-controlled lead; the rest follow
   // as AI-driven companions that fire on hostiles in range.
@@ -90,7 +111,7 @@ export function mkMission(soldier, dest) {
     origSoldier: lead,                   // back-compat: legacy field points to lead
     origSoldiers: partySoldiers,         // full original-soldiers list (for finishMission)
     dest, biomeKey,
-    zombies, pickups, obstacles, props, bullets: [], effects: [], soundQ: [],
+    zombies, pickups, obstacles, props, hazards, bullets: [], effects: [], soundQ: [],
     cameraX: 0,
     inputLeft: false, inputRight: false, inputShoot: false,
     state: 'active',
@@ -184,8 +205,9 @@ export function updateMission(m, now, dt) {
   s.hurtTimer = Math.max(0, s.hurtTimer - dt);
   (m.followers || []).forEach(f => { f.hurtTimer = Math.max(0, f.hurtTimer - dt); });
 
-  // Lead movement (player-controlled)
-  const moveSpd = 2.4 * (dt / 16);
+  // Lead movement (player-controlled). Acid pool slows movement to 50%.
+  const onAcid = (m.hazards || []).some(h => h.type === 'acid' && Math.abs(s.x - h.x) <= h.w / 2);
+  const moveSpd = 2.4 * (dt / 16) * (onAcid ? 0.5 : 1);
   if (s.state !== 'reload' && s.state !== 'knife') {
     if (m.inputRight) { s.x += moveSpd; s.facing = 1; if (s.state === 'idle') s.state = 'walk'; }
     else if (m.inputLeft) { s.x -= moveSpd; s.facing = -1; if (s.state === 'idle') s.state = 'walk'; }
@@ -297,6 +319,48 @@ export function updateMission(m, now, dt) {
     aiShoot(m, f, now, dt);
   });
 
+  // ── HAZARDS ──────────────────────────────────────────────────
+  // Mines: trigger on first contact with any party member, AoE damage.
+  // Acid pools: tick damage every 500 ms while standing on them.
+  (m.hazards || []).forEach(h => {
+    if (h.type === 'mine' && !h.triggered) {
+      const stepper = aliveParty(m).find(p => Math.abs(p.x - h.x) < 18);
+      if (stepper) {
+        h.triggered = true; h.triggeredAt = now;
+        m.soundQ.push({ t: 'bhit' });
+        // Damage every party member within 40 px of the mine
+        aliveParty(m).forEach(p => {
+          if (Math.abs(p.x - h.x) > 40) return;
+          p.hp -= h.dmg; p.hurtTimer = 320;
+          m.effects.push({ type: 'txt', x: p.x, y: MGY - 70, v: `MINE -${h.dmg}`, col: '#ff4400', at: now, dur: 1200 });
+          if (p.hp <= 0) {
+            p.hp = 0; p.state = 'dead';
+            if (p.id === s.id) { m.state = 'lost'; m.endedAt = now; }
+          }
+        });
+        m.effects.push({ type: 'hit', x: h.x, y: MGY - 12, at: now, dur: 480 });
+        // Visible blast cloud
+        m.effects.push({ type: 'blood', x: h.x, y: MGY - 12,
+          drops: Array.from({ length: 12 }, () => ({ x: 0, y: 0, vx: (Math.random() - 0.5) * 5, vy: -Math.random() * 3 - 0.5, r: 2 + Math.random() * 4 })),
+          at: now, dur: 700 });
+      }
+    } else if (h.type === 'acid') {
+      h._lastTick = h._lastTick || 0;
+      if (now - h._lastTick > 500) {
+        h._lastTick = now;
+        aliveParty(m).forEach(p => {
+          if (Math.abs(p.x - h.x) > h.w / 2) return;
+          p.hp -= h.dmg; p.hurtTimer = 200;
+          m.effects.push({ type: 'txt', x: p.x, y: MGY - 60, v: `-${h.dmg}`, col: '#88cc44', at: now, dur: 600 });
+          if (p.hp <= 0) {
+            p.hp = 0; p.state = 'dead';
+            if (p.id === s.id) { m.state = 'lost'; m.endedAt = now; }
+          }
+        });
+      }
+    }
+  });
+
   m.bullets = m.bullets.filter(b => {
     b.x += b.dx; b.y += b.dy; b.life--;
     if (b.life <= 0 || b.x < 0 || b.x > MISSION_W) return false;
@@ -344,6 +408,37 @@ export function updateMission(m, now, dt) {
         });
       }
     }
+  }
+}
+
+// ── Hazards (mines + acid pools) ─────────────────────────────────
+function dHazard(ctx, h, now) {
+  if (h.type === 'mine') {
+    if (h.triggered) return; // exploded mines fade away with the blast effect
+    const x = h.x;
+    // Faint metallic disc + tiny prong — readable but easy to miss
+    ctx.fillStyle = 'rgba(40,38,34,0.92)';
+    ctx.beginPath(); ctx.ellipse(x, MGY - 1, 9, 3, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#1a1814'; ctx.fillRect(x - 1, MGY - 4, 2, 3);
+    ctx.fillStyle = '#cc3300';
+    const blink = Math.sin(now / 220) * 0.5 + 0.5;
+    ctx.globalAlpha = 0.4 + blink * 0.5;
+    ctx.beginPath(); ctx.arc(x, MGY - 4, 1.2, 0, Math.PI * 2); ctx.fill();
+    ctx.globalAlpha = 1;
+  } else if (h.type === 'acid') {
+    const x = h.x, w = h.w;
+    // Bubbling green puddle
+    ctx.fillStyle = 'rgba(80,160,40,0.55)';
+    ctx.beginPath(); ctx.ellipse(x, MGY + 2, w / 2, 6, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = 'rgba(140,220,80,0.4)';
+    for (let bi = 0; bi < 4; bi++) {
+      const bx = x - w / 2 + ((bi * 31 + (now / 120 | 0)) % w);
+      const by = MGY + 1 + Math.sin(now / 200 + bi) * 1.5;
+      ctx.beginPath(); ctx.arc(bx, by, 2.2, 0, Math.PI * 2); ctx.fill();
+    }
+    // Hazard tape edges
+    ctx.strokeStyle = 'rgba(180,255,80,0.8)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.ellipse(x, MGY + 2, w / 2, 6, 0, 0, Math.PI * 2); ctx.stroke();
   }
 }
 
@@ -528,8 +623,13 @@ export function dMissionWorld(ctx, m, now) {
   // Decorative props (lampposts, fences, neon poles)
   (m.props || []).forEach(p => dProp(ctx, p));
 
+  // Hazards (acid pools first so obstacles draw on top, then mines).
+  (m.hazards || []).filter(h => h.type === 'acid').forEach(h => dHazard(ctx, h, now));
   // Foreground obstacles (biome-aware)
   m.obstacles.forEach(o => dObstacle(ctx, o));
+  // Mines drawn after obstacles so the player can spot them on the road
+  // (still low-contrast — they're hidden by design).
+  (m.hazards || []).filter(h => h.type === 'mine').forEach(h => dHazard(ctx, h, now));
 
   for (let mx = 200; mx < MISSION_W; mx += 200) {
     ctx.fillStyle = 'rgba(80,80,60,0.3)'; ctx.fillRect(mx - 1, MGY + 2, 2, 8);
