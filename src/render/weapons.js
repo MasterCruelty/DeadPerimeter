@@ -1,6 +1,12 @@
+import { WEAPON_SCALE } from '../constants.js';
+
 // Procedural polygon weapon sprite, drawn in soldier-local coordinates.
+// Sprite is scaled by WEAPON_SCALE so the barrel sits inside the soldier
+// silhouette. Polish layers (highlights / shading) are drawn after the
+// main shapes for each weapon.
 export function dWpn(ctx, w, rcl = 0) {
   ctx.save(); ctx.translate(-rcl, 0);
+  ctx.scale(WEAPON_SCALE, WEAPON_SCALE);
   if (w === 'rifle') {
     ctx.fillStyle = '#1a1816'; ctx.fillRect(-22, -3, 13, 5);
     ctx.fillStyle = '#252220'; ctx.fillRect(-22, -5, 13, 3);
@@ -25,6 +31,13 @@ export function dWpn(ctx, w, rcl = 0) {
     ctx.fillStyle = '#181614'; ctx.fillRect(62, -12, 4, 10); ctx.beginPath(); ctx.moveTo(61, -12); ctx.lineTo(66, -12); ctx.lineTo(64, -15); ctx.closePath(); ctx.fill();
     ctx.fillStyle = '#141210'; ctx.fillRect(64, -7, 6, 6);
     ctx.fillStyle = '#0e0d0c'; ctx.fillRect(65, -9, 2, 2); ctx.fillRect(65, 1, 2, 2); ctx.fillRect(68, -9, 2, 2); ctx.fillRect(68, 1, 2, 2);
+    // Polish: top-edge highlight on receiver + barrel for metallic feel.
+    ctx.fillStyle = 'rgba(220,220,210,0.18)';
+    ctx.fillRect(-2, -17, 34, 1);   // upper receiver edge
+    ctx.fillRect(38, -7, 28, 1);    // barrel top
+    ctx.fillStyle = 'rgba(0,0,0,0.32)';
+    ctx.fillRect(-2, -8, 34, 1);    // lower receiver shadow
+    ctx.fillRect(38, -2, 28, 1);    // barrel bottom shadow
   } else if (w === 'pistol') {
     ctx.fillStyle = '#2c1c0e'; ctx.beginPath(); ctx.moveTo(-2, 3); ctx.lineTo(9, 3); ctx.lineTo(7, 19); ctx.lineTo(-4, 19); ctx.closePath(); ctx.fill();
     ctx.fillStyle = '#1e1208';
@@ -45,6 +58,49 @@ export function dWpn(ctx, w, rcl = 0) {
     ctx.beginPath(); ctx.arc(4, -14, 1.1, 0, Math.PI * 2); ctx.fill();
     ctx.fillStyle = '#141210'; ctx.fillRect(22, -16, 4, 3);
     ctx.fillStyle = '#e83020'; ctx.beginPath(); ctx.arc(24, -14, 1.1, 0, Math.PI * 2); ctx.fill();
+    // Polish: slide top + frame edge
+    ctx.fillStyle = 'rgba(220,220,210,0.20)';
+    ctx.fillRect(-4, -14, 32, 1);
+    ctx.fillStyle = 'rgba(0,0,0,0.32)';
+    ctx.fillRect(-4, -5, 32, 1);
+  } else if (w === 'sniper') {
+    // M24 ground sprite (used when Delta descends or for any sniper recruit).
+    // Stock
+    ctx.fillStyle = '#3a2810'; ctx.fillRect(-26, -3, 14, 6);
+    ctx.fillStyle = '#4a3214'; ctx.fillRect(-26, -3, 14, 2);    // wood highlight
+    // Receiver / action
+    ctx.fillStyle = '#181614'; ctx.fillRect(-12, -7, 22, 8);
+    ctx.fillStyle = '#2a2824'; ctx.fillRect(-12, -7, 22, 2);    // top edge highlight
+    // Bolt handle
+    ctx.fillStyle = '#3e3838'; ctx.fillRect(-2, -10, 4, 5);
+    // Magazine
+    ctx.fillStyle = '#222018'; ctx.fillRect(-4, 1, 8, 7);
+    // Trigger
+    ctx.strokeStyle = '#1a1816'; ctx.lineWidth = 1.8;
+    ctx.beginPath(); ctx.arc(-2, 6, 4, 0.05, Math.PI * 0.92); ctx.stroke();
+    // Grip
+    ctx.fillStyle = '#2c1c0e'; ctx.beginPath();
+    ctx.moveTo(-6, 1); ctx.lineTo(4, 1); ctx.lineTo(2, 16); ctx.lineTo(-8, 16); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#1e1208'; for (let gy = 3; gy < 14; gy += 3) ctx.fillRect(-7, gy, 8, 1.4);
+    // Long barrel
+    ctx.fillStyle = '#0e0c0a'; ctx.fillRect(10, -5, 56, 3);
+    ctx.fillStyle = 'rgba(220,220,210,0.18)';
+    ctx.fillRect(10, -5, 56, 1);
+    ctx.fillStyle = 'rgba(0,0,0,0.32)';
+    ctx.fillRect(10, -3, 56, 1);
+    // Suppressor
+    ctx.fillStyle = '#1c1a18'; ctx.fillRect(66, -6, 10, 5);
+    // Scope mount
+    ctx.fillStyle = '#1a1816'; ctx.fillRect(-2, -13, 14, 4);
+    // Scope optic (large)
+    ctx.fillStyle = '#3e3838'; ctx.fillRect(-1, -16, 12, 5);
+    ctx.fillStyle = '#1a1816';
+    ctx.beginPath(); ctx.arc(0, -13, 2.2, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(10, -13, 2.2, 0, Math.PI * 2); ctx.fill();
+    // Bipod
+    ctx.strokeStyle = '#222018'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(20, -3); ctx.lineTo(18, 6); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(24, -3); ctx.lineTo(26, 6); ctx.stroke();
   } else {
     ctx.fillStyle = '#2c2a22'; ctx.fillRect(-24, -3, 14, 5);
     ctx.fillStyle = '#1e1c16'; ctx.fillRect(-24, -5, 4, 9);
@@ -68,6 +124,11 @@ export function dWpn(ctx, w, rcl = 0) {
     ctx.fillStyle = '#141210'; ctx.fillRect(43, -14, 6, 8); ctx.fillRect(43, 3, 6, 7);
     ctx.fillStyle = '#0a0908'; ctx.fillRect(44, -12, 4, 5); ctx.fillRect(44, 4, 4, 4);
     ctx.fillStyle = '#cc9900'; ctx.beginPath(); ctx.arc(43, -11, 1.8, 0, Math.PI * 2); ctx.fill();
+    // Polish: top edge highlight on the receiver
+    ctx.fillStyle = 'rgba(220,220,210,0.18)';
+    ctx.fillRect(-6, -14, 50, 1);
+    ctx.fillStyle = 'rgba(0,0,0,0.32)';
+    ctx.fillRect(-6, 4, 50, 1);
   }
   ctx.restore();
 }

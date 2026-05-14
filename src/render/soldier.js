@@ -1,6 +1,26 @@
-import { C, GY, laneY, laneSc } from '../constants.js';
+import { C, GY, laneY, laneSc, WEAPON_SCALE } from '../constants.js';
 import { WPN } from '../data/weapons.js';
 import { dWpn } from './weapons.js';
+
+// Deterministic per-soldier palette variant based on name + id so a given
+// soldier always renders the same way across frames and across saves.
+// Civilians keep their distinctive red-cap + brown-jacket palette, but the
+// hash still picks a skin tone and beard flag for them.
+const JACKET_VARIANTS = ['#465737', '#3f5230', '#4b5a3a', '#3a4a30']; // olive shades
+const HELMET_VARIANTS = ['#2a3922', '#324228', '#2f3a20', '#3a4628']; // helmet shades
+const SKIN_VARIANTS   = ['#bf8a6a', '#b07a5c', '#cf9676', '#8e6048']; // light → dark
+function variantFor(s) {
+  const key = `${s.name || ''}|${s.id || 0}`;
+  let h = 0;
+  for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) | 0;
+  h = Math.abs(h);
+  return {
+    jacket: JACKET_VARIANTS[h % JACKET_VARIANTS.length],
+    helmet: HELMET_VARIANTS[(h >> 3) % HELMET_VARIANTS.length],
+    skin:   SKIN_VARIANTS[(h >> 5) % SKIN_VARIANTS.length],
+    beard:  ((h >> 7) & 1) === 1, // ~50%
+  };
+}
 
 // Rooftop sniper sprite (stationary, on top of the fort wall).
 export function dRooftopSniper(ctx, sn, now) {
@@ -101,9 +121,11 @@ export function dSoldier(ctx, s, now, isSelected) {
   const ly = laneY(s.lane);
   const sc = laneSc(s.lane);
   const isCiv = s.civilian;
-  const COL_jac = isCiv ? '#5a3a28' : C.jac;
+  const v = variantFor(s);
+  const SK = v.skin;
+  const COL_jac = isCiv ? '#5a3a28' : v.jacket;
   const COL_pan = isCiv ? '#3a4858' : C.pan;
-  const COL_hel = isCiv ? '#a04020' : C.hel;
+  const COL_hel = isCiv ? '#a04020' : v.helmet;
   // const COL_pkt = isCiv ? '#4a2a18' : '#3b4d2e';
   ctx.save();
   ctx.translate(s.x, ly);
@@ -138,15 +160,15 @@ export function dSoldier(ctx, s, now, isSelected) {
 
     ctx.save(); ctx.translate(-32, -2); ctx.rotate(-0.22);
     ctx.fillStyle = COL_jac; ctx.fillRect(-3, -12, 6, 14);
-    ctx.fillStyle = C.sk; ctx.beginPath(); ctx.arc(0, -13, 4, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = SK; ctx.beginPath(); ctx.arc(0, -13, 4, 0, Math.PI * 2); ctx.fill();
     ctx.restore();
 
     ctx.fillStyle = COL_jac; ctx.fillRect(-38, 5, 14, 4);
-    ctx.fillStyle = C.sk; ctx.beginPath(); ctx.arc(-38 + 13, 7, 4, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = SK; ctx.beginPath(); ctx.arc(-38 + 13, 7, 4, 0, Math.PI * 2); ctx.fill();
 
-    ctx.fillStyle = C.sk; ctx.fillRect(-44, -4, 5, 6);
+    ctx.fillStyle = SK; ctx.fillRect(-44, -4, 5, 6);
 
-    ctx.beginPath(); ctx.ellipse(-49, 0, 7, 9, 0, 0, Math.PI * 2); ctx.fillStyle = C.sk; ctx.fill();
+    ctx.beginPath(); ctx.ellipse(-49, 0, 7, 9, 0, 0, Math.PI * 2); ctx.fillStyle = SK; ctx.fill();
     ctx.strokeStyle = '#8a5a3a'; ctx.lineWidth = 1.2;
     ctx.beginPath(); ctx.moveTo(-53, 0); ctx.lineTo(-47, 0); ctx.stroke();
 
@@ -198,10 +220,10 @@ export function dSoldier(ctx, s, now, isSelected) {
   if (isRl) {
     ctx.save(); ctx.translate(6, by - 30); ctx.rotate(rla * Math.PI / 180);
     ctx.fillStyle = COL_jac; ctx.fillRect(-4, 0, 7, 16);
-    ctx.fillStyle = C.sk; ctx.beginPath(); ctx.arc(0, 16, 4, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+    ctx.fillStyle = SK; ctx.beginPath(); ctx.arc(0, 16, 4, 0, Math.PI * 2); ctx.fill(); ctx.restore();
     ctx.save(); ctx.translate(-4, by - 30); ctx.rotate(rla * 0.65 * Math.PI / 180);
     ctx.fillStyle = COL_jac; ctx.fillRect(-4, 0, 7, 14);
-    ctx.fillStyle = C.sk; ctx.beginPath(); ctx.arc(0, 14, 4, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+    ctx.fillStyle = SK; ctx.beginPath(); ctx.arc(0, 14, 4, 0, Math.PI * 2); ctx.fill(); ctx.restore();
     ctx.save(); ctx.translate(8, by - 17); ctx.rotate(rla * 0.38 * Math.PI / 180); dWpn(ctx, s.weapon, 0); ctx.restore();
     if (rlp > 0.28 && rlp < 0.67) {
       const drop = (rlp - 0.28) / 0.39 * 34, spin = (rlp - 0.28) * 2.4;
@@ -212,11 +234,11 @@ export function dSoldier(ctx, s, now, isSelected) {
   } else if (isKnife) {
     ctx.save(); ctx.translate(-5, by - 31);
     ctx.fillStyle = COL_jac; ctx.fillRect(-3, 0, 7, 16);
-    ctx.fillStyle = C.sk; ctx.beginPath(); ctx.arc(0, 16, 4, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+    ctx.fillStyle = SK; ctx.beginPath(); ctx.arc(0, 16, 4, 0, Math.PI * 2); ctx.fill(); ctx.restore();
     const kf = Math.max(0, 1 - (now - (s.shootAt || 0)) / 300);
     ctx.save(); ctx.translate(4 + kf * 16, by - 30); ctx.rotate(-0.25 + kf * 0.55);
     ctx.fillStyle = COL_jac; ctx.fillRect(-3, 0, 7, 14);
-    ctx.fillStyle = C.sk; ctx.beginPath(); ctx.arc(0, 14, 4, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = SK; ctx.beginPath(); ctx.arc(0, 14, 4, 0, Math.PI * 2); ctx.fill();
     ctx.save(); ctx.translate(0, 14); ctx.rotate(-1.0 + kf * 0.3);
     ctx.fillStyle = '#9090a0';
     ctx.beginPath(); ctx.moveTo(-1, -22); ctx.lineTo(2, -22); ctx.lineTo(1, 0); ctx.lineTo(-2, 0); ctx.closePath(); ctx.fill();
@@ -228,13 +250,20 @@ export function dSoldier(ctx, s, now, isSelected) {
     // shoot / idle — front arm + weapon (back arm omitted as in V8)
     ctx.save(); ctx.translate(4, by - 30); ctx.rotate(-aa * 0.4 * Math.PI / 180 + (isShoot ? 0.12 : 0));
     ctx.fillStyle = COL_jac; ctx.fillRect(-3, 0, 7, 14);
-    ctx.fillStyle = C.sk; ctx.beginPath(); ctx.arc(0, 14, 4, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = SK; ctx.beginPath(); ctx.arc(0, 14, 4, 0, Math.PI * 2); ctx.fill();
     ctx.restore();
     ctx.save(); ctx.translate(0, by - 22); dWpn(ctx, s.weapon, rcl);
     if (isShoot && now - s.shootAt < 90) {
       const fa = 1 - (now - s.shootAt) / 90;
-      const mx = s.weapon === 'rifle' ? 68 : s.weapon === 'pistol' ? 41 : 48;
-      const my = s.weapon === 'rifle' ? -4 : s.weapon === 'pistol' ? -9 : -10;
+      // Anchor the muzzle flash to the (scaled) end of the barrel for each
+      // weapon. Coordinates are in soldier-local space; weapon sprites are
+      // drawn with WEAPON_SCALE in dWpn, so we mirror that scaling here.
+      const muzzleRaw = s.weapon === 'rifle'  ? { x: 68, y: -4 }
+                     :  s.weapon === 'pistol' ? { x: 41, y: -9 }
+                     :  s.weapon === 'sniper' ? { x: 80, y: -4 }
+                     :                          { x: 48, y: -10 };
+      const mx = muzzleRaw.x * WEAPON_SCALE;
+      const my = muzzleRaw.y * WEAPON_SCALE;
       ctx.save(); ctx.globalAlpha = fa;
       const fl = ctx.createRadialGradient(mx, my, 0, mx, my, 18);
       fl.addColorStop(0, 'rgba(255,230,80,1)'); fl.addColorStop(0.4, 'rgba(255,100,0,0.7)'); fl.addColorStop(1, 'rgba(255,50,0,0)');
@@ -260,8 +289,8 @@ export function dSoldier(ctx, s, now, isSelected) {
   }
 
   const hy = by - 34;
-  ctx.fillStyle = C.sk; ctx.fillRect(-3, hy - 5, 6, 7);
-  ctx.beginPath(); ctx.ellipse(0, hy - 14, 8, 9, 0, 0, Math.PI * 2); ctx.fillStyle = C.sk; ctx.fill();
+  ctx.fillStyle = SK; ctx.fillRect(-3, hy - 5, 6, 7);
+  ctx.beginPath(); ctx.ellipse(0, hy - 14, 8, 9, 0, 0, Math.PI * 2); ctx.fillStyle = SK; ctx.fill();
   if (isCiv) {
     ctx.fillStyle = COL_hel;
     ctx.beginPath(); ctx.arc(0, hy - 15, 9, Math.PI, 0); ctx.fill();
@@ -274,6 +303,12 @@ export function dSoldier(ctx, s, now, isSelected) {
     ctx.beginPath(); ctx.arc(0, hy - 16, 10, Math.PI, 0); ctx.fill();
     ctx.fillRect(-10, hy - 16, 20, 6); ctx.fillRect(-12, hy - 11, 24, 4);
     ctx.fillStyle = '#1a2918'; ctx.fillRect(-6, hy - 11, 12, 4);
+  }
+  // Beard scruff — purely cosmetic variant tied to the soldier hash.
+  if (v.beard) {
+    ctx.fillStyle = '#1a1108';
+    ctx.fillRect(-3, hy - 9, 6, 2);
+    ctx.fillRect(-2, hy - 7, 4, 1);
   }
   if (s.hurtTimer > 0) {
     ctx.fillStyle = `rgba(255,30,30,${Math.min(1, s.hurtTimer / 200) * 0.4})`;

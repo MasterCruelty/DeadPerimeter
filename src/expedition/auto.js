@@ -49,3 +49,36 @@ export function resolveExpedition(soldier, dest, gs) {
   if (outcome === 'kia') { soldier.hp = 0; soldier.state = 'dead'; }
   return { soldierName: soldier.name, destName: dest.name, outcome, reward, recruit, dmgTaken: dmg };
 }
+
+// Multi-soldier auto-dispatch.
+// Every soldier rolls their own outcome and damage. Rewards are merged
+// with a diminishing-returns multiplier (BALANCE.partyRewardDiminish ^ i),
+// so a 2-soldier party gets the first soldier's roll + 80% of the second
+// soldier's, and a 3-soldier party gets +64% of the third. The "best"
+// outcome is reported (a soldier coming back alive saves the mission).
+import { BALANCE } from '../data/difficulty.js';
+
+export function resolvePartyExpedition(soldiers, dest, gs) {
+  const perSoldier = soldiers.map(s => resolveExpedition(s, dest, gs));
+  const reward = {};
+  perSoldier.forEach((r, i) => {
+    const mul = Math.pow(BALANCE.partyRewardDiminish, i);
+    for (const [k, v] of Object.entries(r.reward || {})) {
+      reward[k] = (reward[k] || 0) + Math.round(v * mul);
+    }
+  });
+  const order = { success: 0, injured: 1, kia: 2 };
+  const best = perSoldier.reduce((a, b) => order[a.outcome] <= order[b.outcome] ? a : b);
+  // At most one recruit even with a full party.
+  const recruit = perSoldier.find(r => r.recruit)?.recruit || null;
+  return {
+    party: perSoldier,
+    soldierNames: soldiers.map(s => s.name),
+    destName: dest.name,
+    outcome: best.outcome,
+    reward,
+    recruit,
+    dmgTaken: perSoldier.reduce((sum, r) => sum + r.dmgTaken, 0),
+    kiaNames: perSoldier.filter(r => r.outcome === 'kia').map(r => r.soldierName),
+  };
+}
