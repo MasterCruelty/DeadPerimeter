@@ -33,8 +33,11 @@ export function saveGame(gs) {
         facing: s.facing, civilian: !!s.civilian, onRoof: !!s.onRoof,
       })),
       barricades: gs.barricades.map(b => ({ id: b.id, x: b.x, hp: b.hp, maxHp: b.maxHp })),
+      turrets: (gs.turrets || []).map(t => ({ id: t.id, x: t.x, lane: t.lane })),
       score: gs.score, kills: gs.kills,
-      reserve: (gs.reserve || []).map(r => ({ name: r.name, weapon: r.weapon, civilian: !!r.civilian })),
+      reserve: (gs.reserve || []).map(r => ({ name: r.name, weapon: r.weapon, civilian: !!r.civilian, hp: r.hp ?? 100 })),
+      expeditionsToday: gs.expeditionsToday || 0,
+      lastEvacWave: gs.lastEvacWave ?? -10,
       usedNames: Array.from(gs.usedNames || []),
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot));
@@ -67,8 +70,11 @@ export function loadGame(mkGS) {
       reloadTriggered: false, onExpedition: false,
     }));
     gs.barricades = data.barricades.map(b => ({ ...b }));
+    gs.turrets = (data.turrets || []).map(t => ({ ...t, lastShot: 0 }));
     gs.score = data.score || 0; gs.kills = data.kills || 0;
     gs.reserve = (data.reserve || []).map(r => ({ ...r }));
+    gs.expeditionsToday = data.expeditionsToday || 0;
+    gs.lastEvacWave = data.lastEvacWave ?? -10;
     gs.usedNames = new Set(data.usedNames || []);
     gs.phase = 'management';
     return gs;
