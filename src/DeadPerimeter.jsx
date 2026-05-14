@@ -250,6 +250,22 @@ export default function DeadPerimeter() {
     setUi({ ...gs });
   }, []);
 
+  const callEvac = useCallback(() => {
+    const gs = gsRef.current; if (!gs) return;
+    const civs = (gs.reserve || []).filter(r => r.civilian).length;
+    if (civs < BALANCE.evacMinReserve) return;
+    if ((gs.wave - (gs.lastEvacWave ?? -10)) < BALANCE.evacWaveCooldown) return;
+
+    const evac = (gs.reserve || []).filter(r => r.civilian);
+    gs.reserve = (gs.reserve || []).filter(r => !r.civilian);
+    gs.resources.food       = Math.min(999, (gs.resources.food       || 0) + evac.length * BALANCE.evacFoodPerCiv);
+    gs.resources.medicine   = Math.min(999, (gs.resources.medicine   || 0) + evac.length * BALANCE.evacMedicinePerCiv);
+    gs.resources.sniperAmmo = Math.min(99,  (gs.resources.sniperAmmo || 0) + evac.length * BALANCE.evacSniperAmmoPerCiv);
+    gs.lastEvacWave = gs.wave;
+    saveGame(gs); setHasSave(true);
+    setUi({ ...gs, soldiers: gs.soldiers.map(s => ({ ...s })) });
+  }, []);
+
   const buildTurret = useCallback(() => {
     const gs = gsRef.current;
     if (
@@ -529,7 +545,10 @@ export default function DeadPerimeter() {
     gs.resources.ammo      >= BALANCE.turretCostAmmo &&
     (gs.turrets?.length || 0) < BALANCE.maxTurrets;
   const reserveCount = gs?.reserve?.length || 0;
+  const reserveCivCount = gs?.reserve?.filter(r => r.civilian).length || 0;
   const turretCount = gs?.turrets?.length || 0;
+  const evacCooldownLeft = gs ? Math.max(0, BALANCE.evacWaveCooldown - (gs.wave - (gs.lastEvacWave ?? -10))) : BALANCE.evacWaveCooldown;
+  const canEvac = gs && reserveCivCount >= BALANCE.evacMinReserve && evacCooldownLeft === 0;
   const nextWaveIsHuman = gs && isHumanWaveNumber(gs.wave);
 
   const resetExp = () => {
@@ -763,15 +782,29 @@ export default function DeadPerimeter() {
             </div>
             {reserveCount > 0 && (
               <>
-                <div style={h2}>🛏 RESERVE ROSTER ({reserveCount}/{BALANCE.maxReserveSoldiers})</div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div style={h2}>🛏 RESERVE ROSTER ({reserveCount}/{BALANCE.maxReserveSoldiers})</div>
+                  {reserveCivCount >= BALANCE.evacMinReserve && (
+                    <button
+                      style={{ ...btn('#1a2c3a', '#3380b8'), fontSize: '10px', padding: '4px 10px' }}
+                      onClick={callEvac}
+                      disabled={!canEvac}
+                      title={canEvac ? `Evacuate ${reserveCivCount} civilians` : `Cooldown: ${evacCooldownLeft} more wave${evacCooldownLeft === 1 ? '' : 's'}`}
+                    >
+                      🚁 EVAC CIVILIANS ({reserveCivCount})
+                      {!canEvac && ` — ${evacCooldownLeft}w`}
+                    </button>
+                  )}
+                </div>
                 <div style={{ fontSize: '9px', color: C.txt, opacity: 0.55, marginBottom: '6px' }}>
-                  Civilians and recruits at rest. They are auto-promoted to active duty when a slot opens up after each wave.
+                  Civilians and recruits at rest. Auto-promoted to active duty when a slot opens up after each wave.
+                  Call evac to airlift civilians out: +{BALANCE.evacFoodPerCiv} food, +{BALANCE.evacMedicinePerCiv} med, +{BALANCE.evacSniperAmmoPerCiv} sniper ammo per civ.
                 </div>
                 <div style={row}>
                   {gs.reserve.map((r, i) => (
                     <div key={i} style={{ ...card, minWidth: '110px', borderColor: '#1a3a52', background: 'rgba(12,20,30,0.85)' }}>
                       <div style={{ color: '#88ddff', fontWeight: 'bold', fontSize: '11px' }}>
-                        {r.name} <span style={{ color: '#88ddff', fontSize: '8px' }}>· civ</span>
+                        {r.name} {r.civilian && <span style={{ color: '#88ddff', fontSize: '8px' }}>· civ</span>}
                       </div>
                       <div style={{ fontSize: '9px', color: C.txt }}>{WPN[r.weapon]?.name}</div>
                       <div style={{ fontSize: '8px', color: C.txt, opacity: 0.6, marginTop: '2px' }}>standby</div>
