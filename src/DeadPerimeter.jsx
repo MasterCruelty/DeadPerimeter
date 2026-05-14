@@ -25,7 +25,7 @@ import { dSquadMarker, dHUD } from './render/hud.js';
 import { update } from './update/siege.js';
 import { mkMission, updateMission, dMissionWorld, dMissionHUD } from './update/mission.js';
 
-import { resolveExpedition } from './expedition/auto.js';
+import { resolveExpedition, resolvePartyExpedition } from './expedition/auto.js';
 import { finishMission } from './expedition/missionFinish.js';
 import { genEvents } from './expedition/events.js';
 
@@ -38,15 +38,26 @@ export default function DeadPerimeter() {
   const [paused, setPaused] = useState(false);
   const [hasSave, setHasSave] = useState(false);
   const [, setMissionTick] = useState(0);
-  const [expSoldierIdx, setExpSoldierIdx] = useState(null);
+  // Multi-soldier picker: an array of soldier indices (max BALANCE.maxExpeditionParty)
+  const [expSoldierIdxs, setExpSoldierIdxs] = useState([]);
   const [expDestIdx, setExpDestIdx] = useState(null);
   const [expResult, setExpResult] = useState(null);
   const [expPhase, setExpPhase] = useState(null);
   const [expEvents, setExpEvents] = useState([]);
   const [expVisible, setExpVisible] = useState(0);
-  const expSolRef = useRef(null);
+  const expSolsRef = useRef([]);
   const expDstRef = useRef(null);
-  const pickSoldier = useCallback(i => { expSolRef.current = i; setExpSoldierIdx(i); }, []);
+  const toggleSoldier = useCallback(i => {
+    const cur = expSolsRef.current;
+    if (cur.includes(i)) {
+      expSolsRef.current = cur.filter(x => x !== i);
+    } else if (cur.length < BALANCE.maxExpeditionParty) {
+      expSolsRef.current = [...cur, i];
+    } else {
+      return;
+    }
+    setExpSoldierIdxs([...expSolsRef.current]);
+  }, []);
   const pickDest = useCallback(i => { expDstRef.current = i; setExpDestIdx(i); }, []);
 
   const toggleMute = useCallback(() => {
@@ -128,18 +139,24 @@ export default function DeadPerimeter() {
   }, []);
 
   const sendExpedition = useCallback(() => {
-    const si = expSolRef.current, di = expDstRef.current;
-    if (si === null || di === null) return;
+    const idxs = expSolsRef.current, di = expDstRef.current;
+    if (!idxs || idxs.length === 0 || di === null) return;
     const gs = gsRef.current;
-    const soldier = gs.soldiers[si];
-    if (!soldier || soldier.state === 'dead') return;
+    if ((gs.expeditionsToday || 0) >= BALANCE.expeditionsPerDay) return;
+    const soldiers = idxs.map(i => gs.soldiers[i]).filter(s => s && s.state !== 'dead');
+    if (soldiers.length === 0) return;
     const dest = EXPEDITION_DESTS[di];
-    const result = resolveExpedition(soldier, dest, gs);
+
+    const result = soldiers.length === 1
+      ? resolveExpedition(soldiers[0], dest, gs)
+      : resolvePartyExpedition(soldiers, dest, gs);
+
     if (result.reward.ammo)       gs.resources.ammo       = Math.min(999, gs.resources.ammo + result.reward.ammo);
     if (result.reward.medicine)   gs.resources.medicine   = Math.min(999, gs.resources.medicine + result.reward.medicine);
     if (result.reward.food)       gs.resources.food       = Math.min(999, gs.resources.food + result.reward.food);
     if (result.reward.materials)  gs.resources.materials  = Math.min(999, gs.resources.materials + result.reward.materials);
     if (result.reward.sniperAmmo) gs.resources.sniperAmmo = Math.min(99,  (gs.resources.sniperAmmo || 0) + result.reward.sniperAmmo);
+
     if (result.recruit) {
       const r = result.recruit;
       const activeCount = gs.soldiers.filter(s => s.state !== 'dead').length;
@@ -148,26 +165,36 @@ export default function DeadPerimeter() {
         ns.ammo = 0; gs.soldiers.push(ns);
       } else if ((gs.reserve?.length || 0) < BALANCE.maxReserveSoldiers) {
         gs.reserve = gs.reserve || [];
-        gs.reserve.push({ name: r.name, weapon: r.weapon, civilian: true });
+        gs.reserve.push({ name: r.name, weapon: r.weapon, civilian: true, hp: r.hp });
       }
     }
-    const events = genEvents(soldier.name, dest, result.outcome, result.dmgTaken, result.recruit);
+
+    gs.expeditionsToday = (gs.expeditionsToday || 0) + 1;
+
+    // Use the (single) soldier's narrative log; for a party we use the first.
+    const lead = soldiers[0];
+    const events = genEvents(lead.name, dest, result.outcome, result.dmgTaken, result.recruit);
+    if (result.party && result.party.length > 1) {
+      events.unshift({ icon: '🛡', text: `Party of ${result.party.length}: ${result.soldierNames.join(', ')}.`, delay: 700, col: C.acc });
+      if (result.kiaNames && result.kiaNames.length > 0) {
+        events.push({ icon: '💀', text: `Lost in action: ${result.kiaNames.join(', ')}.`, delay: 1200, col: C.dng });
+      }
+    }
     setExpEvents(events); setExpVisible(0); setExpResult(result); setExpPhase('running');
     setUi({ ...gs, soldiers: gs.soldiers.map(s => ({ ...s })) });
   }, []);
 
   const playMission = useCallback(() => {
-    const si = expSolRef.current, di = expDstRef.current;
-    if (si === null || di === null) return;
+    const idxs = expSolsRef.current, di = expDstRef.current;
+    if (!idxs || idxs.length === 0 || di === null) return;
     const gs = gsRef.current;
+    if ((gs.expeditionsToday || 0) >= BALANCE.expeditionsPerDay) return;
+    const si = idxs[0]; // playable mission is single-soldier
     const soldier = gs.soldiers[si];
     if (!soldier || soldier.state === 'dead') return;
     const dest = EXPEDITION_DESTS[di];
 
     // Issue ammo from Fort Omega's pool, capped at the magazine size.
-    // Sniper draws from sniperAmmo; everyone else from the main ammo pool.
-    // The soldier keeps whatever they still had in their mag from the siege
-    // and we only top up the difference. Leftovers come back via finishMission.
     const isSniper = soldier.weapon === 'sniper';
     const poolKey = isSniper ? 'sniperAmmo' : 'ammo';
     const want = Math.max(0, soldier.maxAmmo - (soldier.ammo || 0));
@@ -176,10 +203,11 @@ export default function DeadPerimeter() {
     soldier.ammo = (soldier.ammo || 0) + give;
 
     const m = mkMission(soldier, dest);
-    m._poolKey = poolKey; // remember which pool to refund leftovers to
+    m._poolKey = poolKey;
     soldier.onExpedition = true;
     missionRef.current = m;
     inputRef.current = { left: false, right: false, shoot: false };
+    gs.expeditionsToday = (gs.expeditionsToday || 0) + 1;
     setScr('mission');
   }, []);
 
@@ -480,29 +508,44 @@ export default function DeadPerimeter() {
 
   const resetExp = () => {
     setExpResult(null); setExpPhase(null); setExpEvents([]); setExpVisible(0);
-    expSolRef.current = null; expDstRef.current = null;
-    setExpSoldierIdx(null); setExpDestIdx(null);
+    expSolsRef.current = []; expDstRef.current = null;
+    setExpSoldierIdxs([]); setExpDestIdx(null);
   };
+
+  const sortiesLeft = gs ? BALANCE.expeditionsPerDay - (gs.expeditionsToday || 0) : 0;
+  const canSortie = sortiesLeft > 0;
+  const partyValid = expSoldierIdxs.length > 0 && expSoldierIdxs.length <= BALANCE.maxExpeditionParty;
 
   const ExpeditionScreen = (
     <div style={wrap}>
       <div style={panel}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-          <div><div style={h1}>🗺 EXPEDITION</div><div style={{ color: C.txt, opacity: 0.5, fontSize: '10px', marginTop: '3px' }}>DAY {gs?.day} — Dispatch a soldier before wave {gs?.wave}</div></div>
+          <div>
+            <div style={h1}>🗺 EXPEDITION</div>
+            <div style={{ color: C.txt, opacity: 0.5, fontSize: '10px', marginTop: '3px' }}>
+              DAY {gs?.day} — {sortiesLeft}/{BALANCE.expeditionsPerDay} sorties left before nightfall
+            </div>
+          </div>
           <div style={{ color: C.dng, fontWeight: 'bold', fontSize: '20px' }}>WAVE #{gs?.wave}</div>
         </div>
         <hr style={hr} />
 
         {expPhase === null && (
           <>
-            <div style={h2}>CHOOSE SOLDIER</div>
-            <div style={row}>{gs?.soldiers?.map((s, i) => { if (s.state === 'dead') return null; return (
-              <div key={s.id} onClick={() => pickSoldier(i)} style={{ ...card, cursor: 'pointer', borderColor: expSoldierIdx === i ? C.acc : C.uib, opacity: expSoldierIdx === i ? 1 : 0.7 }}>
-                <div style={{ color: C.acc, fontWeight: 'bold', fontSize: '11px' }}>{s.name}</div>
-                <div style={{ fontSize: '9px', color: C.txt }}>{WPN[s.weapon]?.name}</div>
-                <div style={{ fontSize: '9px', color: s.hp > 60 ? C.acc : s.hp > 30 ? C.wrn : C.dng }}>{s.hp}HP</div>
-              </div>
-            ); })}</div>
+            <div style={h2}>CHOOSE PARTY (max {BALANCE.maxExpeditionParty})</div>
+            <div style={row}>{gs?.soldiers?.map((s, i) => {
+              if (s.state === 'dead') return null;
+              const picked = expSoldierIdxs.includes(i);
+              const order = picked ? expSoldierIdxs.indexOf(i) + 1 : null;
+              return (
+                <div key={s.id} onClick={() => toggleSoldier(i)} style={{ ...card, cursor: 'pointer', borderColor: picked ? C.acc : C.uib, opacity: picked ? 1 : 0.7, position: 'relative' }}>
+                  {order && <div style={{ position: 'absolute', top: 4, right: 6, background: C.acc, color: '#0a0', fontSize: '9px', fontWeight: 'bold', borderRadius: '50%', width: '14px', height: '14px', textAlign: 'center', lineHeight: '14px' }}>{order}</div>}
+                  <div style={{ color: C.acc, fontWeight: 'bold', fontSize: '11px' }}>{s.name}</div>
+                  <div style={{ fontSize: '9px', color: C.txt }}>{WPN[s.weapon]?.name}</div>
+                  <div style={{ fontSize: '9px', color: s.hp > 60 ? C.acc : s.hp > 30 ? C.wrn : C.dng }}>{s.hp}HP</div>
+                </div>
+              );
+            })}</div>
             <div style={h2}>CHOOSE DESTINATION</div>
             <div style={row}>{EXPEDITION_DESTS.map((d, i) => (
               <div key={i} onClick={() => pickDest(i)} style={{ ...card, cursor: 'pointer', flex: 1, borderColor: expDestIdx === i ? d.riskColor : C.uib, opacity: expDestIdx === i ? 1 : 0.72 }}>
@@ -514,12 +557,21 @@ export default function DeadPerimeter() {
               </div>
             ))}</div>
             <div style={{ marginTop: '10px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-              <button style={btn('#1a3a18')} disabled={expSoldierIdx === null || expDestIdx === null} onClick={playMission}>🎮 PLAY LIVE</button>
-              <button style={btn('#2a3018', '#558844')} disabled={expSoldierIdx === null || expDestIdx === null} onClick={sendExpedition}>🗺 AUTO-DISPATCH</button>
+              <button
+                style={btn('#1a3a18')}
+                disabled={!partyValid || expDestIdx === null || !canSortie || expSoldierIdxs.length > 1}
+                onClick={playMission}
+              >🎮 PLAY LIVE</button>
+              <button
+                style={btn('#2a3018', '#558844')}
+                disabled={!partyValid || expDestIdx === null || !canSortie}
+                onClick={sendExpedition}
+              >🗺 AUTO-DISPATCH</button>
             </div>
             <div style={{ fontSize: '9px', color: C.txt, opacity: 0.5, marginTop: '8px', lineHeight: '1.5' }}>
-              <b style={{ color: C.acc }}>PLAY LIVE</b>: control your soldier in a side-scrolling mission. Higher reward potential.<br />
-              <b style={{ color: C.txt }}>AUTO-DISPATCH</b>: fast text-based resolution, fixed odds.
+              <b style={{ color: C.acc }}>PLAY LIVE</b>: single soldier, side-scrolling mission. Higher reward potential.<br />
+              <b style={{ color: C.txt }}>AUTO-DISPATCH</b>: text-based; up to {BALANCE.maxExpeditionParty} soldiers, rewards stack with diminishing returns.
+              {!canSortie && <><br /><b style={{ color: C.dng }}>NIGHTFALL</b>: no more sorties today — survive the next wave to dispatch again.</>}
             </div>
           </>
         )}
@@ -718,7 +770,12 @@ export default function DeadPerimeter() {
             <div style={h2}>🏰 BASE {gs?.baseHp}/{gs?.baseMaxHp}</div>
             <div style={{ height: '6px', background: '#1a1a1a', marginBottom: '14px' }}><div style={{ height: '6px', width: `${(gs?.baseHp || 0) / (gs?.baseMaxHp || 200) * 100}%`, background: (gs?.baseHp / gs?.baseMaxHp) > 0.6 ? C.acc : (gs?.baseHp / gs?.baseMaxHp) > 0.3 ? C.wrn : C.dng }} /></div>
             <hr style={hr} />
-            <button style={btn('#1a1a3e', '#4444aa')} onClick={() => { resetExp(); setScr('expedition'); }}>🗺 EXPEDITION</button>
+            <button
+              style={btn('#1a1a3e', '#4444aa')}
+              onClick={() => { resetExp(); setScr('expedition'); }}
+              disabled={sortiesLeft <= 0}
+              title={sortiesLeft <= 0 ? 'No sorties left today' : ''}
+            >🗺 EXPEDITION{sortiesLeft > 0 ? ` (${sortiesLeft}/${BALANCE.expeditionsPerDay})` : ' — NIGHTFALL'}</button>
             <button style={btn()} onClick={startWave} disabled={aliveSols.length === 0}>⚔ DEPLOY</button>
             {aliveSols.length === 0 && <span style={{ color: C.dng, fontSize: '11px', marginLeft: '8px' }}>No soldiers available</span>}
             {gs?.resources?.ammo < 30 && <div style={{ color: C.wrn, fontSize: '10px', marginTop: '6px' }}>⚠ Low ammo — soldiers may run dry mid-wave</div>}

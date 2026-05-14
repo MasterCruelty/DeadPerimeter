@@ -13,7 +13,7 @@ export const mkGS = () => {
       mkSoldier('Charlie', 'pistol', 272, 100, 2),
       delta,
     ],
-    zombies: [], humans: [], bullets: [], effects: [], barricades: [], soundQ: [],
+    zombies: [], humans: [], bullets: [], effects: [], barricades: [], turrets: [], soundQ: [],
     spawnQueue: [], waveTime: 0, waveClearAt: null, waveComplete: false,
     score: 0, kills: 0, zombiesSpawned: 0, shakeTimer: 0,
     squadTarget: null, squadLane: null, selectedSoldierId: null,
@@ -21,8 +21,11 @@ export const mkGS = () => {
     isHumanWave: false,
     // Reserve roster: civilians / extras saved when the active squad is full.
     // Auto-promoted to active duty on wave clear when a slot opens up.
-    // Items shape: { name, weapon, civilian }
+    // Items shape: { name, weapon, civilian, hp? }
     reserve: [],
+    // Day economy / cooldowns
+    expeditionsToday: 0,      // increments per dispatch; resets on wave clear
+    lastEvacWave: -10,        // wave number of the last helicopter evac
     usedNames: new Set(['Alpha', 'Bravo', 'Charlie', 'Delta']),
   };
 };

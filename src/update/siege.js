@@ -389,6 +389,7 @@ export function update(gs, now, dt) {
     gs.waveComplete = false; gs.waveClearAt = null; gs.wave++; gs.day++; gs.phase = 'management';
     gs.resources.ammo = Math.min(999, gs.resources.ammo + 10);
     gs.resources.food = Math.min(999, gs.resources.food + 8);
+    gs.expeditionsToday = 0; // new day, sortie counter resets
     // Delta climbs back to roof if alive and we have sniper ammo
     gs.soldiers.forEach(s => {
       if (s.name === 'Delta' && s.state !== 'dead' && !s.onRoof && (gs.resources.sniperAmmo || 0) > 0) {
