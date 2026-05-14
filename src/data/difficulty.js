@@ -41,5 +41,25 @@ export const BALANCE = {
   // Reserve / contingent
   maxActiveSoldiers: 6,             // dispatched to Fort Omega at any one time
   maxReserveSoldiers: 10,           // bench size (extras beyond this are discarded)
+
+  // Expeditions
+  expeditionsPerDay: 2,             // max sorties before the next wave (= one day)
+  maxExpeditionParty: 3,            // soldiers per auto-dispatch run (playable still 1)
+  partyRewardDiminish: 0.80,        // 2nd soldier contributes 80%, 3rd 64% to rewards
+
+  // Turrets (machine-gun fixed emplacements)
+  maxTurrets: 2,
+  turretCostMaterials: 25,
+  turretCostAmmo: 20,
+  turretRate: 220,                  // ms between shots
+  turretDmg: 8,
+  turretRange: 450,
+
+  // Helicopter civilian evac
+  evacMinReserve: 3,                // need at least this many civs to call evac
+  evacWaveCooldown: 3,              // cool-down in waves between calls
+  evacFoodPerCiv: 20,
+  evacMedicinePerCiv: 3,
+  evacSniperAmmoPerCiv: 1,
 };
 
