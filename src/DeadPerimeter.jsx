@@ -191,22 +191,22 @@ export default function DeadPerimeter() {
     if (!idxs || idxs.length === 0 || di === null) return;
     const gs = gsRef.current;
     if ((gs.expeditionsToday || 0) >= BALANCE.expeditionsPerDay) return;
-    const si = idxs[0]; // playable mission is single-soldier
-    const soldier = gs.soldiers[si];
-    if (!soldier || soldier.state === 'dead') return;
+
+    const party = idxs.map(i => gs.soldiers[i]).filter(s => s && s.state !== 'dead');
+    if (party.length === 0) return;
     const dest = EXPEDITION_DESTS[di];
 
-    // Issue ammo from Fort Omega's pool, capped at the magazine size.
-    const isSniper = soldier.weapon === 'sniper';
-    const poolKey = isSniper ? 'sniperAmmo' : 'ammo';
-    const want = Math.max(0, soldier.maxAmmo - (soldier.ammo || 0));
-    const give = Math.min(want, gs.resources[poolKey] || 0);
-    gs.resources[poolKey] = (gs.resources[poolKey] || 0) - give;
-    soldier.ammo = (soldier.ammo || 0) + give;
+    // Issue ammo from Fort Omega's pool for every party member.
+    party.forEach(soldier => {
+      const poolKey = soldier.weapon === 'sniper' ? 'sniperAmmo' : 'ammo';
+      const want = Math.max(0, soldier.maxAmmo - (soldier.ammo || 0));
+      const give = Math.min(want, gs.resources[poolKey] || 0);
+      gs.resources[poolKey] = (gs.resources[poolKey] || 0) - give;
+      soldier.ammo = (soldier.ammo || 0) + give;
+      soldier.onExpedition = true;
+    });
 
-    const m = mkMission(soldier, dest);
-    m._poolKey = poolKey;
-    soldier.onExpedition = true;
+    const m = mkMission(party, dest);
     missionRef.current = m;
     inputRef.current = { left: false, right: false, shoot: false };
     gs.expeditionsToday = (gs.expeditionsToday || 0) + 1;
@@ -216,8 +216,7 @@ export default function DeadPerimeter() {
   const finalizeMission = useCallback(() => {
     const m = missionRef.current; if (!m) return;
     const gs = gsRef.current;
-    const soldier = gs.soldiers.find(s => s.id === m.origSoldier.id);
-    if (soldier) soldier.onExpedition = false;
+    // finishMission writes back every party member's hp/state/onExpedition.
     const result = finishMission(m, gs);
     missionRef.current = null;
     setExpResult(result); setExpPhase('done'); setExpEvents([]); setExpVisible(0);
@@ -636,7 +635,7 @@ export default function DeadPerimeter() {
             <div style={{ marginTop: '10px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
               <button
                 style={btn('#1a3a18')}
-                disabled={!partyValid || expDestIdx === null || !canSortie || expSoldierIdxs.length > 1}
+                disabled={!partyValid || expDestIdx === null || !canSortie}
                 onClick={playMission}
               >🎮 PLAY LIVE</button>
               <button
@@ -646,7 +645,7 @@ export default function DeadPerimeter() {
               >🗺 AUTO-DISPATCH</button>
             </div>
             <div style={{ fontSize: '9px', color: C.txt, opacity: 0.5, marginTop: '8px', lineHeight: '1.5' }}>
-              <b style={{ color: C.acc }}>PLAY LIVE</b>: single soldier, side-scrolling mission. Higher reward potential.<br />
+              <b style={{ color: C.acc }}>PLAY LIVE</b>: control the first picked soldier; the others follow as AI (auto-shoot in range, knife on dry mag). Lead death = mission failed.<br />
               <b style={{ color: C.txt }}>AUTO-DISPATCH</b>: text-based; up to {BALANCE.maxExpeditionParty} soldiers, rewards stack with diminishing returns.
               {!canSortie && <><br /><b style={{ color: C.dng }}>NIGHTFALL</b>: no more sorties today — survive the next wave to dispatch again.</>}
             </div>

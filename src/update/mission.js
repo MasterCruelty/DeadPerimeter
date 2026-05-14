@@ -48,22 +48,32 @@ export function mkMission(soldier, dest) {
     obstacles.push({ x: 200 + i * MISSION_W / 7 + rng(-50, 50), type: Math.random() < 0.5 ? 'car' : 'crate' });
   }
 
-  // Ammo loadout: respect what we patched onto the soldier in playMission
-  // (drawn from gs.resources.ammo / sniperAmmo before the mission started).
-  // If the caller didn't pre-charge it, fall back to the soldier's residual.
-  const msol = {
-    id: uid(), origId: soldier.id, name: soldier.name, weapon: soldier.weapon,
-    x: 80, lane: 0, hp: soldier.hp, maxHp: soldier.maxHp,
-    ammo: Math.max(0, soldier.ammo | 0),
-    maxAmmo: soldier.maxAmmo,
+  // Accept either a single soldier (legacy callers) or an array.
+  // The first soldier becomes the player-controlled lead; the rest follow
+  // as AI-driven companions that fire on hostiles in range.
+  const partySoldiers = Array.isArray(soldier) ? soldier : [soldier];
+  const lead = partySoldiers[0];
+
+  const buildMissionSoldier = (orig, offset) => ({
+    id: uid(), origId: orig.id, name: orig.name, weapon: orig.weapon,
+    x: 80 - offset * 30, lane: 0, hp: orig.hp, maxHp: orig.maxHp,
+    ammo: Math.max(0, orig.ammo | 0),
+    maxAmmo: orig.maxAmmo,
+    civilian: !!orig.civilian,
     state: 'idle', facing: 1,
     lastShot: 0, reloadStart: 0, shootAt: 0, knifeTimer: 0,
     walkPhase: Math.random() * Math.PI * 2, hurtTimer: 0, reloadTriggered: false,
     onExpedition: true,
-  };
+  });
+
+  const msol = buildMissionSoldier(lead, 0);
+  const followers = partySoldiers.slice(1).map((s, i) => buildMissionSoldier(s, i + 1));
 
   return {
-    soldier: msol, origSoldier: soldier, dest,
+    soldier: msol, followers,
+    origSoldier: lead,                   // back-compat: legacy field points to lead
+    origSoldiers: partySoldiers,         // full original-soldiers list (for finishMission)
+    dest,
     zombies, pickups, obstacles, bullets: [], effects: [], soundQ: [],
     cameraX: 0,
     inputLeft: false, inputRight: false, inputShoot: false,
@@ -75,12 +85,90 @@ export function mkMission(soldier, dest) {
   };
 }
 
+// Returns every living party member (lead + alive followers).
+function aliveParty(m) {
+  const out = m.soldier.hp > 0 ? [m.soldier] : [];
+  (m.followers || []).forEach(f => { if (f.hp > 0 && f.state !== 'dead') out.push(f); });
+  return out;
+}
+
+// Shared AI tick for shooting + knife melee. Used by both the lead
+// (when its ammo is dry and the player wants to mash forward — handled
+// inline below) and by the followers (always automatic).
+function aiShoot(m, who, now, dt) {
+  const w = WPN[who.weapon];
+  // Reload completion
+  if (who.state === 'reload' && now - who.reloadStart >= w.rl) {
+    who.state = 'idle'; who.reloadTriggered = false;
+  }
+  if (who.state === 'reload') return;
+
+  // Pick nearest activated zombie in range
+  const tgt = m.zombies
+    .filter(z => z.state !== 'dead' && z.activated && Math.abs(z.x - who.x) <= w.range)
+    .sort((a, b) => Math.abs(a.x - who.x) - Math.abs(b.x - who.x))[0];
+
+  if (!tgt) {
+    if (who.state === 'shoot' && now - who.shootAt > 200) who.state = 'idle';
+    return;
+  }
+  who.facing = tgt.x > who.x ? 1 : -1;
+
+  if (who.ammo <= 0) {
+    // Knife melee fallback (same logic as the lead)
+    const meleeTgt = m.zombies.find(z => z.state !== 'dead' && Math.abs(z.x - who.x) < 52);
+    if (meleeTgt) {
+      who.facing = meleeTgt.x > who.x ? 1 : -1;
+      who.knifeTimer = (who.knifeTimer || 0) + dt;
+      if (who.knifeTimer >= 650) {
+        who.knifeTimer = 0; who.state = 'knife'; who.shootAt = now;
+        meleeTgt.hp -= 10; meleeTgt.hurtTimer = 220;
+        m.soundQ.push({ t: 'zatk' });
+        m.effects.push({ type: 'slash', x: meleeTgt.x + who.facing * 10, y: MGY - 28, at: now, dur: 230 });
+        m.effects.push({ type: 'txt', x: meleeTgt.x, y: MGY - 58, v: '-10', col: '#ffcc44', at: now, dur: 600 });
+        if (meleeTgt.hp <= 0) {
+          meleeTgt.hp = 0; meleeTgt.state = 'dead'; meleeTgt.deadAt = now;
+          m.soundQ.push({ t: 'zdie', zt: meleeTgt.type }); m.killedCount++;
+        }
+      }
+    } else if (who.state === 'knife' && now - who.shootAt > 300) {
+      who.state = 'idle'; who.knifeTimer = 0;
+    }
+    return;
+  }
+
+  if (now - who.lastShot >= w.rate) {
+    who.state = 'shoot'; who.lastShot = now; who.shootAt = now; who.ammo--;
+    m.soundQ.push({ t: 'shot', w: who.weapon }); m.soundQ.push({ t: 'shell' });
+    const bx = who.x + who.facing * 24;
+    for (let p = 0; p < (w.pel || 1); p++) {
+      const sp2 = (Math.random() - 0.5) * w.sp * 2;
+      m.bullets.push({
+        id: uid(), x: bx, y: MGY - 26,
+        dx: who.facing * w.spd * Math.cos(sp2),
+        dy: w.spd * Math.sin(sp2),
+        dmg: w.pel ? w.dmg / w.pel : w.dmg,
+        life: Math.ceil(w.range / w.spd * 1.15),
+      });
+    }
+    m.effects.push({ type: 'shell', x: who.x - who.facing * 8, y: MGY - 26, vx: -who.facing * (1.4 + Math.random()), at: now, dur: 780 });
+    if (who.ammo === 0) {
+      who.state = 'reload'; who.reloadStart = now; who.ammo = who.maxAmmo;
+      m.soundQ.push({ t: 'reload', w: who.weapon, dur: w.rl });
+    }
+  } else if (now - who.lastShot > w.rate * 0.5) {
+    who.state = 'idle';
+  }
+}
+
 export function updateMission(m, now, dt) {
   if (m.state !== 'active') return;
   if (!m.startedAt) m.startedAt = now;
   const s = m.soldier;
   s.hurtTimer = Math.max(0, s.hurtTimer - dt);
+  (m.followers || []).forEach(f => { f.hurtTimer = Math.max(0, f.hurtTimer - dt); });
 
+  // Lead movement (player-controlled)
   const moveSpd = 2.4 * (dt / 16);
   if (s.state !== 'reload' && s.state !== 'knife') {
     if (m.inputRight) { s.x += moveSpd; s.facing = 1; if (s.state === 'idle') s.state = 'walk'; }
@@ -90,17 +178,43 @@ export function updateMission(m, now, dt) {
   s.x = Math.max(40, Math.min(MISSION_W - 40, s.x));
   m.cameraX = Math.max(0, Math.min(MISSION_W - MISSION_VIEW, s.x - MISSION_VIEW / 2));
 
+  // Followers: chase the lead at a small offset, ~1.6 px/frame.
+  (m.followers || []).forEach((f, i) => {
+    if (f.hp <= 0 || f.state === 'dead') return;
+    if (f.state === 'reload' || f.state === 'knife') return;
+    const desired = s.x - (i + 1) * 36 * s.facing;
+    const dx = desired - f.x;
+    const followSpd = 2.0 * (dt / 16);
+    if (Math.abs(dx) > 4) {
+      f.x += Math.sign(dx) * Math.min(Math.abs(dx), followSpd);
+      f.facing = s.facing;
+      if (f.state === 'idle') f.state = 'walk';
+    } else if (f.state === 'walk') {
+      f.state = 'idle';
+    }
+    f.x = Math.max(20, Math.min(MISSION_W - 20, f.x));
+  });
+
+  // Activation now considers any party member as the "trigger"
+  const party = aliveParty(m);
   m.zombies.forEach(z => {
-    if (!z.activated && Math.abs(z.x - s.x) < BALANCE.missionActivationRange) {
+    if (z.activated) return;
+    const closest = party.reduce((d, p) => Math.min(d, Math.abs(z.x - p.x)), Infinity);
+    if (closest < BALANCE.missionActivationRange) {
       z.activated = true; m.activatedCount++;
       m.soundQ.push({ t: 'groan', now, zt: z.type });
     }
   });
 
+  // Zombies AI: pick the closest party member as the target
   m.zombies.forEach(z => {
     if (z.state === 'dead' || !z.activated) return;
     z.hurtTimer = Math.max(0, z.hurtTimer - dt);
-    const dx = s.x - z.x;
+    // Closest living target
+    const targets = aliveParty(m);
+    if (targets.length === 0) { m.state = 'lost'; m.endedAt = now; return; }
+    const tgt = targets.reduce((a, b) => Math.abs(a.x - z.x) < Math.abs(b.x - z.x) ? a : b);
+    const dx = tgt.x - z.x;
     if (z.state === 'idle' || z.state === 'walk') {
       z.facing = dx > 0 ? 1 : -1;
       if (Math.abs(dx) > 40) { z.x += z.spd * z.facing * (dt / 16); if (z.state === 'idle') z.state = 'walk'; }
@@ -111,13 +225,18 @@ export function updateMission(m, now, dt) {
       if (Math.abs(dx) > 50) { z.state = 'walk'; z.atkTimer = 0; return; }
       if (z.atkTimer > 1000) {
         z.atkTimer = 0;
-        s.hp -= z.z.dmg; s.hurtTimer = 320;
+        tgt.hp -= z.z.dmg; tgt.hurtTimer = 320;
         m.soundQ.push({ t: 'zatk' });
-        if (s.hp <= 0) { s.hp = 0; m.state = 'lost'; m.endedAt = now; }
+        if (tgt.hp <= 0) {
+          tgt.hp = 0; tgt.state = 'dead';
+          // Lead death = mission failure. Follower death = mission continues.
+          if (tgt.id === s.id) { m.state = 'lost'; m.endedAt = now; }
+        }
       }
     }
   });
 
+  // ── LEAD: player-driven shoot / knife ───────────────────────────
   const w = WPN[s.weapon];
   if (m.inputShoot && s.state !== 'reload' && s.ammo > 0) {
     if (now - s.lastShot >= w.rate) {
@@ -156,6 +275,12 @@ export function updateMission(m, now, dt) {
     } else { s.knifeTimer = 0; if (s.state === 'knife' && now - s.shootAt > 300) s.state = 'idle'; }
   }
 
+  // ── FOLLOWERS: AI shoot / knife ─────────────────────────────────
+  (m.followers || []).forEach(f => {
+    if (f.hp <= 0 || f.state === 'dead') return;
+    aiShoot(m, f, now, dt);
+  });
+
   m.bullets = m.bullets.filter(b => {
     b.x += b.dx; b.y += b.dy; b.life--;
     if (b.life <= 0 || b.x < 0 || b.x > MISSION_W) return false;
@@ -171,9 +296,11 @@ export function updateMission(m, now, dt) {
     return true;
   });
 
+  // Pickups can be grabbed by any party member.
   m.pickups.forEach(p => {
     if (p.collected) return;
-    if (Math.abs(p.x - s.x) < 28) {
+    const grabber = aliveParty(m).find(member => Math.abs(p.x - member.x) < 28);
+    if (grabber) {
       p.collected = true;
       if (p.type === 'civilian') { m.collected.civilian = true; m.effects.push({ type: 'txt', x: p.x, y: MGY - 70, v: 'CIVILIAN!', col: '#88ddff', at: now, dur: 1000 }); }
       else { m.collected[p.type] += p.value; m.effects.push({ type: 'txt', x: p.x, y: MGY - 70, v: `+${p.value} ${p.type}`, col: C.acc, at: now, dur: 900 }); }
@@ -271,8 +398,14 @@ export function dMissionWorld(ctx, m, now) {
   m.zombies.filter(z => z.state === 'dead').forEach(z => { z.lane = 0; dZombie(ctx, z, now); });
   m.zombies.filter(z => z.state !== 'dead' && z.activated).forEach(z => { z.lane = 0; dZombie(ctx, z, now); });
 
+  // Draw followers first so the lead reads as in front of them.
+  (m.followers || []).forEach(f => {
+    const fc = { ...f, lane: 0, onExpedition: false, state: f.state };
+    dSoldier(ctx, fc, now);
+  });
+
   const sCopy = { ...m.soldier, lane: 0, onExpedition: false, state: m.soldier.state };
-  dSoldier(ctx, sCopy, now);
+  dSoldier(ctx, sCopy, now, true); // pass selection ring to mark the lead
 
   m.effects.forEach(e => dFx(ctx, e, now));
   m.bullets.forEach(b => dBlt(ctx, b));
