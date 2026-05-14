@@ -28,8 +28,8 @@ export function mkMission(soldier, dest) {
   }
 
   const pkOptions = dest.risk === 'LOW' ? ['medicine', 'medicine', 'food']
-    : dest.risk === 'MED' ? ['ammo', 'ammo', 'materials', 'sniperAmmo']
-    : ['ammo', 'medicine', 'food', 'materials', 'sniperAmmo'];
+    : dest.risk === 'MED' ? ['ammo', 'ammo', 'materials', 'sniperAmmo', 'turretAmmo']
+    : ['ammo', 'medicine', 'food', 'materials', 'sniperAmmo', 'turretAmmo'];
   const pkCount = dest.risk === 'LOW' ? 4 : dest.risk === 'MED' ? 5 : 7;
   for (let i = 0; i < pkCount; i++) {
     const x = 300 + Math.floor(MISSION_W / (pkCount + 1)) * (i + 1) + rng(-60, 60);
@@ -38,6 +38,7 @@ export function mkMission(soldier, dest) {
       : type === 'ammo' ? rng(8, 15)
       : type === 'food' ? rng(5, 10)
       : type === 'sniperAmmo' ? rng(2, 4)
+      : type === 'turretAmmo' ? rng(6, 14)
       : rng(3, 6);
     pickups.push({ id: uid(), x, type, value, collected: false });
   }
@@ -80,7 +81,7 @@ export function mkMission(soldier, dest) {
     state: 'active',
     // Activation tracking for the goal kill-ratio gate
     activatedCount: 0, killedCount: 0, _lastGoalHint: 0,
-    collected: { ammo: 0, medicine: 0, food: 0, materials: 0, sniperAmmo: 0, civilian: null },
+    collected: { ammo: 0, medicine: 0, food: 0, materials: 0, sniperAmmo: 0, turretAmmo: 0, civilian: null },
     startedAt: 0, endedAt: 0,
   };
 }

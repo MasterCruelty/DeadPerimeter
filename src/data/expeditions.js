@@ -28,7 +28,7 @@ export const EXPEDITION_DESTS = [
 export const MISSION_W = 1900;
 export const MISSION_VIEW = CW;
 export const MGY = GY;
-export const objIcons = { medicine: '💊', ammo: '🔫', food: '🥫', materials: '🔧', sniperAmmo: '🎯', civilian: '👤' };
+export const objIcons = { medicine: '💊', ammo: '🔫', food: '🥫', materials: '🔧', sniperAmmo: '🎯', turretAmmo: '🟠', civilian: '👤' };
 
 export const STARS = Array.from({ length: 28 }, (_, i) => ({
   x: (i * 181 + 53) % CW,
