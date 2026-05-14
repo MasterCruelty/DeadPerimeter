@@ -852,21 +852,33 @@ export default function DeadPerimeter() {
               <>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <div style={h2}>🛏 RESERVE ROSTER ({reserveCount}/{BALANCE.maxReserveSoldiers})</div>
-                  {reserveCivCount >= BALANCE.evacMinReserve && (
+                  {reserveCivCount > 0 && (
                     <button
-                      style={{ ...btn('#1a2c3a', '#3380b8'), fontSize: '10px', padding: '4px 10px' }}
+                      style={{
+                        ...btn('#1a2c3a', '#3380b8'),
+                        fontSize: '10px', padding: '4px 10px',
+                        opacity: canEvac ? 1 : 0.55,
+                      }}
                       onClick={callEvac}
                       disabled={!canEvac}
-                      title={canEvac ? `Evacuate ${reserveCivCount} civilians` : `Cooldown: ${evacCooldownLeft} more wave${evacCooldownLeft === 1 ? '' : 's'}`}
+                      title={
+                        reserveCivCount < BALANCE.evacMinReserve
+                          ? `Need ${BALANCE.evacMinReserve - reserveCivCount} more civilian${BALANCE.evacMinReserve - reserveCivCount === 1 ? '' : 's'} in reserve`
+                          : evacCooldownLeft > 0
+                            ? `Cool-down: ${evacCooldownLeft} more wave${evacCooldownLeft === 1 ? '' : 's'}`
+                            : `Airlift ${reserveCivCount} civilian${reserveCivCount === 1 ? '' : 's'}`
+                      }
                     >
-                      🚁 EVAC CIVILIANS ({reserveCivCount})
-                      {!canEvac && ` — ${evacCooldownLeft}w`}
+                      🚁 EVAC ({reserveCivCount}/{BALANCE.evacMinReserve})
+                      {reserveCivCount < BALANCE.evacMinReserve && ` — need ${BALANCE.evacMinReserve - reserveCivCount}`}
+                      {reserveCivCount >= BALANCE.evacMinReserve && evacCooldownLeft > 0 && ` — wait ${evacCooldownLeft}w`}
                     </button>
                   )}
                 </div>
                 <div style={{ fontSize: '9px', color: C.txt, opacity: 0.55, marginBottom: '6px' }}>
                   Civilians and recruits at rest. Auto-promoted to active duty when a slot opens up after each wave.
-                  Call evac to airlift civilians out: +{BALANCE.evacFoodPerCiv} food, +{BALANCE.evacMedicinePerCiv} med, +{BALANCE.evacSniperAmmoPerCiv} sniper ammo per civ.
+                  Helicopter evac unlocks at <b>{BALANCE.evacMinReserve} civilians</b> in reserve, then needs a {BALANCE.evacWaveCooldown}-wave cool-down between calls.
+                  Reward: +{BALANCE.evacFoodPerCiv} food, +{BALANCE.evacMedicinePerCiv} med, +{BALANCE.evacSniperAmmoPerCiv} sniper ammo per civ.
                 </div>
                 <div style={row}>
                   {gs.reserve.map((r, i) => {
