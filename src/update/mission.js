@@ -2,6 +2,7 @@ import { C, CH, uid, rng } from '../constants.js';
 import { WPN } from '../data/weapons.js';
 import { ZTP } from '../data/zombies.js';
 import { MISSION_W, MISSION_VIEW, MGY, objIcons } from '../data/expeditions.js';
+import { BIOMES, DEFAULT_BIOME } from '../data/biomes.js';
 import { BALANCE } from '../data/difficulty.js';
 import { dZombie } from '../render/zombie.js';
 import { dSoldier } from '../render/soldier.js';
@@ -45,8 +46,22 @@ export function mkMission(soldier, dest) {
   const civChance = dest.risk === 'HIGH' ? 1.0 : dest.risk === 'MED' ? 0.5 : 0;
   if (Math.random() < civChance) pickups.push({ id: uid(), x: MISSION_W - 200, type: 'civilian', value: 1, collected: false });
 
-  for (let i = 0; i < 6; i++) {
-    obstacles.push({ x: 200 + i * MISSION_W / 7 + rng(-50, 50), type: Math.random() < 0.5 ? 'car' : 'crate' });
+  // Biome-aware obstacle layout. Count varies per run so two LOW
+  // missions don't have an identical-looking street.
+  const biomeKey = dest.biome || DEFAULT_BIOME;
+  const biome = BIOMES[biomeKey] || BIOMES[DEFAULT_BIOME];
+  const obsCount = rng(4, 9);
+  for (let i = 0; i < obsCount; i++) {
+    const ox = 200 + i * MISSION_W / (obsCount + 1) + rng(-50, 50);
+    const otype = biome.obstacles[Math.floor(Math.random() * biome.obstacles.length)];
+    obstacles.push({ x: ox, type: otype });
+  }
+  // Decorative props every biome.propsPerStep along the road
+  // (lampposts, fences, broken streetlights). Stored separately so the
+  // renderer can layer them behind/around the obstacles.
+  const props = [];
+  for (let px = biome.propsPerStep; px < MISSION_W - 50; px += biome.propsPerStep) {
+    props.push({ x: px + rng(-30, 30), type: biome.propType });
   }
 
   // Accept either a single soldier (legacy callers) or an array.
@@ -74,8 +89,8 @@ export function mkMission(soldier, dest) {
     soldier: msol, followers,
     origSoldier: lead,                   // back-compat: legacy field points to lead
     origSoldiers: partySoldiers,         // full original-soldiers list (for finishMission)
-    dest,
-    zombies, pickups, obstacles, bullets: [], effects: [], soundQ: [],
+    dest, biomeKey,
+    zombies, pickups, obstacles, props, bullets: [], effects: [], soundQ: [],
     cameraX: 0,
     inputLeft: false, inputRight: false, inputShoot: false,
     state: 'active',
@@ -332,51 +347,189 @@ export function updateMission(m, now, dt) {
   }
 }
 
+// ── Biome-aware props (decorative, never block movement) ───────────
+function dProp(ctx, p) {
+  const x = p.x, y = MGY;
+  if (p.type === 'lamppost-hospital') {
+    // White clinical lamp pole + soft halo
+    ctx.fillStyle = '#384858'; ctx.fillRect(x - 1.5, y - 50, 3, 50);
+    ctx.fillStyle = '#aac8d8'; ctx.fillRect(x - 6, y - 56, 12, 6);
+    ctx.fillStyle = 'rgba(180,220,255,0.20)';
+    ctx.beginPath(); ctx.arc(x, y - 53, 22, 0, Math.PI * 2); ctx.fill();
+  } else if (p.type === 'fence-military') {
+    // Chain-link fence segment + barbed top
+    ctx.fillStyle = '#2a2820'; ctx.fillRect(x - 18, y - 28, 36, 2);
+    ctx.fillStyle = '#1a1812'; ctx.fillRect(x - 18, y - 28, 2, 28); ctx.fillRect(x + 16, y - 28, 2, 28);
+    ctx.strokeStyle = 'rgba(80,80,60,0.5)'; ctx.lineWidth = 1;
+    for (let dx = -16; dx <= 16; dx += 4) {
+      ctx.beginPath(); ctx.moveTo(x + dx, y - 26); ctx.lineTo(x + dx, y); ctx.stroke();
+    }
+    for (let dy = -24; dy <= -2; dy += 4) {
+      ctx.beginPath(); ctx.moveTo(x - 16, y + dy); ctx.lineTo(x + 16, y + dy); ctx.stroke();
+    }
+    // Barbed wire on top
+    ctx.strokeStyle = '#484840';
+    ctx.beginPath();
+    for (let dx = -16; dx <= 16; dx += 6) ctx.arc(x + dx, y - 31, 3, 0, Math.PI * 2);
+    ctx.stroke();
+  } else if (p.type === 'streetlamp-broken') {
+    // Bent street lamp, cracked glass
+    ctx.fillStyle = '#1a1410'; ctx.fillRect(x - 1.5, y - 60, 3, 60);
+    ctx.fillStyle = '#1a1410'; ctx.fillRect(x - 1.5, y - 60, 18, 3);
+    ctx.fillStyle = '#3a1a08'; ctx.fillRect(x + 14, y - 64, 8, 6);
+    ctx.fillStyle = 'rgba(255,80,0,0.18)';
+    ctx.beginPath(); ctx.arc(x + 18, y - 60, 10, 0, Math.PI * 2); ctx.fill();
+  }
+}
+
+function dObstacle(ctx, o) {
+  const x = o.x;
+  switch (o.type) {
+    case 'car': {
+      ctx.fillStyle = '#3a2a1a'; ctx.fillRect(x - 22, MGY - 22, 44, 18);
+      ctx.fillStyle = '#1a1410'; ctx.fillRect(x - 18, MGY - 32, 32, 12);
+      ctx.fillStyle = '#101010';
+      ctx.beginPath(); ctx.arc(x - 14, MGY - 2, 5, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(x + 14, MGY - 2, 5, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = 'rgba(255,140,40,0.15)';
+      ctx.beginPath(); ctx.arc(x, MGY - 26, 18, 0, Math.PI * 2); ctx.fill();
+      break;
+    }
+    case 'crate': {
+      ctx.fillStyle = '#5a3e18'; ctx.fillRect(x - 12, MGY - 18, 24, 18);
+      ctx.fillStyle = '#3e2810'; ctx.fillRect(x - 12, MGY - 12, 24, 2); ctx.fillRect(x - 12, MGY - 6, 24, 2);
+      break;
+    }
+    case 'sandbag': {
+      ctx.fillStyle = '#584030';
+      ctx.beginPath(); ctx.ellipse(x - 8, MGY - 4, 10, 5, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#4a3228';
+      ctx.beginPath(); ctx.ellipse(x + 6, MGY - 4, 11, 5, 0.2, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#503a2e';
+      ctx.beginPath(); ctx.ellipse(x - 2, MGY - 11, 11, 5, -0.1, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#604030';
+      ctx.beginPath(); ctx.ellipse(x + 4, MGY - 17, 9, 5, 0.1, 0, Math.PI * 2); ctx.fill();
+      break;
+    }
+    case 'ammo-crate': {
+      ctx.fillStyle = '#36321e'; ctx.fillRect(x - 14, MGY - 20, 28, 20);
+      ctx.fillStyle = '#1a1814'; ctx.fillRect(x - 14, MGY - 20, 28, 3);
+      ctx.fillStyle = '#cc9900'; ctx.font = 'bold 7px monospace'; ctx.textAlign = 'center';
+      ctx.fillText('AMMO', x, MGY - 8); ctx.textAlign = 'left';
+      ctx.fillStyle = '#1a1814'; ctx.fillRect(x - 14, MGY - 4, 28, 2);
+      break;
+    }
+    case 'container': {
+      ctx.fillStyle = '#3a4628'; ctx.fillRect(x - 26, MGY - 38, 52, 38);
+      ctx.fillStyle = '#2a3220'; ctx.fillRect(x - 26, MGY - 38, 52, 4);
+      ctx.fillStyle = '#1a2018';
+      for (let cx = x - 22; cx <= x + 18; cx += 8) ctx.fillRect(cx, MGY - 34, 2, 32);
+      ctx.fillStyle = '#cc9900'; ctx.font = 'bold 6px monospace'; ctx.textAlign = 'center';
+      ctx.fillText('FORT-OMEGA', x, MGY - 18); ctx.textAlign = 'left';
+      break;
+    }
+    case 'stretcher': {
+      ctx.fillStyle = '#9aa0a8'; ctx.fillRect(x - 18, MGY - 18, 36, 4);
+      ctx.fillStyle = '#3a3838'; ctx.fillRect(x - 16, MGY - 14, 4, 14); ctx.fillRect(x + 12, MGY - 14, 4, 14);
+      ctx.fillStyle = '#202020'; ctx.beginPath(); ctx.arc(x - 14, MGY - 1, 3, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(x + 14, MGY - 1, 3, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = 'rgba(180,30,30,0.6)'; ctx.fillRect(x - 8, MGY - 17, 6, 2);
+      break;
+    }
+    case 'iv': {
+      ctx.fillStyle = '#888'; ctx.fillRect(x - 1, MGY - 38, 2, 38);
+      ctx.fillStyle = '#aaa'; ctx.beginPath(); ctx.arc(x, MGY - 40, 3, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#cce6ff'; ctx.fillRect(x - 4, MGY - 36, 8, 12);
+      ctx.fillStyle = '#888'; ctx.beginPath(); ctx.arc(x, MGY, 5, 0, Math.PI * 2); ctx.fill();
+      break;
+    }
+    case 'wheelchair': {
+      ctx.fillStyle = '#2a3038'; ctx.fillRect(x - 8, MGY - 22, 16, 4);
+      ctx.fillStyle = '#1a2028'; ctx.fillRect(x - 6, MGY - 22, 12, 12);
+      ctx.fillStyle = '#101010'; ctx.beginPath(); ctx.arc(x - 8, MGY - 4, 7, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(x + 8, MGY - 4, 7, 0, Math.PI * 2); ctx.fill();
+      break;
+    }
+    case 'medkit': {
+      ctx.fillStyle = '#dddddd'; ctx.fillRect(x - 8, MGY - 12, 16, 12);
+      ctx.fillStyle = '#cc1818'; ctx.fillRect(x - 2, MGY - 11, 4, 10); ctx.fillRect(x - 7, MGY - 7, 14, 2);
+      break;
+    }
+    case 'trash-bin': {
+      ctx.fillStyle = '#1a1816'; ctx.fillRect(x - 9, MGY - 22, 18, 22);
+      ctx.fillStyle = '#2a2824'; ctx.fillRect(x - 10, MGY - 23, 20, 3);
+      ctx.fillStyle = '#3a3028'; ctx.fillRect(x - 6, MGY - 18, 12, 8);
+      break;
+    }
+    case 'traffic-cone': {
+      ctx.fillStyle = '#cc4400';
+      ctx.beginPath(); ctx.moveTo(x, MGY - 18); ctx.lineTo(x - 6, MGY); ctx.lineTo(x + 6, MGY); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(x - 4, MGY - 12, 8, 1.5); ctx.fillRect(x - 5, MGY - 6, 10, 1.5);
+      break;
+    }
+    case 'sign': {
+      ctx.fillStyle = '#2a2824'; ctx.fillRect(x - 1.5, MGY - 38, 3, 38);
+      ctx.fillStyle = '#cc1818'; ctx.fillRect(x - 14, MGY - 38, 28, 14);
+      ctx.fillStyle = '#fff'; ctx.font = 'bold 7px monospace'; ctx.textAlign = 'center';
+      ctx.fillText('STOP', x, MGY - 28); ctx.textAlign = 'left';
+      break;
+    }
+    default: {
+      ctx.fillStyle = '#5a3e18'; ctx.fillRect(x - 12, MGY - 18, 24, 18);
+    }
+  }
+}
+
 export function dMissionWorld(ctx, m, now) {
   ctx.save();
   ctx.translate(-m.cameraX, 0);
 
+  const biome = BIOMES[m.biomeKey] || BIOMES[DEFAULT_BIOME];
+
+  // Sky (biome-tinted gradient)
   const sg = ctx.createLinearGradient(0, 0, 0, MGY - 80);
-  sg.addColorStop(0, C.sky1); sg.addColorStop(1, C.sky2);
+  sg.addColorStop(0, biome.sky[0]); sg.addColorStop(1, biome.sky[1]);
   ctx.fillStyle = sg; ctx.fillRect(0, 0, MISSION_W, MGY - 80);
 
+  // Stars / specks (always)
   for (let i = 0; i < 60; i++) {
     const sx = ((i * 173 + m.cameraX * 0.2) % MISSION_W);
     const sy = (i * 97 + 17) % (MGY - 100);
     ctx.fillStyle = `rgba(255,255,255,${0.3 + (i % 4) * 0.18})`;
     ctx.fillRect(sx, sy, 1.5, 1.5);
   }
+  // Biome accent glow (smear of color: clinical halo, sunset blaze, etc.)
+  ctx.fillStyle = biome.accentLight;
+  ctx.beginPath(); ctx.arc(MISSION_W * 0.4, MGY - 120, 200, 0, Math.PI * 2); ctx.fill();
 
-  const bldCount = 14;
+  // Background buildings: count + height range from biome
+  const bldCount = biome.bldgCount;
+  const [hMin, hMax] = biome.bldgHRange;
   for (let i = 0; i < bldCount; i++) {
     const bx = (i * MISSION_W / bldCount) + 50 + (i % 3) * 30;
-    const bw = 50 + (i * 7) % 55;
-    const bh = 80 + (i * 23) % 150;
-    ctx.fillStyle = '#080a10'; ctx.fillRect(bx, MGY - 80 - bh, bw, bh);
-    ctx.fillStyle = '#0d1828';
+    const bw = 40 + (i * 7) % 70;
+    const bh = hMin + ((i * 23) % (hMax - hMin));
+    ctx.fillStyle = biome.bldgFill; ctx.fillRect(bx, MGY - 80 - bh, bw, bh);
+    ctx.fillStyle = biome.bldgRoof; ctx.fillRect(bx, MGY - 80 - bh, bw, 4);
+    ctx.fillStyle = biome.bldgWindow;
     for (let wx = bx + 8; wx < bx + bw - 5; wx += 14)
       for (let wy = MGY - 80 - bh + 10; wy < MGY - 90; wy += 18)
         if (Math.sin((bx + wx) * 0.1 + wy * 0.07) > 0.2) ctx.fillRect(wx, wy, 8, 10);
   }
 
+  // Ground
   const gg = ctx.createLinearGradient(0, MGY, 0, CH);
-  gg.addColorStop(0, C.g1); gg.addColorStop(1, C.g2);
+  gg.addColorStop(0, biome.ground[0]); gg.addColorStop(1, biome.ground[1]);
   ctx.fillStyle = gg; ctx.fillRect(0, MGY, MISSION_W, CH - MGY);
-  ctx.strokeStyle = '#2a2716'; ctx.lineWidth = 2;
+  ctx.strokeStyle = biome.groundLine; ctx.lineWidth = 2;
   ctx.beginPath(); ctx.moveTo(0, MGY); ctx.lineTo(MISSION_W, MGY); ctx.stroke();
 
-  m.obstacles.forEach(o => {
-    if (o.type === 'car') {
-      ctx.fillStyle = '#3a2a1a'; ctx.fillRect(o.x - 22, MGY - 22, 44, 18);
-      ctx.fillStyle = '#1a1410'; ctx.fillRect(o.x - 18, MGY - 32, 32, 12);
-      ctx.fillStyle = '#101010'; ctx.beginPath(); ctx.arc(o.x - 14, MGY - 2, 5, 0, Math.PI * 2); ctx.fill();
-      ctx.beginPath(); ctx.arc(o.x + 14, MGY - 2, 5, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = 'rgba(255,140,40,0.15)'; ctx.beginPath(); ctx.arc(o.x, MGY - 26, 18, 0, Math.PI * 2); ctx.fill();
-    } else {
-      ctx.fillStyle = '#5a3e18'; ctx.fillRect(o.x - 12, MGY - 18, 24, 18);
-      ctx.fillStyle = '#3e2810'; ctx.fillRect(o.x - 12, MGY - 12, 24, 2); ctx.fillRect(o.x - 12, MGY - 6, 24, 2);
-    }
-  });
+  // Decorative props (lampposts, fences, neon poles)
+  (m.props || []).forEach(p => dProp(ctx, p));
+
+  // Foreground obstacles (biome-aware)
+  m.obstacles.forEach(o => dObstacle(ctx, o));
 
   for (let mx = 200; mx < MISSION_W; mx += 200) {
     ctx.fillStyle = 'rgba(80,80,60,0.3)'; ctx.fillRect(mx - 1, MGY + 2, 2, 8);

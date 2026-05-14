@@ -7,6 +7,7 @@ export const EXPEDITION_DESTS = [
     rewards: 'Medicine +15–25, food +10–18, chance of civilian',
     solDmg: [0, 14],
     missionLen: 1400, zSpawn: 0.6,
+    biome: 'hospital',
   },
   {
     name: 'Armory Cache', icon: '🔫', risk: 'MED', riskColor: C.wrn,
@@ -14,6 +15,7 @@ export const EXPEDITION_DESTS = [
     rewards: 'Ammo +20–40, materials +5–12, chance of civilian',
     solDmg: [10, 34],
     missionLen: 1700, zSpawn: 1.1,
+    biome: 'armory',
   },
   {
     name: 'Downtown Core', icon: '🏙️', risk: 'HIGH', riskColor: C.dng,
@@ -21,6 +23,7 @@ export const EXPEDITION_DESTS = [
     rewards: 'All resources + materials, civilian guaranteed',
     solDmg: [20, 58],
     missionLen: 2000, zSpawn: 1.7,
+    biome: 'downtown',
   },
 ];
 
