@@ -169,9 +169,10 @@ export function update(gs, now, dt) {
 
   // ── TURRETS ──────────────────────────────────────────────────
   // Static machine-guns built behind the wall. Fire automatically at
-  // the closest enemy in range, draw from gs.resources.ammo (1/shot).
+  // the closest enemy in range, draw from the dedicated turretAmmo
+  // pool so they don't compete with the soldiers' rifle / pistol mags.
   (gs.turrets || []).forEach(t => {
-    if ((gs.resources.ammo || 0) <= 0) return; // dry
+    if ((gs.resources.turretAmmo || 0) <= 0) return; // dry — needs a refill at base
     if (now - (t.lastShot || 0) < BALANCE.turretRate) return;
     const pool = gs.isHumanWave ? gs.humans : gs.zombies;
     const tgt = pool
@@ -179,7 +180,7 @@ export function update(gs, now, dt) {
       .sort((a, b) => Math.abs(a.x - t.x) - Math.abs(b.x - t.x))[0];
     if (!tgt) return;
     t.lastShot = now;
-    gs.resources.ammo = Math.max(0, gs.resources.ammo - 1);
+    gs.resources.turretAmmo = Math.max(0, gs.resources.turretAmmo - 1);
     gs.soundQ.push({ t: 'shot', w: 'rifle' });
     gs.soundQ.push({ t: 'shell' });
     const by0 = t.y - 8;
@@ -419,6 +420,10 @@ export function update(gs, now, dt) {
     gs.waveComplete = false; gs.waveClearAt = null; gs.wave++; gs.day++; gs.phase = 'management';
     gs.resources.ammo = Math.min(999, gs.resources.ammo + 10);
     gs.resources.food = Math.min(999, gs.resources.food + 8);
+    // Small belt-fed refill so a built turret isn't permanently dry.
+    if ((gs.turrets || []).length > 0) {
+      gs.resources.turretAmmo = Math.min(999, (gs.resources.turretAmmo || 0) + 5);
+    }
     gs.expeditionsToday = 0; // new day, sortie counter resets
     // Delta climbs back to roof if alive and we have sniper ammo
     gs.soldiers.forEach(s => {

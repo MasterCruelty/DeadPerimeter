@@ -158,6 +158,7 @@ export default function DeadPerimeter() {
     if (result.reward.food)       gs.resources.food       = Math.min(999, gs.resources.food + result.reward.food);
     if (result.reward.materials)  gs.resources.materials  = Math.min(999, gs.resources.materials + result.reward.materials);
     if (result.reward.sniperAmmo) gs.resources.sniperAmmo = Math.min(99,  (gs.resources.sniperAmmo || 0) + result.reward.sniperAmmo);
+    if (result.reward.turretAmmo) gs.resources.turretAmmo = Math.min(999, (gs.resources.turretAmmo || 0) + result.reward.turretAmmo);
 
     if (result.recruit) {
       const r = result.recruit;
@@ -300,11 +301,11 @@ export default function DeadPerimeter() {
     const gs = gsRef.current;
     if (
       gs.resources.materials < BALANCE.turretCostMaterials ||
-      gs.resources.ammo < BALANCE.turretCostAmmo ||
+      (gs.resources.turretAmmo || 0) < BALANCE.turretCostAmmo ||
       (gs.turrets?.length || 0) >= BALANCE.maxTurrets
     ) return;
-    gs.resources.materials -= BALANCE.turretCostMaterials;
-    gs.resources.ammo      -= BALANCE.turretCostAmmo;
+    gs.resources.materials  -= BALANCE.turretCostMaterials;
+    gs.resources.turretAmmo  = (gs.resources.turretAmmo || 0) - BALANCE.turretCostAmmo;
     gs.turrets = gs.turrets || [];
     gs.turrets.push(mkTurret(gs.turrets.length));
     saveGame(gs); setHasSave(true);
@@ -573,7 +574,7 @@ export default function DeadPerimeter() {
   const canBarricadeFlag = gs && gs.resources.materials >= 15 && (gs.barricades?.length || 0) < BALANCE.maxBarricades;
   const canTurret = gs &&
     gs.resources.materials >= BALANCE.turretCostMaterials &&
-    gs.resources.ammo      >= BALANCE.turretCostAmmo &&
+    (gs.resources.turretAmmo || 0) >= BALANCE.turretCostAmmo &&
     (gs.turrets?.length || 0) < BALANCE.maxTurrets;
   const reserveCount = gs?.reserve?.length || 0;
   const reserveCivCount = gs?.reserve?.filter(r => r.civilian).length || 0;
@@ -792,7 +793,14 @@ export default function DeadPerimeter() {
             <hr style={hr} />
             <div style={h2}>📦 RESOURCES</div>
             <div style={row}>
-              {[['🥫', 'FOOD', gs?.resources?.food], ['🔫', 'AMMO', gs?.resources?.ammo], ['🎯', 'SNIPER', gs?.resources?.sniperAmmo ?? 0], ['💊', 'MED', gs?.resources?.medicine], ['🔧', 'MAT', gs?.resources?.materials]].map(([ic, lb, v]) => (
+              {[
+                ['🥫', 'FOOD',   gs?.resources?.food],
+                ['🔫', 'AMMO',   gs?.resources?.ammo],
+                ['🎯', 'SNIPER', gs?.resources?.sniperAmmo ?? 0],
+                ['🟠', 'MG',     gs?.resources?.turretAmmo ?? 0],
+                ['💊', 'MED',    gs?.resources?.medicine],
+                ['🔧', 'MAT',    gs?.resources?.materials],
+              ].map(([ic, lb, v]) => (
                 <div key={lb} style={{ ...card, borderColor: lb === 'AMMO' && v < 30 ? C.wrn : C.uib }}>
                   <span style={lbl}>{ic} {lb}</span>
                   <div style={{ ...val, color: lb === 'AMMO' && v < 20 ? C.dng : lb === 'AMMO' && v < 50 ? C.wrn : C.acc }}>{v}</div>
@@ -808,7 +816,7 @@ export default function DeadPerimeter() {
               <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap' }}>
                 <button style={{ ...btn('#1a3028', '#226644'), fontSize: '10px', padding: '4px 10px' }} disabled={!canRecruit} onClick={recruit}>+RECRUIT (🥫20 🔧15)</button>
                 <button style={{ ...btn('#2a1e08', '#885522'), fontSize: '10px', padding: '4px 10px' }} disabled={!canBarricadeFlag} onClick={buildBarricade}>🪵 BARRICADE (🔧15)</button>
-                <button style={{ ...btn('#1a2438', '#446699'), fontSize: '10px', padding: '4px 10px' }} disabled={!canTurret} onClick={buildTurret}>🛠 MG TURRET (🔧{BALANCE.turretCostMaterials} 🔫{BALANCE.turretCostAmmo})</button>
+                <button style={{ ...btn('#1a2438', '#446699'), fontSize: '10px', padding: '4px 10px' }} disabled={!canTurret} onClick={buildTurret}>🛠 MG TURRET (🔧{BALANCE.turretCostMaterials} 🟠{BALANCE.turretCostAmmo})</button>
               </div>
             </div>
             <div style={row}>
@@ -886,7 +894,8 @@ export default function DeadPerimeter() {
               <>
                 <div style={h2}>🛠 MG TURRETS ({turretCount}/{BALANCE.maxTurrets})</div>
                 <div style={{ fontSize: '9px', color: C.txt, opacity: 0.55, marginBottom: '6px' }}>
-                  Auto-fire at the closest hostile in range ({BALANCE.turretRange} px). 1 round / shot from the ammo pool.
+                  Auto-fire at the closest hostile in range ({BALANCE.turretRange} px). 1 round / shot from the dedicated 🟠 MG pool.
+                  Earns +5 🟠 every wave you survive with a turret on the wall.
                 </div>
               </>
             )}
