@@ -46,6 +46,40 @@ export function mkMission(soldier, dest) {
   const civChance = dest.risk === 'HIGH' ? 1.0 : dest.risk === 'MED' ? 0.5 : 0;
   if (Math.random() < civChance) pickups.push({ id: uid(), x: MISSION_W - 200, type: 'civilian', value: 1, collected: false });
 
+  // End-of-stage Brute boss on HIGH-risk runs.
+  if (dest.risk === 'HIGH') {
+    const z = ZTP.brute;
+    zombies.push({
+      id: uid(), type: 'brute', z,
+      x: MISSION_W - 220,
+      hp: z.hp, maxHp: z.hp,
+      spd: z.spd,
+      state: 'idle', facing: -1,
+      walkPhase: Math.random() * Math.PI * 2,
+      atkTimer: 0, hurtTimer: 0, deadAt: 0, lane: 0,
+      activated: false,
+    });
+  }
+
+  // Rescuable civilians along the path. They cower in place; once a
+  // party member touches them they follow the lead and count toward
+  // collected.rescuedCivs at the goal. Killable by zombies.
+  const rescuables = [];
+  const rcCount = dest.risk === 'LOW' ? rng(0, 1) : dest.risk === 'MED' ? rng(1, 2) : rng(1, 2);
+  const rcNames = ['Survivor', 'Refugee', 'Doctor', 'Nurse', 'Engineer', 'Teacher'];
+  for (let i = 0; i < rcCount; i++) {
+    rescuables.push({
+      id: uid(),
+      name: rcNames[Math.floor(Math.random() * rcNames.length)] + '-' + (Math.floor(Math.random() * 90) + 10),
+      x: 500 + Math.floor(MISSION_W / (rcCount + 2)) * (i + 1) + rng(-80, 80),
+      hp: 30, maxHp: 30,
+      facing: 1,
+      state: 'idle',         // 'idle' | 'following' | 'dead'
+      hurtTimer: 0,
+      walkPhase: Math.random() * Math.PI * 2,
+    });
+  }
+
   // Biome-aware obstacle layout. Count varies per run so two LOW
   // missions don't have an identical-looking street.
   const biomeKey = dest.biome || DEFAULT_BIOME;
@@ -111,13 +145,14 @@ export function mkMission(soldier, dest) {
     origSoldier: lead,                   // back-compat: legacy field points to lead
     origSoldiers: partySoldiers,         // full original-soldiers list (for finishMission)
     dest, biomeKey,
-    zombies, pickups, obstacles, props, hazards, bullets: [], effects: [], soundQ: [],
+    zombies, pickups, obstacles, props, hazards, rescuables,
+    bullets: [], effects: [], soundQ: [],
     cameraX: 0,
     inputLeft: false, inputRight: false, inputShoot: false,
     state: 'active',
     // Activation tracking for the goal kill-ratio gate
     activatedCount: 0, killedCount: 0, _lastGoalHint: 0,
-    collected: { ammo: 0, medicine: 0, food: 0, materials: 0, sniperAmmo: 0, turretAmmo: 0, civilian: null },
+    collected: { ammo: 0, medicine: 0, food: 0, materials: 0, sniperAmmo: 0, turretAmmo: 0, civilian: null, rescuedCivs: 0 },
     startedAt: 0, endedAt: 0,
   };
 }
@@ -126,6 +161,16 @@ export function mkMission(soldier, dest) {
 function aliveParty(m) {
   const out = m.soldier.hp > 0 ? [m.soldier] : [];
   (m.followers || []).forEach(f => { if (f.hp > 0 && f.state !== 'dead') out.push(f); });
+  return out;
+}
+
+// Returns every "thing" zombies are willing to chase / hit: party
+// members + alive rescuables. Used for activation distance + zombie
+// target selection. Rescuables can take dmg and die but their death
+// does not end the mission.
+function aliveTargets(m) {
+  const out = aliveParty(m).slice();
+  (m.rescuables || []).forEach(r => { if (r.hp > 0 && r.state !== 'dead') out.push(r); });
   return out;
 }
 
@@ -233,24 +278,44 @@ export function updateMission(m, now, dt) {
     f.x = Math.max(20, Math.min(MISSION_W - 20, f.x));
   });
 
-  // Activation now considers any party member as the "trigger"
-  const party = aliveParty(m);
+  // Rescuable civilians: tick, follow the lead when triggered, die
+  // gracefully when hit. They never overtake the lead.
+  (m.rescuables || []).forEach(r => {
+    if (r.state === 'dead' || r.hp <= 0) return;
+    r.hurtTimer = Math.max(0, r.hurtTimer - dt);
+    if (r.state === 'idle') {
+      // Trip on contact with any party member
+      if (aliveParty(m).some(p => Math.abs(p.x - r.x) < 32)) {
+        r.state = 'following';
+        m.effects.push({ type: 'txt', x: r.x, y: MGY - 70, v: `${r.name} JOINED`, col: '#88ddff', at: now, dur: 1100 });
+      }
+    } else if (r.state === 'following') {
+      // Stay ~70 px behind the lead's facing
+      const desired = s.x - 70 * s.facing;
+      const dx = desired - r.x;
+      const followSpd = 1.8 * (dt / 16);
+      if (Math.abs(dx) > 6) { r.x += Math.sign(dx) * Math.min(Math.abs(dx), followSpd); r.facing = s.facing; }
+    }
+  });
+
+  // Activation now considers any party member or rescuable as the "trigger"
+  const triggers = aliveTargets(m);
   m.zombies.forEach(z => {
     if (z.activated) return;
-    const closest = party.reduce((d, p) => Math.min(d, Math.abs(z.x - p.x)), Infinity);
+    const closest = triggers.reduce((d, p) => Math.min(d, Math.abs(z.x - p.x)), Infinity);
     if (closest < BALANCE.missionActivationRange) {
       z.activated = true; m.activatedCount++;
       m.soundQ.push({ t: 'groan', now, zt: z.type });
     }
   });
 
-  // Zombies AI: pick the closest party member as the target
+  // Zombies AI: pick the closest target (party + rescuables)
   m.zombies.forEach(z => {
     if (z.state === 'dead' || !z.activated) return;
     z.hurtTimer = Math.max(0, z.hurtTimer - dt);
-    // Closest living target
-    const targets = aliveParty(m);
-    if (targets.length === 0) { m.state = 'lost'; m.endedAt = now; return; }
+    const targets = aliveTargets(m);
+    if (aliveParty(m).length === 0) { m.state = 'lost'; m.endedAt = now; return; }
+    if (targets.length === 0) return;
     const tgt = targets.reduce((a, b) => Math.abs(a.x - z.x) < Math.abs(b.x - z.x) ? a : b);
     const dx = tgt.x - z.x;
     if (z.state === 'idle' || z.state === 'walk') {
@@ -267,7 +332,7 @@ export function updateMission(m, now, dt) {
         m.soundQ.push({ t: 'zatk' });
         if (tgt.hp <= 0) {
           tgt.hp = 0; tgt.state = 'dead';
-          // Lead death = mission failure. Follower death = mission continues.
+          // Lead death = mission failure. Follower / rescuable death = continues.
           if (tgt.id === s.id) { m.state = 'lost'; m.endedAt = now; }
         }
       }
@@ -394,6 +459,10 @@ export function updateMission(m, now, dt) {
   if (s.x >= MISSION_W - 50) {
     const need = Math.ceil(m.activatedCount * BALANCE.missionGoalKillRatio);
     if (m.killedCount >= need) {
+      // Tally rescuables that made it to within the goal zone alive.
+      m.collected.rescuedCivs = (m.rescuables || []).filter(r =>
+        r.state === 'following' && r.hp > 0 && r.x > MISSION_W - 250
+      ).length;
       m.state = 'won'; m.endedAt = now;
     } else {
       // Pin the soldier just before the goal and surface a hint
@@ -652,6 +721,27 @@ export function dMissionWorld(ctx, m, now) {
   m.zombies.filter(z => z.state === 'dead').forEach(z => { z.lane = 0; dZombie(ctx, z, now); });
   m.zombies.filter(z => z.state !== 'dead' && z.activated).forEach(z => { z.lane = 0; dZombie(ctx, z, now); });
 
+  // Rescuable civilians (drawn before the party so they read as on-stage)
+  (m.rescuables || []).forEach(r => {
+    if (r.state === 'dead' || r.hp <= 0) return;
+    const rc = {
+      id: r.id, name: r.name, weapon: 'pistol',
+      x: r.x, lane: 0, hp: r.hp, maxHp: r.maxHp,
+      ammo: 0, maxAmmo: 1,
+      state: r.state === 'following' ? 'walk' : 'idle',
+      facing: r.facing,
+      walkPhase: r.walkPhase, hurtTimer: r.hurtTimer,
+      civilian: true, onRoof: false, onExpedition: false,
+    };
+    dSoldier(ctx, rc, now);
+    // Floating "?" / "!" marker over their head so the player notices them
+    if (r.state === 'idle') {
+      ctx.fillStyle = '#88ddff'; ctx.font = 'bold 14px monospace'; ctx.textAlign = 'center';
+      const bob = Math.sin(now / 240) * 2;
+      ctx.fillText('!', r.x, MGY - 60 + bob); ctx.textAlign = 'left';
+    }
+  });
+
   // Draw followers first so the lead reads as in front of them.
   (m.followers || []).forEach(f => {
     const fc = { ...f, lane: 0, onExpedition: false, state: f.state };
@@ -696,6 +786,15 @@ export function dMissionHUD(ctx, m, now) {
   ctx.fillStyle = m.killedCount >= need && need > 0 ? C.acc : C.wrn;
   ctx.font = '9px monospace';
   ctx.fillText(`HOSTILES ${cleared}/${need || 0}`, px, 35);
+
+  // Rescuables status (✓ following / total alive)
+  const rcs = (m.rescuables || []).filter(r => r.state !== 'dead' && r.hp > 0);
+  if (rcs.length > 0 || (m.rescuables || []).length > 0) {
+    const total = (m.rescuables || []).length;
+    const following = rcs.filter(r => r.state === 'following').length;
+    ctx.fillStyle = '#88ddff'; ctx.font = '9px monospace';
+    ctx.fillText(`👤 RESCUE ${following}/${total}`, px + 130, 35);
+  }
 
   ctx.fillStyle = C.txt; ctx.font = '10px monospace';
   ctx.fillText(`HP ${m.soldier.hp}/${m.soldier.maxHp}`, CW_ - 200, 18);

@@ -33,6 +33,24 @@ export function finishMission(m, gs) {
   if (m.collected.sniperAmmo){ gs.resources.sniperAmmo= Math.min(99,  (gs.resources.sniperAmmo || 0) + m.collected.sniperAmmo); reward.sniperAmmo = m.collected.sniperAmmo; }
   if (m.collected.turretAmmo){ gs.resources.turretAmmo= Math.min(999, (gs.resources.turretAmmo || 0) + m.collected.turretAmmo); reward.turretAmmo = m.collected.turretAmmo; }
 
+  // Rescued civilians (NPCs that followed the lead to the goal alive).
+  // Each one is funnelled into the reserve as a future civilian recruit,
+  // honouring the existing reserve cap.
+  const rescued = m.collected.rescuedCivs || 0;
+  if (rescued > 0 && outcome === 'success') {
+    gs.reserve = gs.reserve || [];
+    for (let i = 0; i < rescued; i++) {
+      if (gs.reserve.length >= BALANCE.maxReserveSoldiers) break;
+      const availNames = RECRUIT_NAMES.filter(n => !gs.usedNames.has(n));
+      if (availNames.length === 0) break;
+      const name = availNames[Math.floor(Math.random() * availNames.length)];
+      const weapon = RECRUIT_WEAPONS[Math.floor(Math.random() * RECRUIT_WEAPONS.length)];
+      gs.usedNames.add(name);
+      gs.reserve.push({ name, weapon, civilian: true, hp: 100 });
+    }
+    reward.rescuedCivs = rescued;
+  }
+
   let recruit = null;
   if (m.collected.civilian && outcome === 'success') {
     const availNames = RECRUIT_NAMES.filter(n => !gs.usedNames.has(n));
