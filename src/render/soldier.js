@@ -1,4 +1,4 @@
-import { C, GY, laneY, laneSc } from '../constants.js';
+import { C, GY, laneY, laneSc, WEAPON_SCALE } from '../constants.js';
 import { WPN } from '../data/weapons.js';
 import { dWpn } from './weapons.js';
 
@@ -233,8 +233,15 @@ export function dSoldier(ctx, s, now, isSelected) {
     ctx.save(); ctx.translate(0, by - 22); dWpn(ctx, s.weapon, rcl);
     if (isShoot && now - s.shootAt < 90) {
       const fa = 1 - (now - s.shootAt) / 90;
-      const mx = s.weapon === 'rifle' ? 68 : s.weapon === 'pistol' ? 41 : 48;
-      const my = s.weapon === 'rifle' ? -4 : s.weapon === 'pistol' ? -9 : -10;
+      // Anchor the muzzle flash to the (scaled) end of the barrel for each
+      // weapon. Coordinates are in soldier-local space; weapon sprites are
+      // drawn with WEAPON_SCALE in dWpn, so we mirror that scaling here.
+      const muzzleRaw = s.weapon === 'rifle'  ? { x: 68, y: -4 }
+                     :  s.weapon === 'pistol' ? { x: 41, y: -9 }
+                     :  s.weapon === 'sniper' ? { x: 80, y: -4 }
+                     :                          { x: 48, y: -10 };
+      const mx = muzzleRaw.x * WEAPON_SCALE;
+      const my = muzzleRaw.y * WEAPON_SCALE;
       ctx.save(); ctx.globalAlpha = fa;
       const fl = ctx.createRadialGradient(mx, my, 0, mx, my, 18);
       fl.addColorStop(0, 'rgba(255,230,80,1)'); fl.addColorStop(0.4, 'rgba(255,100,0,0.7)'); fl.addColorStop(1, 'rgba(255,50,0,0)');
