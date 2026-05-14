@@ -167,6 +167,36 @@ export function update(gs, now, dt) {
     }
   });
 
+  // ── TURRETS ──────────────────────────────────────────────────
+  // Static machine-guns built behind the wall. Fire automatically at
+  // the closest enemy in range, draw from gs.resources.ammo (1/shot).
+  (gs.turrets || []).forEach(t => {
+    if ((gs.resources.ammo || 0) <= 0) return; // dry
+    if (now - (t.lastShot || 0) < BALANCE.turretRate) return;
+    const pool = gs.isHumanWave ? gs.humans : gs.zombies;
+    const tgt = pool
+      .filter(e => e.state !== 'dead' && e.x > WX && Math.abs(e.x - t.x) <= BALANCE.turretRange)
+      .sort((a, b) => Math.abs(a.x - t.x) - Math.abs(b.x - t.x))[0];
+    if (!tgt) return;
+    t.lastShot = now;
+    gs.resources.ammo = Math.max(0, gs.resources.ammo - 1);
+    gs.soundQ.push({ t: 'shot', w: 'rifle' });
+    gs.soundQ.push({ t: 'shell' });
+    const by0 = t.y - 8;
+    const by1 = laneY(tgt.lane) - Math.round(24 * laneSc(tgt.lane));
+    const range = Math.max(40, Math.abs(tgt.x - t.x));
+    gs.bullets.push({
+      id: uid(),
+      x: t.x + 36, y: by0,
+      dx: 16,
+      dy: (by1 - by0) / Math.max(1, range / 16),
+      dmg: BALANCE.turretDmg,
+      life: Math.ceil(range / 16 * 1.2),
+      targetLane: tgt.lane,
+    });
+    gs.effects.push({ type: 'shell', x: t.x - 6, y: by0, vx: -1.4, at: now, dur: 720 });
+  });
+
   // ── SOLDIERS ─────────────────────────────────────────────────
   gs.soldiers.forEach(s => {
     if (s.state === 'dead' || s.onExpedition) return;
