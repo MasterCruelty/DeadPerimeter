@@ -9,6 +9,7 @@ import { getAM, processSounds } from './audio/AudioEngine.js';
 
 import { mkSoldier } from './entities/soldier.js';
 import { mkBarricade } from './entities/barricade.js';
+import { mkTurret } from './entities/turret.js';
 import { mkWave, mkHumanWave } from './entities/wave.js';
 import { mkGS } from './entities/gameState.js';
 import { hasSavedGame, saveGame, loadGame, clearSave } from './entities/persistence.js';
@@ -20,6 +21,7 @@ import { dSoldier } from './render/soldier.js';
 import { dZombie } from './render/zombie.js';
 import { dHuman } from './render/human.js';
 import { dBarricade, dBlt, dFx } from './render/effects.js';
+import { dTurret } from './render/turret.js';
 import { dSquadMarker, dHUD } from './render/hud.js';
 
 import { update } from './update/siege.js';
@@ -248,6 +250,21 @@ export default function DeadPerimeter() {
     setUi({ ...gs });
   }, []);
 
+  const buildTurret = useCallback(() => {
+    const gs = gsRef.current;
+    if (
+      gs.resources.materials < BALANCE.turretCostMaterials ||
+      gs.resources.ammo < BALANCE.turretCostAmmo ||
+      (gs.turrets?.length || 0) >= BALANCE.maxTurrets
+    ) return;
+    gs.resources.materials -= BALANCE.turretCostMaterials;
+    gs.resources.ammo      -= BALANCE.turretCostAmmo;
+    gs.turrets = gs.turrets || [];
+    gs.turrets.push(mkTurret(gs.turrets.length));
+    saveGame(gs); setHasSave(true);
+    setUi({ ...gs });
+  }, []);
+
   const healSoldier = useCallback(idx => {
     const gs = gsRef.current;
     if (gs.resources.medicine < 5) return;
@@ -403,9 +420,12 @@ export default function DeadPerimeter() {
       resources: { ...gs.resources },
       soldiers: gs.soldiers.map(s => ({ ...s })),
       barricades: gs.barricades.map(b => ({ ...b })),
+      turrets: (gs.turrets || []).map(t => ({ ...t })),
       reserve: (gs.reserve || []).map(r => ({ ...r })),
       kills: gs.kills, score: gs.score,
       isHumanWave: gs.isHumanWave,
+      expeditionsToday: gs.expeditionsToday || 0,
+      lastEvacWave: gs.lastEvacWave ?? -10,
     });
 
     const loop = now => {
@@ -452,6 +472,7 @@ export default function DeadPerimeter() {
             gs.soldiers.filter(s => (s.lane || 0) === lane && !s.onExpedition).forEach(s => dSoldier(ctx, s, now, s.id === gs.selectedSoldierId));
             if (lane === 2) gs.barricades.forEach(b => dBarricade(ctx, b));
           }
+          (gs.turrets || []).forEach(t => dTurret(ctx, t, now));
           gs.effects.forEach(e => dFx(ctx, e, now));
           gs.bullets.forEach(b => dBlt(ctx, b));
           dSquadMarker(ctx, gs.squadTarget, gs.squadLane, now);
@@ -503,7 +524,12 @@ export default function DeadPerimeter() {
   const aliveSols = gs?.soldiers?.filter(s => s.state !== 'dead' && !s.onExpedition) || [];
   const canRecruit  = gs && gs.resources.food >= 20 && gs.resources.materials >= 15 && gs.soldiers.filter(s => s.state !== 'dead').length < BALANCE.maxActiveSoldiers;
   const canBarricadeFlag = gs && gs.resources.materials >= 15 && (gs.barricades?.length || 0) < BALANCE.maxBarricades;
+  const canTurret = gs &&
+    gs.resources.materials >= BALANCE.turretCostMaterials &&
+    gs.resources.ammo      >= BALANCE.turretCostAmmo &&
+    (gs.turrets?.length || 0) < BALANCE.maxTurrets;
   const reserveCount = gs?.reserve?.length || 0;
+  const turretCount = gs?.turrets?.length || 0;
   const nextWaveIsHuman = gs && isHumanWaveNumber(gs.wave);
 
   const resetExp = () => {
@@ -712,9 +738,10 @@ export default function DeadPerimeter() {
                 {gs?.soldiers?.filter(s => s.state === 'dead').length > 0 ? ` · ${gs?.soldiers?.filter(s => s.state === 'dead').length} KIA` : ''}
                 {reserveCount > 0 ? ` · ${reserveCount} in reserve` : ''})
               </div>
-              <div style={{ display: 'flex', gap: '5px' }}>
+              <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap' }}>
                 <button style={{ ...btn('#1a3028', '#226644'), fontSize: '10px', padding: '4px 10px' }} disabled={!canRecruit} onClick={recruit}>+RECRUIT (🥫20 🔧15)</button>
                 <button style={{ ...btn('#2a1e08', '#885522'), fontSize: '10px', padding: '4px 10px' }} disabled={!canBarricadeFlag} onClick={buildBarricade}>🪵 BARRICADE (🔧15)</button>
+                <button style={{ ...btn('#1a2438', '#446699'), fontSize: '10px', padding: '4px 10px' }} disabled={!canTurret} onClick={buildTurret}>🛠 MG TURRET (🔧{BALANCE.turretCostMaterials} 🔫{BALANCE.turretCostAmmo})</button>
               </div>
             </div>
             <div style={row}>
@@ -750,6 +777,14 @@ export default function DeadPerimeter() {
                       <div style={{ fontSize: '8px', color: C.txt, opacity: 0.6, marginTop: '2px' }}>standby</div>
                     </div>
                   ))}
+                </div>
+              </>
+            )}
+            {turretCount > 0 && (
+              <>
+                <div style={h2}>🛠 MG TURRETS ({turretCount}/{BALANCE.maxTurrets})</div>
+                <div style={{ fontSize: '9px', color: C.txt, opacity: 0.55, marginBottom: '6px' }}>
+                  Auto-fire at the closest hostile in range ({BALANCE.turretRange} px). 1 round / shot from the ammo pool.
                 </div>
               </>
             )}
