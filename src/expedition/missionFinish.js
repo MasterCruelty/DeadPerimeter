@@ -4,12 +4,26 @@ import { BALANCE } from '../data/difficulty.js';
 import { mkSoldier } from '../entities/soldier.js';
 
 export function finishMission(m, gs) {
+  // Write each party member's mission state back onto the original soldier
+  // in gs.soldiers. The lead drives the win / lose outcome.
+  const partyMission = [m.soldier, ...(m.followers || [])];
+  const writeBack = (mSol) => {
+    const orig = gs.soldiers.find(s => s.id === mSol.origId);
+    if (!orig) return;
+    if (mSol.hp <= 0 || mSol.state === 'dead') {
+      orig.hp = 0; orig.state = 'dead';
+    } else {
+      orig.hp = Math.max(1, mSol.hp);
+      orig.ammo = mSol.ammo;
+    }
+    orig.onExpedition = false;
+  };
+  partyMission.forEach(writeBack);
+
   const orig = gs.soldiers.find(s => s.id === m.origSoldier.id);
   if (!orig) return null;
-  orig.hp = Math.max(1, m.soldier.hp);
-  orig.ammo = m.soldier.ammo;
   let outcome = m.state === 'won' ? 'success' : 'kia';
-  if (m.state === 'lost') { orig.hp = 0; orig.state = 'dead'; }
+  if (m.state === 'lost') outcome = 'kia';
 
   const reward = {};
   if (m.collected.ammo)      { gs.resources.ammo      = Math.min(999, gs.resources.ammo + m.collected.ammo);           reward.ammo = m.collected.ammo; }
@@ -38,5 +52,15 @@ export function finishMission(m, gs) {
       }
     }
   }
-  return { soldierName: m.soldier.name, destName: m.dest.name, outcome, reward, recruit, dmgTaken: m.soldier.maxHp - m.soldier.hp };
+  const totalDmg = partyMission.reduce((sum, ms) => sum + Math.max(0, ms.maxHp - ms.hp), 0);
+  const kiaNames = partyMission.filter(ms => ms.hp <= 0 || ms.state === 'dead').map(ms => ms.name);
+  return {
+    soldierName: m.soldier.name,
+    soldierNames: partyMission.map(ms => ms.name),
+    kiaNames,
+    destName: m.dest.name,
+    outcome,
+    reward, recruit,
+    dmgTaken: totalDmg,
+  };
 }
