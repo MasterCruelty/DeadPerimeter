@@ -250,6 +250,37 @@ export default function DeadPerimeter() {
     setUi({ ...gs });
   }, []);
 
+  const benchSoldier = useCallback(idx => {
+    const gs = gsRef.current; if (!gs) return;
+    const s = gs.soldiers[idx]; if (!s || s.state === 'dead') return;
+    // Sniper / Delta on the rooftop can't be benched (would lose her post).
+    if (s.onRoof) return;
+    if ((gs.reserve?.length || 0) >= BALANCE.maxReserveSoldiers) return;
+    gs.reserve = gs.reserve || [];
+    gs.reserve.push({ name: s.name, weapon: s.weapon, civilian: !!s.civilian, hp: s.hp });
+    gs.soldiers.splice(idx, 1);
+    saveGame(gs); setHasSave(true);
+    setUi({ ...gs, soldiers: gs.soldiers.map(s => ({ ...s })) });
+  }, []);
+
+  const activateReserve = useCallback(idx => {
+    const gs = gsRef.current; if (!gs) return;
+    const r = (gs.reserve || [])[idx]; if (!r) return;
+    if (gs.soldiers.filter(s => s.state !== 'dead').length >= BALANCE.maxActiveSoldiers) return;
+    const ns = mkSoldier(r.name, r.weapon, 270, r.hp ?? 100, Math.floor(Math.random() * 3), !!r.civilian);
+    ns.ammo = 0;
+    gs.soldiers.push(ns);
+    gs.reserve.splice(idx, 1);
+    saveGame(gs); setHasSave(true);
+    setUi({ ...gs, soldiers: gs.soldiers.map(s => ({ ...s })) });
+  }, []);
+
+  const selectSoldierById = useCallback(id => {
+    const gs = gsRef.current; if (!gs) return;
+    gs.selectedSoldierId = (gs.selectedSoldierId === id) ? null : id;
+    setUi({ ...gs, soldiers: gs.soldiers.map(s => ({ ...s })) });
+  }, []);
+
   const callEvac = useCallback(() => {
     const gs = gsRef.current; if (!gs) return;
     const civs = (gs.reserve || []).filter(r => r.civilian).length;
@@ -438,6 +469,7 @@ export default function DeadPerimeter() {
       barricades: gs.barricades.map(b => ({ ...b })),
       turrets: (gs.turrets || []).map(t => ({ ...t })),
       reserve: (gs.reserve || []).map(r => ({ ...r })),
+      selectedSoldierId: gs.selectedSoldierId,
       kills: gs.kills, score: gs.score,
       isHumanWave: gs.isHumanWave,
       expeditionsToday: gs.expeditionsToday || 0,
@@ -673,14 +705,31 @@ export default function DeadPerimeter() {
         {scr === 'siege' && (
           <div style={{ display: 'flex', gap: '7px', marginTop: '7px', flexWrap: 'wrap', justifyContent: 'center', alignItems: 'center', width: '100%', maxWidth: CW }}>
             <button style={ctrlBtn} onClick={() => moveSquad('retreat')}>◀ RETREAT</button>
-            {ui?.soldiers?.filter(s => !s.onExpedition).map(s => (
-              <div key={s.id} style={{ background: 'rgba(18,30,12,0.92)', border: `1px solid ${s.state === 'dead' ? C.dng : C.uib}`, padding: '4px 10px', opacity: s.state === 'dead' ? 0.32 : 1 }}>
-                <span style={{ color: s.state === 'dead' ? C.dng : s.ammo === 0 ? C.dng : C.acc, fontWeight: 'bold', fontSize: '10px' }}>{s.name}</span>
-                <span style={{ color: '#666', fontSize: '9px', margin: '0 3px' }}>{'FMB'[s.lane || 0]}</span>
-                <span style={{ color: C.txt, fontSize: '9px' }}>{s.state === 'dead' ? 'KIA' : s.state.toUpperCase()}</span>
-                <span style={{ color: s.ammo === 0 ? C.dng : C.txt, fontSize: '9px', marginLeft: '4px' }}>{s.state !== 'dead' ? `${s.ammo}/${s.maxAmmo}` : '─'}</span>
-              </div>
-            ))}
+            {ui?.soldiers?.filter(s => !s.onExpedition).map(s => {
+              const isSel = ui?.selectedSoldierId === s.id;
+              const isDead = s.state === 'dead';
+              return (
+                <div
+                  key={s.id}
+                  onClick={isDead || s.onRoof ? undefined : () => selectSoldierById(s.id)}
+                  style={{
+                    background: isSel ? 'rgba(40,90,30,0.95)' : 'rgba(18,30,12,0.92)',
+                    border: `1px solid ${isDead ? C.dng : isSel ? C.acc : C.uib}`,
+                    padding: '4px 10px',
+                    opacity: isDead ? 0.32 : 1,
+                    cursor: isDead || s.onRoof ? 'default' : 'pointer',
+                    userSelect: 'none',
+                  }}
+                  title={isDead ? 'KIA' : s.onRoof ? 'Rooftop sniper — cannot be moved' : isSel ? 'Click to deselect' : 'Click to select & move'}
+                >
+                  <span style={{ color: isDead ? C.dng : s.ammo === 0 ? C.dng : isSel ? '#fff' : C.acc, fontWeight: 'bold', fontSize: '10px' }}>{s.name}</span>
+                  <span style={{ color: '#666', fontSize: '9px', margin: '0 3px' }}>{'FMB'[s.lane || 0]}</span>
+                  <span style={{ color: C.txt, fontSize: '9px' }}>{isDead ? 'KIA' : s.state.toUpperCase()}</span>
+                  <span style={{ color: s.ammo === 0 ? C.dng : C.txt, fontSize: '9px', marginLeft: '4px' }}>{isDead ? '─' : `${s.ammo}/${s.maxAmmo}`}</span>
+                  {isSel && <span style={{ color: C.acc, fontSize: '9px', marginLeft: '4px' }}>◉</span>}
+                </div>
+              );
+            })}
             <button style={ctrlBtn} onClick={() => moveSquad('advance')}>ADVANCE ▶</button>
             <button style={mbtn} onClick={togglePause}>{paused ? '▶ RESUME' : '⏸ PAUSE'}</button>
             <button style={mbtn} onClick={toggleMute}>{muted ? '🔇' : '🔊'}</button>
@@ -774,8 +823,20 @@ export default function DeadPerimeter() {
                     <div style={{ flex: 1, height: '3px', background: '#1a1a1a' }}><div style={{ height: '3px', width: `${(s.hp / s.maxHp) * 100}%`, background: s.hp > 60 ? C.acc : s.hp > 30 ? C.wrn : C.dng }} /></div>
                     <span style={{ ...lbl, minWidth: '28px' }}>{s.state === 'dead' ? 'KIA' : `${s.hp}HP`}</span>
                   </div>
-                  {s.state !== 'dead' && s.hp < s.maxHp && (
-                    <button style={{ ...btn('#162814', '#336622'), fontSize: '8px', padding: '2px 6px', marginTop: '3px', marginRight: 0 }} onClick={() => healSoldier(i)} disabled={gs.resources.medicine < 5}>💊 HEAL (5)</button>
+                  {s.state !== 'dead' && (
+                    <div style={{ display: 'flex', gap: '3px', marginTop: '3px', flexWrap: 'wrap' }}>
+                      {s.hp < s.maxHp && (
+                        <button style={{ ...btn('#162814', '#336622'), fontSize: '8px', padding: '2px 6px', marginRight: 0 }} onClick={() => healSoldier(i)} disabled={gs.resources.medicine < 5}>💊 HEAL</button>
+                      )}
+                      {!s.onRoof && (
+                        <button
+                          style={{ ...btn('#1a2435', '#3a5588'), fontSize: '8px', padding: '2px 6px', marginRight: 0 }}
+                          onClick={() => benchSoldier(i)}
+                          disabled={(gs.reserve?.length || 0) >= BALANCE.maxReserveSoldiers}
+                          title={(gs.reserve?.length || 0) >= BALANCE.maxReserveSoldiers ? 'Reserve full' : 'Send to reserve'}
+                        >🛏 BENCH</button>
+                      )}
+                    </div>
                   )}
                 </div>
               ))}
@@ -801,15 +862,24 @@ export default function DeadPerimeter() {
                   Call evac to airlift civilians out: +{BALANCE.evacFoodPerCiv} food, +{BALANCE.evacMedicinePerCiv} med, +{BALANCE.evacSniperAmmoPerCiv} sniper ammo per civ.
                 </div>
                 <div style={row}>
-                  {gs.reserve.map((r, i) => (
-                    <div key={i} style={{ ...card, minWidth: '110px', borderColor: '#1a3a52', background: 'rgba(12,20,30,0.85)' }}>
-                      <div style={{ color: '#88ddff', fontWeight: 'bold', fontSize: '11px' }}>
-                        {r.name} {r.civilian && <span style={{ color: '#88ddff', fontSize: '8px' }}>· civ</span>}
+                  {gs.reserve.map((r, i) => {
+                    const activeFull = gs.soldiers.filter(s => s.state !== 'dead').length >= BALANCE.maxActiveSoldiers;
+                    return (
+                      <div key={i} style={{ ...card, minWidth: '110px', borderColor: '#1a3a52', background: 'rgba(12,20,30,0.85)' }}>
+                        <div style={{ color: '#88ddff', fontWeight: 'bold', fontSize: '11px' }}>
+                          {r.name} {r.civilian && <span style={{ color: '#88ddff', fontSize: '8px' }}>· civ</span>}
+                        </div>
+                        <div style={{ fontSize: '9px', color: C.txt }}>{WPN[r.weapon]?.name}</div>
+                        <div style={{ fontSize: '8px', color: C.txt, opacity: 0.6, marginTop: '2px' }}>standby</div>
+                        <button
+                          style={{ ...btn('#1a3028', '#338866'), fontSize: '8px', padding: '2px 6px', marginTop: '3px', marginRight: 0 }}
+                          onClick={() => activateReserve(i)}
+                          disabled={activeFull}
+                          title={activeFull ? 'Active squad full — bench someone first' : 'Promote to active duty'}
+                        >⚔ ACTIVATE</button>
                       </div>
-                      <div style={{ fontSize: '9px', color: C.txt }}>{WPN[r.weapon]?.name}</div>
-                      <div style={{ fontSize: '8px', color: C.txt, opacity: 0.6, marginTop: '2px' }}>standby</div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </>
             )}
