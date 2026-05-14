@@ -26,12 +26,14 @@ export function resolveExpedition(soldier, dest, gs) {
   const prep = (hpBonus + weaponBonus + ammoBonus) / 0.35;             // 0..1
   const dmg = Math.max(1, Math.round(baseDmg * (1 - prep * 0.30)));
 
+  // Reward tables now also drop turretAmmo on MED / HIGH runs since the
+  // dedicated MG-ammo pool can't be replenished from regular ammo crates.
   let outcome, reward = {}, recruit = null;
   if (roll < threshold) {
     outcome = 'success';
     if (dest.risk === 'LOW') { reward.medicine = rng(15, 25); reward.food = rng(10, 18); }
-    else if (dest.risk === 'MED') { reward.ammo = rng(20, 40); reward.materials = rng(5, 12); reward.sniperAmmo = rng(2, 5); }
-    else { reward.ammo = rng(15, 25); reward.medicine = rng(8, 15); reward.food = rng(10, 20); reward.materials = rng(8, 18); reward.sniperAmmo = rng(4, 8); }
+    else if (dest.risk === 'MED') { reward.ammo = rng(20, 40); reward.materials = rng(5, 12); reward.sniperAmmo = rng(2, 5); reward.turretAmmo = rng(8, 18); }
+    else { reward.ammo = rng(15, 25); reward.medicine = rng(8, 15); reward.food = rng(10, 20); reward.materials = rng(8, 18); reward.sniperAmmo = rng(4, 8); reward.turretAmmo = rng(12, 25); }
     const availNames = RECRUIT_NAMES.filter(n => !gs.usedNames.has(n));
     if (availNames.length > 0 && gs.soldiers.filter(s => s.state !== 'dead').length < 6) {
       const name = availNames[Math.floor(Math.random() * availNames.length)];

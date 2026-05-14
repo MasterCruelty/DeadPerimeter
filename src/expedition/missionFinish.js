@@ -31,6 +31,7 @@ export function finishMission(m, gs) {
   if (m.collected.food)      { gs.resources.food      = Math.min(999, gs.resources.food + m.collected.food);           reward.food = m.collected.food; }
   if (m.collected.materials) { gs.resources.materials = Math.min(999, gs.resources.materials + m.collected.materials); reward.materials = m.collected.materials; }
   if (m.collected.sniperAmmo){ gs.resources.sniperAmmo= Math.min(99,  (gs.resources.sniperAmmo || 0) + m.collected.sniperAmmo); reward.sniperAmmo = m.collected.sniperAmmo; }
+  if (m.collected.turretAmmo){ gs.resources.turretAmmo= Math.min(999, (gs.resources.turretAmmo || 0) + m.collected.turretAmmo); reward.turretAmmo = m.collected.turretAmmo; }
 
   let recruit = null;
   if (m.collected.civilian && outcome === 'success') {
