@@ -6,7 +6,7 @@ export const mkGS = () => {
   delta.x = WX - 40; delta.state = 'idle';
   return {
     phase: 'menu', day: 1, wave: 1, baseHp: 200, baseMaxHp: 200,
-    resources: { food: 40, ammo: 80, medicine: 6, materials: 25, sniperAmmo: 5 },
+    resources: { food: 40, ammo: 80, medicine: 6, materials: 25, sniperAmmo: 5, turretAmmo: 30 },
     soldiers: [
       mkSoldier('Alpha',   'rifle',  224, 100, 0),
       mkSoldier('Bravo',   'rifle',  248, 100, 1),
