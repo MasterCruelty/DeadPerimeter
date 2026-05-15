@@ -47,6 +47,14 @@ export function mkMission(soldier, dest) {
   const civChance = dest.risk === 'HIGH' ? 1.0 : dest.risk === 'MED' ? 0.5 : 0;
   if (Math.random() < civChance) pickups.push({ id: uid(), x: MISSION_W - 200, type: 'civilian', value: 1, collected: false, lane: 0 });
 
+  // Rare lost-military-soldier pickup. Small chance on MED, real chance
+  // on HIGH; never on LOW. Visual icon: 🪖 (helmet). Yields a veteran
+  // recruit with a stronger weapon pool and 120 max HP.
+  const lostChance = dest.risk === 'HIGH' ? 0.45 : dest.risk === 'MED' ? 0.18 : 0;
+  if (Math.random() < lostChance) {
+    pickups.push({ id: uid(), x: MISSION_W - 320 + rng(-40, 40), type: 'lostSoldier', value: 1, collected: false, lane: 0 });
+  }
+
   // Fork pickup clusters: per-lane bonus content. Low lane = combat
   // resources (ammo / turret ammo / materials), High lane = healing /
   // sniper ammo / a chance of a survivor pickup.
@@ -193,7 +201,7 @@ export function mkMission(soldier, dest) {
     state: 'active',
     // Activation tracking for the goal kill-ratio gate
     activatedCount: 0, killedCount: 0, _lastGoalHint: 0,
-    collected: { ammo: 0, medicine: 0, food: 0, materials: 0, sniperAmmo: 0, turretAmmo: 0, civilian: null, rescuedCivs: 0 },
+    collected: { ammo: 0, medicine: 0, food: 0, materials: 0, sniperAmmo: 0, turretAmmo: 0, civilian: null, rescuedCivs: 0, lostSoldier: null },
     startedAt: 0, endedAt: 0,
   };
 }
@@ -619,8 +627,16 @@ export function updateMission(m, now, dt) {
     });
     if (grabber) {
       p.collected = true;
-      if (p.type === 'civilian') { m.collected.civilian = true; m.effects.push({ type: 'txt', x: p.x, y: MGY - 70, v: 'CIVILIAN!', col: '#88ddff', at: now, dur: 1000 }); }
-      else { m.collected[p.type] += p.value; m.effects.push({ type: 'txt', x: p.x, y: MGY - 70, v: `+${p.value} ${p.type}`, col: C.acc, at: now, dur: 900 }); }
+      if (p.type === 'civilian') {
+        m.collected.civilian = true;
+        m.effects.push({ type: 'txt', x: p.x, y: MGY - 70, v: 'CIVILIAN!', col: '#88ddff', at: now, dur: 1000 });
+      } else if (p.type === 'lostSoldier') {
+        m.collected.lostSoldier = true;
+        m.effects.push({ type: 'txt', x: p.x, y: MGY - 70, v: 'LOST SOLDIER!', col: '#ffd54a', at: now, dur: 1200 });
+      } else {
+        m.collected[p.type] += p.value;
+        m.effects.push({ type: 'txt', x: p.x, y: MGY - 70, v: `+${p.value} ${p.type}`, col: C.acc, at: now, dur: 900 });
+      }
     }
   });
 

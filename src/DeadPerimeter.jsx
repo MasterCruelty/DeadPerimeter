@@ -164,11 +164,11 @@ export default function DeadPerimeter() {
       const r = result.recruit;
       const activeCount = gs.soldiers.filter(s => s.state !== 'dead').length;
       if (activeCount < BALANCE.maxActiveSoldiers) {
-        const ns = mkSoldier(r.name, r.weapon, 270, r.hp, Math.floor(Math.random() * 3), true);
+        const ns = mkSoldier(r.name, r.weapon, 270, r.hp, Math.floor(Math.random() * 3), !!r.civilian, false, { veteran: !!r.veteran });
         ns.ammo = 0; gs.soldiers.push(ns);
       } else if ((gs.reserve?.length || 0) < BALANCE.maxReserveSoldiers) {
         gs.reserve = gs.reserve || [];
-        gs.reserve.push({ name: r.name, weapon: r.weapon, civilian: true, hp: r.hp });
+        gs.reserve.push({ name: r.name, weapon: r.weapon, civilian: !!r.civilian, veteran: !!r.veteran, hp: r.hp });
       }
     }
 
@@ -257,7 +257,7 @@ export default function DeadPerimeter() {
     if (s.onRoof) return;
     if ((gs.reserve?.length || 0) >= BALANCE.maxReserveSoldiers) return;
     gs.reserve = gs.reserve || [];
-    gs.reserve.push({ name: s.name, weapon: s.weapon, civilian: !!s.civilian, hp: s.hp });
+    gs.reserve.push({ name: s.name, weapon: s.weapon, civilian: !!s.civilian, veteran: !!s.veteran, hp: s.hp });
     gs.soldiers.splice(idx, 1);
     saveGame(gs); setHasSave(true);
     setUi({ ...gs, soldiers: gs.soldiers.map(s => ({ ...s })) });
@@ -267,7 +267,7 @@ export default function DeadPerimeter() {
     const gs = gsRef.current; if (!gs) return;
     const r = (gs.reserve || [])[idx]; if (!r) return;
     if (gs.soldiers.filter(s => s.state !== 'dead').length >= BALANCE.maxActiveSoldiers) return;
-    const ns = mkSoldier(r.name, r.weapon, 270, r.hp ?? 100, Math.floor(Math.random() * 3), !!r.civilian);
+    const ns = mkSoldier(r.name, r.weapon, 270, r.hp ?? 100, Math.floor(Math.random() * 3), !!r.civilian, false, { veteran: !!r.veteran });
     ns.ammo = 0;
     gs.soldiers.push(ns);
     gs.reserve.splice(idx, 1);
@@ -829,7 +829,9 @@ export default function DeadPerimeter() {
               {gs?.soldiers?.map((s, i) => (
                 <div key={s.id} style={{ ...card, opacity: s.state === 'dead' ? 0.34 : 1, borderColor: s.state === 'dead' ? C.dng : C.uib, minWidth: '130px' }}>
                   <div style={{ color: s.state === 'dead' ? C.dng : C.acc, fontWeight: 'bold', fontSize: '11px' }}>
-                    {s.name} {s.state === 'dead' && '†'} {s.civilian && s.state !== 'dead' && <span style={{ color: '#88ddff', fontSize: '9px', marginLeft: '2px' }}>· civ</span>}
+                    {s.name} {s.state === 'dead' && '†'}
+                    {s.civilian && s.state !== 'dead' && <span style={{ color: '#88ddff', fontSize: '9px', marginLeft: '2px' }}>· civ</span>}
+                    {s.veteran && s.state !== 'dead' && <span style={{ color: '#ffd54a', fontSize: '9px', marginLeft: '2px' }}>· vet</span>}
                   </div>
                   <div style={{ fontSize: '9px', color: C.txt }}>{WPN[s.weapon]?.name} · Lane {'FMB'[s.lane || 0]}</div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '4px' }}>
@@ -892,7 +894,9 @@ export default function DeadPerimeter() {
                     return (
                       <div key={i} style={{ ...card, minWidth: '110px', borderColor: '#1a3a52', background: 'rgba(12,20,30,0.85)' }}>
                         <div style={{ color: '#88ddff', fontWeight: 'bold', fontSize: '11px' }}>
-                          {r.name} {r.civilian && <span style={{ color: '#88ddff', fontSize: '8px' }}>· civ</span>}
+                          {r.name}
+                          {r.civilian && <span style={{ color: '#88ddff', fontSize: '8px', marginLeft: '2px' }}>· civ</span>}
+                          {r.veteran && <span style={{ color: '#ffd54a', fontSize: '8px', marginLeft: '2px' }}>· vet</span>}
                         </div>
                         <div style={{ fontSize: '9px', color: C.txt }}>{WPN[r.weapon]?.name}</div>
                         <div style={{ fontSize: '8px', color: C.txt, opacity: 0.6, marginTop: '2px' }}>standby</div>
