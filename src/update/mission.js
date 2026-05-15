@@ -1,7 +1,7 @@
 import { C, CH, uid, rng } from '../constants.js';
 import { WPN } from '../data/weapons.js';
 import { ZTP } from '../data/zombies.js';
-import { MISSION_W, MISSION_VIEW, MGY, objIcons } from '../data/expeditions.js';
+import { MISSION_W, MISSION_VIEW, MGY, objIcons, rollEncounter } from '../data/expeditions.js';
 import { BIOMES, DEFAULT_BIOME } from '../data/biomes.js';
 import { BALANCE } from '../data/difficulty.js';
 import { dZombie } from '../render/zombie.js';
@@ -222,6 +222,44 @@ export function mkMission(soldier, dest, wave = 1) {
   const msol = buildMissionSoldier(lead, 0);
   const followers = partySoldiers.slice(1).map((s, i) => buildMissionSoldier(s, i + 1));
 
+  // ── SURVIVOR ENCOUNTER ─────────────────────────────────────────
+  // Defend missions skip the encounter (the ambush IS the event).
+  // Reach missions get a 28% / 40% chance (MED / HIGH) of running
+  // into another group of survivors mid-route. The group is either
+  // already hostile (bandits) or peaceful traders who turn hostile
+  // if the player refuses their offer.
+  const humans = [];
+  let encounter = null;
+  if (objective !== 'defend') {
+    encounter = rollEncounter(dest.risk);
+    if (encounter) {
+      encounter.x = MISSION_W * (0.32 + Math.random() * 0.10);
+      encounter.resolved = false;
+      const bandit = encounter.type === 'hostile';
+      const count = bandit ? rng(3, 4) : rng(2, 3);
+      const weapons = ['pistol', 'pistol', 'shotgun', 'rifle'];
+      for (let i = 0; i < count; i++) {
+        const w = weapons[Math.floor(Math.random() * weapons.length)];
+        const meta = WPN[w];
+        humans.push({
+          id: uid(), x: encounter.x + 40 + i * 18,
+          hp: 50, maxHp: 50,
+          weapon: w, maxAmmo: meta.ammo, ammo: Math.floor(meta.ammo * 0.7),
+          state: 'idle', facing: -1,
+          civilian: false, bandit, hostile: bandit,
+          walkPhase: Math.random() * Math.PI * 2,
+          lastShot: 0, reloadStart: 0, hurtTimer: 0, deadAt: 0,
+          // Both bandits and traders start un-activated; the proximity
+          // check (or trader-refuse) flips them on, which also bumps
+          // m.activatedCount toward the goal kill-ratio gate.
+          activated: false,
+          forkLane: 0, _laneY: 0,
+        });
+      }
+      encounter.humanIds = humans.map(h => h.id);
+    }
+  }
+
   // Pre-place a small ambush group just past the defend anchor. They
   // start activated so they charge the player on arrival, selling the
   // "you walked into an ambush" beat.
@@ -256,6 +294,8 @@ export function mkMission(soldier, dest, wave = 1) {
     origSoldier: lead,                   // back-compat: legacy field points to lead
     origSoldiers: partySoldiers,         // full original-soldiers list (for finishMission)
     dest, biomeKey, fork,
+    humans, encounter,
+    dialog: null,                        // { type: 'trade', accept, refuse } when active
     objective, defendAnchor, defendDuration,
     // Wave-scaled spitter values, cached so the DEFEND wave-spawner
     // applies the same scaling as initial mkMission spawns.
@@ -362,10 +402,22 @@ function aiShoot(m, who, now, dt) {
 
 export function updateMission(m, now, dt) {
   if (m.state !== 'active') return;
+  if (m.dialog) return; // Pause world simulation while a survivor dialog is open
   if (!m.startedAt) m.startedAt = now;
   const s = m.soldier;
   s.hurtTimer = Math.max(0, s.hurtTimer - dt);
   (m.followers || []).forEach(f => { f.hurtTimer = Math.max(0, f.hurtTimer - dt); });
+  (m.humans   || []).forEach(h => { h.hurtTimer = Math.max(0, h.hurtTimer - dt); });
+
+  // Trader proximity: open the trade dialog the first time the lead
+  // walks into the camp's radius. Hostile camps skip this and just
+  // attack on sight.
+  if (m.encounter && !m.encounter.resolved && m.encounter.type === 'trader') {
+    if (Math.abs(s.x - m.encounter.x) < 90) {
+      m.dialog = { type: 'trade', offer: m.encounter.offer };
+      return;
+    }
+  }
 
   // Lead movement (player-controlled). Acid pool slows movement to 50%.
   const onAcid = (m.hazards || []).some(h => h.type === 'acid' && Math.abs(s.x - h.x) <= h.w / 2);
@@ -603,6 +655,62 @@ export function updateMission(m, now, dt) {
     }
   }
 
+  // ── HOSTILE HUMANS AI ────────────────────────────────────────
+  // Bandits / refused-trader survivors walk into shooting range, hold
+  // position, and fire at the closest party member. Their bullets hit
+  // party members through the same b.hostile pathway used by spitters.
+  (m.humans || []).forEach(h => {
+    if (h.state === 'dead' || !h.hostile || !h.activated) return;
+    const tgt = aliveParty(m).reduce((best, p) => {
+      if (!best) return p;
+      return Math.abs(p.x - h.x) < Math.abs(best.x - h.x) ? p : best;
+    }, null);
+    if (!tgt) return;
+    const dx = tgt.x - h.x;
+    const dist = Math.abs(dx);
+    h.facing = dx >= 0 ? 1 : -1;
+    const wMeta = WPN[h.weapon];
+    const idealRange = (wMeta.range || 220) * 0.7;
+    if (h.state === 'reload') {
+      if (now - h.reloadStart >= wMeta.rl) { h.state = 'idle'; h.ammo = h.maxAmmo; }
+    } else if (dist > idealRange + 30) {
+      h.x += 0.9 * h.facing * (dt / 16);
+      h.state = 'walk';
+    } else if (dist < idealRange - 60) {
+      h.x -= 0.6 * h.facing * (dt / 16);
+      h.state = 'walk';
+    } else {
+      h.state = 'idle';
+      if (h.ammo <= 0) { h.state = 'reload'; h.reloadStart = now; }
+      else if (now - h.lastShot > wMeta.rate) {
+        h.lastShot = now; h.state = 'shoot'; h.ammo--;
+        const pellets = wMeta.pel || 1;
+        for (let p = 0; p < pellets; p++) {
+          const spread = (Math.random() - 0.5) * (wMeta.spread || 0.04);
+          const ang = spread;
+          m.bullets.push({
+            id: uid(),
+            x: h.x + h.facing * 10, y: MGY - 26,
+            dx: h.facing * wMeta.spd * Math.cos(ang),
+            dy: wMeta.spd * Math.sin(ang),
+            dmg: wMeta.pel ? wMeta.dmg / wMeta.pel : wMeta.dmg,
+            life: Math.ceil(wMeta.range / wMeta.spd * 1.15),
+            hostile: true,
+          });
+        }
+        m.soundQ.push({ t: 'fire', w: h.weapon });
+      }
+    }
+  });
+  // Trigger any non-yet-activated bandits when the lead gets close.
+  // Each newly-activated hostile counts toward the kill-ratio gate.
+  (m.humans || []).forEach(h => {
+    if (!h.activated && h.hostile && h.state !== 'dead' && Math.abs(s.x - h.x) < 280) {
+      h.activated = true;
+      m.activatedCount++;
+    }
+  });
+
   // ── HAZARDS ──────────────────────────────────────────────────
   // Mine detonation helper. Used by both the proximity trigger
   // (party member walks on it) and the bullet-shot trigger
@@ -676,6 +784,22 @@ export function updateMission(m, now, dt) {
       return true;
     }
 
+    // Hostile-human bullets damage the party / rescuables / civilians.
+    if (b.hostile) {
+      const hit = aliveTargets(m).find(p => Math.abs(p.x - b.x) < 18);
+      if (hit) {
+        hit.hp -= b.dmg; hit.hurtTimer = 220;
+        m.effects.push({ type: 'txt', x: hit.x, y: MGY - 60, v: `-${Math.round(b.dmg)}`, col: '#ff6644', at: now, dur: 700 });
+        m.effects.push({ type: 'hit', x: b.x, y: b.y, at: now, dur: 200 });
+        if (hit.hp <= 0) {
+          hit.hp = 0; hit.state = 'dead';
+          if (hit.id === s.id) { m.state = 'lost'; m.endedAt = now; }
+        }
+        return false;
+      }
+      return true;
+    }
+
     // Shootable mines: any bullet whose path crosses the mine's x at
     // ground level detonates it (lets the player clear hazards from a
     // safe distance outside the 40 px blast radius).
@@ -685,6 +809,24 @@ export function updateMission(m, now, dt) {
     );
     if (mineHit) {
       m._detonateMine(mineHit);
+      return false;
+    }
+
+    // Friendly bullets hit hostile humans before zombies (humans are
+    // typically closer once an engagement starts).
+    const humanHit = (m.humans || []).find(h =>
+      h.state !== 'dead' && h.hostile && Math.abs(h.x - b.x) < 16
+    );
+    if (humanHit) {
+      humanHit.hp -= b.dmg; humanHit.hurtTimer = 210;
+      m.soundQ.push({ t: 'hit', now });
+      m.effects.push({ type: 'blood', x: b.x, y: b.y, drops: Array.from({ length: 5 }, () => ({ x: 0, y: 0, vx: (Math.random() - 0.5) * 3, vy: -Math.random() * 2 - 0.5, r: 1.4 + Math.random() * 2.4 })), at: now, dur: 580 });
+      m.effects.push({ type: 'hit', x: b.x, y: b.y, at: now, dur: 200 });
+      m.effects.push({ type: 'txt', x: humanHit.x, y: MGY - 60, v: `-${Math.round(b.dmg)}`, col: C.bld, at: now, dur: 680 });
+      if (humanHit.hp <= 0) {
+        humanHit.hp = 0; humanHit.state = 'dead'; humanHit.deadAt = now;
+        m.killedCount++;
+      }
       return false;
     }
 
@@ -1060,6 +1202,27 @@ export function dMissionWorld(ctx, m, now) {
     }
   });
 
+  // Survivor humans (bandits when hostile, neutral traders before they
+  // turn). Rendered between rescuables and the party so they read as
+  // "out in the world" rather than part of the squad.
+  (m.humans || []).forEach(h => {
+    const hc = {
+      ...h, lane: 0, onExpedition: false,
+      civilian: false, bandit: h.bandit, maxHp: h.maxHp, hp: h.hp,
+    };
+    dSoldier(ctx, hc, now);
+    // Tiny status pip above their head: red for hostile, green for trader
+    const px = h.x, py = MGY - 64;
+    ctx.fillStyle = h.hostile ? '#cc2222' : '#44bb44';
+    ctx.beginPath(); ctx.arc(px, py, 2, 0, Math.PI * 2); ctx.fill();
+    if (h.state !== 'dead' && h.hp < h.maxHp) {
+      // small hp bar
+      ctx.fillStyle = 'rgba(20,20,20,0.7)'; ctx.fillRect(px - 11, py + 4, 22, 3);
+      ctx.fillStyle = h.hostile ? '#cc2222' : '#44bb44';
+      ctx.fillRect(px - 11, py + 4, 22 * (h.hp / h.maxHp), 3);
+    }
+  });
+
   // Draw followers first so the lead reads as in front of them.
   (m.followers || []).forEach(f => {
     const fc = { ...f, lane: 0, onExpedition: false, state: f.state };
@@ -1235,5 +1398,53 @@ export function dMissionHUD(ctx, m, now) {
     ctx.font = '12px monospace'; ctx.fillStyle = C.txt;
     ctx.fillText(m.state === 'won' ? 'Returning to Fort Omega...' : `${m.soldier.name} did not return.`, CW_ / 2, CH / 2 + 10);
     ctx.textAlign = 'left';
+  }
+
+  // ── SURVIVOR TRADE DIALOG ───────────────────────────────────
+  // Drawn on top of everything when active. Hit zones for ACCEPT /
+  // REFUSE are returned via m.dialog._buttons so the canvas click
+  // handler can route mouse clicks back to the resolution callbacks.
+  if (m.dialog && m.dialog.type === 'trade') {
+    const offer = m.dialog.offer;
+    const w = 520, h = 200, x = (CW_ - w) / 2, y = (CH - h) / 2;
+    ctx.fillStyle = 'rgba(0,0,0,0.85)'; ctx.fillRect(0, 0, CW_, CH);
+    ctx.fillStyle = 'rgba(10,18,10,0.96)'; ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = C.acc; ctx.lineWidth = 2; ctx.strokeRect(x, y, w, h);
+    ctx.fillStyle = C.acc; ctx.font = 'bold 14px monospace'; ctx.textAlign = 'center';
+    ctx.fillText('SURVIVOR CAMP — TRADE OFFER', CW_ / 2, y + 24);
+    ctx.fillStyle = C.txt; ctx.font = '11px monospace';
+    ctx.fillText('"We can spare some supplies — but it\'s not free."', CW_ / 2, y + 46);
+    ctx.fillText(`They offer: ${offer.desc}`, CW_ / 2, y + 64);
+
+    const fmt = obj => Object.entries(obj).map(([k, v]) => `${v} ${objIcons[k] || k}`).join('   ');
+    ctx.fillStyle = '#ff8855'; ctx.font = 'bold 12px monospace';
+    ctx.fillText(`YOU GIVE: ${fmt(offer.give)}`,  CW_ / 2, y + 92);
+    ctx.fillStyle = '#88ddff';
+    ctx.fillText(`YOU GET:  ${fmt(offer.get)}`,   CW_ / 2, y + 112);
+
+    // Two buttons at the bottom
+    const bw = 200, bh = 32, by = y + h - bh - 16;
+    const ax = x + 24, rx = x + w - bw - 24;
+    ctx.fillStyle = '#1a3a18'; ctx.fillRect(ax, by, bw, bh);
+    ctx.strokeStyle = C.acc; ctx.strokeRect(ax, by, bw, bh);
+    ctx.fillStyle = C.acc; ctx.font = 'bold 12px monospace';
+    ctx.fillText('✓ ACCEPT', ax + bw / 2, by + 21);
+    ctx.fillStyle = '#3a1818'; ctx.fillRect(rx, by, bw, bh);
+    ctx.strokeStyle = C.dng; ctx.strokeRect(rx, by, bw, bh);
+    ctx.fillStyle = C.dng;
+    ctx.fillText('✖ REFUSE (fight)', rx + bw / 2, by + 21);
+    ctx.textAlign = 'left';
+
+    if (m.dialog._error) {
+      ctx.fillStyle = C.dng; ctx.font = '10px monospace'; ctx.textAlign = 'center';
+      ctx.fillText(m.dialog._error, CW_ / 2, by - 8);
+      ctx.textAlign = 'left';
+    }
+
+    // Store hit zones so the canvas onClick can resolve the dialog
+    m.dialog._buttons = {
+      accept: { x: ax, y: by, w: bw, h: bh },
+      refuse: { x: rx, y: by, w: bw, h: bh },
+    };
   }
 }
