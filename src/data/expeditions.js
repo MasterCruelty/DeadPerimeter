@@ -110,3 +110,29 @@ export const KIND_HP = {
   civilian:  70,
   veteran:  120,
 };
+
+// Trade offers from peaceful survivor camps. The player gives the
+// "give" resources, receives the "get" resources. If they refuse the
+// offer the camp turns hostile and a firefight starts.
+export const TRADE_OFFERS = [
+  { give: { food: 15 },               get: { ammo: 22 },      desc: 'food for ammo' },
+  { give: { food: 12 },               get: { medicine: 7 },   desc: 'food for medicine' },
+  { give: { materials: 10 },          get: { medicine: 6 },   desc: 'materials for medicine' },
+  { give: { medicine: 5 },            get: { sniperAmmo: 5 }, desc: 'meds for sniper rounds' },
+  { give: { ammo: 28 },               get: { materials: 14 }, desc: 'ammo for materials' },
+  { give: { food: 20 },               get: { turretAmmo: 16 },desc: 'food for turret belts' },
+  { give: { food: 8, materials: 6 },  get: { sniperAmmo: 7 }, desc: 'food + materials for snipers' },
+  { give: { medicine: 6, ammo: 14 },  get: { turretAmmo: 22 },desc: 'medicine + ammo for turret belts' },
+];
+
+// Roll the chance of a survivor encounter on the way to the objective.
+// Returns one of { type: 'hostile'|'trader', offer? } or null.
+export function rollEncounter(risk) {
+  const chance = risk === 'HIGH' ? 0.40 : risk === 'MED' ? 0.28 : 0;
+  if (Math.random() >= chance) return null;
+  if (Math.random() < 0.5) {
+    return { type: 'hostile' };
+  }
+  const offer = TRADE_OFFERS[Math.floor(Math.random() * TRADE_OFFERS.length)];
+  return { type: 'trader', offer };
+}
