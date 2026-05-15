@@ -228,6 +228,12 @@ export function mkMission(soldier, dest, wave = 1) {
   // into another group of survivors mid-route. The group is either
   // already hostile (bandits) or peaceful traders who turn hostile
   // if the player refuses their offer.
+  //
+  // When an encounter spawns, the immediate area around the camp is
+  // treated as "cleared" — survivors have killed or driven off any
+  // zombies that wandered in, so the player fights ONE faction at a
+  // time. The buffer is also re-applied at proximity (see
+  // updateMission below) to catch any zombie that walked in later.
   const humans = [];
   let encounter = null;
   if (objective !== 'defend') {
@@ -235,6 +241,15 @@ export function mkMission(soldier, dest, wave = 1) {
     if (encounter) {
       encounter.x = MISSION_W * (0.32 + Math.random() * 0.10);
       encounter.resolved = false;
+      encounter.clearRadius = 170;
+      encounter._proxCleared = false;
+      // Remove every zombie spawned inside the buffer so the camp
+      // starts off visually intact.
+      for (let i = zombies.length - 1; i >= 0; i--) {
+        if (Math.abs(zombies[i].x - encounter.x) <= encounter.clearRadius) {
+          zombies.splice(i, 1);
+        }
+      }
       const bandit = encounter.type === 'hostile';
       const count = bandit ? rng(3, 4) : rng(2, 3);
       const weapons = ['pistol', 'pistol', 'shotgun', 'rifle'];
@@ -408,6 +423,21 @@ export function updateMission(m, now, dt) {
   s.hurtTimer = Math.max(0, s.hurtTimer - dt);
   (m.followers || []).forEach(f => { f.hurtTimer = Math.max(0, f.hurtTimer - dt); });
   (m.humans   || []).forEach(h => { h.hurtTimer = Math.max(0, h.hurtTimer - dt); });
+
+  // Encounter buffer zone: when the lead gets close, sweep the area
+  // free of any zombies that drifted into the survivor camp so the
+  // player doesn't end up fighting both factions simultaneously.
+  // Survivors win the encounter zone — they're effectively "the new
+  // tenants" until the player resolves the meeting.
+  if (m.encounter && !m.encounter._proxCleared && Math.abs(s.x - m.encounter.x) < 280) {
+    const r = m.encounter.clearRadius || 170;
+    for (let i = m.zombies.length - 1; i >= 0; i--) {
+      const z = m.zombies[i];
+      if (z.state === 'dead') continue;
+      if (Math.abs(z.x - m.encounter.x) <= r) m.zombies.splice(i, 1);
+    }
+    m.encounter._proxCleared = true;
+  }
 
   // Trader proximity: open the trade dialog the first time the lead
   // walks into the camp's radius. Hostile camps skip this and just

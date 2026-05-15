@@ -677,7 +677,10 @@ export default function DeadPerimeter() {
   };
 
   const sortiesLeft = gs ? BALANCE.expeditionsPerDay - (gs.expeditionsToday || 0) : 0;
-  const canSortie = sortiesLeft > 0;
+  // Expeditions unlock after the first wave is cleared so the player
+  // gets a controlled "tutorial" wave before adding the off-map layer.
+  const expeditionsUnlocked = !gs || gs.wave >= 2;
+  const canSortie = sortiesLeft > 0 && expeditionsUnlocked;
   const partyValid = expSoldierIdxs.length > 0 && expSoldierIdxs.length <= BALANCE.maxExpeditionParty;
 
   const ExpeditionScreen = (
@@ -735,7 +738,8 @@ export default function DeadPerimeter() {
             <div style={{ fontSize: '9px', color: C.txt, opacity: 0.5, marginTop: '8px', lineHeight: '1.5' }}>
               <b style={{ color: C.acc }}>PLAY LIVE</b>: control the first picked soldier; the others follow as AI (auto-shoot in range, knife on dry mag). Lead death = mission failed.<br />
               <b style={{ color: C.txt }}>AUTO-DISPATCH</b>: text-based; up to {BALANCE.maxExpeditionParty} soldiers, rewards stack with diminishing returns.
-              {!canSortie && <><br /><b style={{ color: C.dng }}>NIGHTFALL</b>: no more sorties today — survive the next wave to dispatch again.</>}
+              {!expeditionsUnlocked && <><br /><b style={{ color: C.dng }}>LOCKED</b>: expeditions unlock from wave 2 onward.</>}
+              {expeditionsUnlocked && sortiesLeft <= 0 && <><br /><b style={{ color: C.dng }}>NIGHTFALL</b>: no more sorties today — survive the next wave to dispatch again.</>}
             </div>
           </>
         )}
@@ -1028,9 +1032,18 @@ export default function DeadPerimeter() {
             <button
               style={btn('#1a1a3e', '#4444aa')}
               onClick={() => { resetExp(); setScr('expedition'); }}
-              disabled={sortiesLeft <= 0}
-              title={sortiesLeft <= 0 ? 'No sorties left today' : ''}
-            >🗺 EXPEDITION{sortiesLeft > 0 ? ` (${sortiesLeft}/${BALANCE.expeditionsPerDay})` : ' — NIGHTFALL'}</button>
+              disabled={!canSortie}
+              title={!expeditionsUnlocked ? 'Unlocks after the first wave' : sortiesLeft <= 0 ? 'No sorties left today' : ''}
+            >🗺 EXPEDITION{
+              !expeditionsUnlocked ? ' — LOCKED'
+              : sortiesLeft > 0 ? ` (${sortiesLeft}/${BALANCE.expeditionsPerDay})`
+              : ' — NIGHTFALL'
+            }</button>
+            {!expeditionsUnlocked && (
+              <div style={{ fontSize: '9px', color: C.txt, opacity: 0.55, marginTop: '4px', lineHeight: '1.4' }}>
+                Expeditions unlock from <b>WAVE 2</b>. Survive the first wave to deploy sorties off-base.
+              </div>
+            )}
             <button style={btn()} onClick={startWave} disabled={aliveSols.length === 0}>⚔ DEPLOY</button>
             {aliveSols.length === 0 && <span style={{ color: C.dng, fontSize: '11px', marginLeft: '8px' }}>No soldiers available</span>}
             {gs?.resources?.ammo < 30 && <div style={{ color: C.wrn, fontSize: '10px', marginTop: '6px' }}>⚠ Low ammo — soldiers may run dry mid-wave</div>}
