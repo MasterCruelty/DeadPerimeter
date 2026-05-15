@@ -415,9 +415,9 @@ export default function DeadPerimeter() {
       // Mission survivor-trade dialog: route clicks to ACCEPT / REFUSE.
       const md = missionRef.current?.dialog;
       if (md && md._buttons) {
-        const hit = (b, p) => p.x >= b.x && p.x <= b.x + b.w && p.y >= b.y && p.y <= b.y + b.h;
-        if (hit({ x: mx, y: my }, md._buttons.accept))      { resolveTrade('accept'); return; }
-        if (hit({ x: mx, y: my }, md._buttons.refuse))      { resolveTrade('refuse'); return; }
+        const hit = b => mx >= b.x && mx <= b.x + b.w && my >= b.y && my <= b.y + b.h;
+        if (hit(md._buttons.accept)) { resolveTrade('accept'); return; }
+        if (hit(md._buttons.refuse)) { resolveTrade('refuse'); return; }
         return;
       }
       if (mx > 850 && mx < 892 && my > 4 && my < 34) { toggleMute(); return; }
