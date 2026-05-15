@@ -209,7 +209,7 @@ export default function DeadPerimeter() {
 
     const m = mkMission(party, dest);
     missionRef.current = m;
-    inputRef.current = { left: false, right: false, shoot: false };
+    inputRef.current = { left: false, right: false, shoot: false, up: false, down: false };
     gs.expeditionsToday = (gs.expeditionsToday || 0) + 1;
     setScr('mission');
   }, []);
@@ -400,12 +400,16 @@ export default function DeadPerimeter() {
       if (missionRef.current && missionRef.current.state === 'active') {
         if (e.key === 'ArrowLeft'  || e.key === 'a' || e.key === 'A') { inputRef.current.left = true;  e.preventDefault(); }
         if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') { inputRef.current.right = true; e.preventDefault(); }
+        if (e.key === 'ArrowUp'    || e.key === 'w' || e.key === 'W') { inputRef.current.up = true;    e.preventDefault(); }
+        if (e.key === 'ArrowDown'  || e.key === 's' || e.key === 'S') { inputRef.current.down = true;  e.preventDefault(); }
         if (e.key === ' ' || e.key === 'Spacebar') { inputRef.current.shoot = true; e.preventDefault(); }
       }
     };
     const onKeyUp = e => {
       if (e.key === 'ArrowLeft'  || e.key === 'a' || e.key === 'A') inputRef.current.left = false;
       if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') inputRef.current.right = false;
+      if (e.key === 'ArrowUp'    || e.key === 'w' || e.key === 'W') inputRef.current.up = false;
+      if (e.key === 'ArrowDown'  || e.key === 's' || e.key === 'S') inputRef.current.down = false;
       if (e.key === ' ' || e.key === 'Spacebar') inputRef.current.shoot = false;
     };
     const onMouseDown = e => {
@@ -482,6 +486,8 @@ export default function DeadPerimeter() {
 
       const m = missionRef.current;
       if (m) {
+        m.inputUp    = inputRef.current.up;
+        m.inputDown  = inputRef.current.down;
         m.inputLeft  = inputRef.current.left;
         m.inputRight = inputRef.current.right;
         m.inputShoot = inputRef.current.shoot;

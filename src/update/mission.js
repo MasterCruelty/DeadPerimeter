@@ -41,10 +41,30 @@ export function mkMission(soldier, dest) {
       : type === 'sniperAmmo' ? rng(2, 4)
       : type === 'turretAmmo' ? rng(6, 14)
       : rng(3, 6);
-    pickups.push({ id: uid(), x, type, value, collected: false });
+    // Default lane = 0; bumped to lane 1 below for the high-lane fork cluster.
+    pickups.push({ id: uid(), x, type, value, collected: false, lane: 0 });
   }
   const civChance = dest.risk === 'HIGH' ? 1.0 : dest.risk === 'MED' ? 0.5 : 0;
-  if (Math.random() < civChance) pickups.push({ id: uid(), x: MISSION_W - 200, type: 'civilian', value: 1, collected: false });
+  if (Math.random() < civChance) pickups.push({ id: uid(), x: MISSION_W - 200, type: 'civilian', value: 1, collected: false, lane: 0 });
+
+  // Fork pickup clusters: per-lane bonus content. Low lane = combat
+  // resources (ammo / turret ammo / materials), High lane = healing /
+  // sniper ammo / a chance of a survivor pickup.
+  if (fork) {
+    const innerStart = fork.startX + 60;
+    const innerEnd   = fork.endX   - 60;
+    const lo = ['ammo', 'turretAmmo', 'materials'];
+    const hi = ['medicine', 'sniperAmmo', 'food', 'medicine'];
+    for (let i = 0; i < 3; i++) {
+      const fx = innerStart + (innerEnd - innerStart) * (i + 1) / 4 + rng(-20, 20);
+      const tlo = lo[Math.floor(Math.random() * lo.length)];
+      const thi = hi[Math.floor(Math.random() * hi.length)];
+      const vlo = tlo === 'ammo' ? rng(10, 18) : tlo === 'turretAmmo' ? rng(8, 14) : rng(4, 8);
+      const vhi = thi === 'medicine' ? rng(4, 8) : thi === 'sniperAmmo' ? rng(2, 4) : rng(5, 10);
+      pickups.push({ id: uid(), x: fx, type: tlo, value: vlo, collected: false, lane: 0, fork: true });
+      pickups.push({ id: uid(), x: fx, type: thi, value: vhi, collected: false, lane: 1, fork: true });
+    }
+  }
 
   // Mission objective: 70% normal "reach the goal", 30% "defend".
   // DEFEND missions replace the run-to-goal with holding a marked
@@ -52,6 +72,14 @@ export function mkMission(soldier, dest) {
   const objective = (dest.risk !== 'LOW' && Math.random() < 0.30) ? 'defend' : 'reach';
   const defendAnchor = MISSION_W * 0.65;
   const defendDuration = 45000;
+
+  // Branching path: random 50% on MED/HIGH (mutually exclusive with defend
+  // because the defend anchor sits inside the fork range). Two parallel
+  // lanes between fork.startX and fork.endX. Each lane has its own pickup
+  // cluster; the player picks via W/S on the keyboard.
+  const fork = (objective !== 'defend' && dest.risk !== 'LOW' && Math.random() < 0.50)
+    ? { startX: MISSION_W * 0.40, endX: MISSION_W * 0.62 }
+    : null;
 
   // End-of-stage Brute boss on HIGH-risk runs.
   if (dest.risk === 'HIGH') {
@@ -142,6 +170,9 @@ export function mkMission(soldier, dest) {
     lastShot: 0, reloadStart: 0, shootAt: 0, knifeTimer: 0,
     walkPhase: Math.random() * Math.PI * 2, hurtTimer: 0, reloadTriggered: false,
     onExpedition: true,
+    // Mission fork lane (0 = low / default, 1 = high). _laneY is the
+    // smoothed render offset toward the target lane.
+    forkLane: 0, _laneY: 0,
   });
 
   const msol = buildMissionSoldier(lead, 0);
@@ -151,11 +182,12 @@ export function mkMission(soldier, dest) {
     soldier: msol, followers,
     origSoldier: lead,                   // back-compat: legacy field points to lead
     origSoldiers: partySoldiers,         // full original-soldiers list (for finishMission)
-    dest, biomeKey,
+    dest, biomeKey, fork,
     objective, defendAnchor, defendDuration,
     defendStartedAt: 0, defendNextSpawn: 0,
     zombies, pickups, obstacles, props, hazards, rescuables,
     bullets: [], effects: [], soundQ: [],
+    inputUp: false, inputDown: false,
     cameraX: 0,
     inputLeft: false, inputRight: false, inputShoot: false,
     state: 'active',
@@ -269,6 +301,25 @@ export function updateMission(m, now, dt) {
   }
   s.x = Math.max(40, Math.min(MISSION_W - 40, s.x));
   m.cameraX = Math.max(0, Math.min(MISSION_W - MISSION_VIEW, s.x - MISSION_VIEW / 2));
+
+  // ── FORK LANE SWITCHING ──────────────────────────────────────
+  // Inside the fork range the lead can switch between low (0) and high
+  // (1) lanes via W/S. Outside the fork everything snaps back to lane 0.
+  const inFork = m.fork && s.x >= m.fork.startX && s.x <= m.fork.endX;
+  if (inFork) {
+    if (m.inputUp)   s.forkLane = 1;
+    if (m.inputDown) s.forkLane = 0;
+  } else {
+    s.forkLane = 0;
+  }
+  // Smooth y-offset interp for the lead and every follower
+  const targetY = s.forkLane === 1 ? -34 : 0;
+  s._laneY = s._laneY + (targetY - s._laneY) * Math.min(1, dt / 90);
+  (m.followers || []).forEach(f => {
+    f.forkLane = inFork ? s.forkLane : 0;
+    const fy = f.forkLane === 1 ? -34 : 0;
+    f._laneY = (f._laneY ?? 0) + (fy - (f._laneY ?? 0)) * Math.min(1, dt / 90);
+  });
 
   // Followers: chase the lead at a small offset, ~1.6 px/frame.
   (m.followers || []).forEach((f, i) => {
@@ -553,10 +604,19 @@ export function updateMission(m, now, dt) {
     return true;
   });
 
-  // Pickups can be grabbed by any party member.
+  // Pickups can be grabbed by any party member. Pickups with a fork
+  // lane only count if the picker is on the matching lane.
   m.pickups.forEach(p => {
     if (p.collected) return;
-    const grabber = aliveParty(m).find(member => Math.abs(p.x - member.x) < 28);
+    const grabber = aliveParty(m).find(member => {
+      if (Math.abs(p.x - member.x) >= 28) return false;
+      // Fork pickups require lane match. Non-fork pickups (lane 0) only
+      // count when the picker is also on lane 0 to avoid grabbing them
+      // while floating up on the high lane.
+      const memberLane = member.forkLane || 0;
+      const pLane = p.lane || 0;
+      return memberLane === pLane;
+    });
     if (grabber) {
       p.collected = true;
       if (p.type === 'civilian') { m.collected.civilian = true; m.effects.push({ type: 'txt', x: p.x, y: MGY - 70, v: 'CIVILIAN!', col: '#88ddff', at: now, dur: 1000 }); }
@@ -803,6 +863,34 @@ export function dMissionWorld(ctx, m, now) {
   ctx.strokeStyle = biome.groundLine; ctx.lineWidth = 2;
   ctx.beginPath(); ctx.moveTo(0, MGY); ctx.lineTo(MISSION_W, MGY); ctx.stroke();
 
+  // Branching path (high lane road)
+  if (m.fork) {
+    const f = m.fork;
+    // Upper road segment
+    ctx.fillStyle = biome.ground[0];
+    ctx.fillRect(f.startX, MGY - 38, f.endX - f.startX, 8);
+    ctx.strokeStyle = biome.groundLine; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(f.startX, MGY - 30); ctx.lineTo(f.endX, MGY - 30); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(f.startX, MGY - 38); ctx.lineTo(f.endX, MGY - 38); ctx.stroke();
+    // Diagonal connectors at fork start (split) and end (merge)
+    ctx.fillStyle = biome.ground[0];
+    ctx.beginPath();
+    ctx.moveTo(f.startX - 30, MGY); ctx.lineTo(f.startX, MGY - 38);
+    ctx.lineTo(f.startX, MGY - 30); ctx.lineTo(f.startX - 30, MGY);
+    ctx.closePath(); ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(f.endX, MGY - 38); ctx.lineTo(f.endX + 30, MGY);
+    ctx.lineTo(f.endX, MGY - 30); ctx.closePath(); ctx.fill();
+    // Entry / exit signs
+    ctx.fillStyle = '#1a1a1a'; ctx.fillRect(f.startX - 1.5, MGY - 70, 3, 35);
+    ctx.fillStyle = '#cc8800';
+    ctx.fillRect(f.startX - 18, MGY - 88, 36, 18);
+    ctx.fillStyle = '#fff'; ctx.font = 'bold 7px monospace'; ctx.textAlign = 'center';
+    ctx.fillText('FORK', f.startX, MGY - 78);
+    ctx.fillText('↑W ↓S', f.startX, MGY - 71);
+    ctx.textAlign = 'left';
+  }
+
   // Decorative props (lampposts, fences, neon poles)
   (m.props || []).forEach(p => dProp(ctx, p));
 
@@ -821,7 +909,8 @@ export function dMissionWorld(ctx, m, now) {
   m.pickups.forEach(p => {
     if (p.collected) return;
     const bob = Math.sin(now / 300 + p.x * 0.01) * 3;
-    ctx.save(); ctx.translate(p.x, MGY - 30 + bob);
+    const yOff = (p.lane === 1) ? -34 : 0;
+    ctx.save(); ctx.translate(p.x, MGY - 30 + bob + yOff);
     ctx.fillStyle = p.type === 'civilian' ? 'rgba(136,221,255,0.18)' : 'rgba(114,188,64,0.18)';
     ctx.beginPath(); ctx.arc(0, 0, 18, 0, Math.PI * 2); ctx.fill();
     ctx.fillStyle = 'rgba(20,30,15,0.85)'; ctx.fillRect(-12, -12, 24, 24);
@@ -859,11 +948,15 @@ export function dMissionWorld(ctx, m, now) {
   // Draw followers first so the lead reads as in front of them.
   (m.followers || []).forEach(f => {
     const fc = { ...f, lane: 0, onExpedition: false, state: f.state };
+    ctx.save(); ctx.translate(0, f._laneY || 0);
     dSoldier(ctx, fc, now);
+    ctx.restore();
   });
 
   const sCopy = { ...m.soldier, lane: 0, onExpedition: false, state: m.soldier.state };
+  ctx.save(); ctx.translate(0, m.soldier._laneY || 0);
   dSoldier(ctx, sCopy, now, true); // pass selection ring to mark the lead
+  ctx.restore();
 
   m.effects.forEach(e => dFx(ctx, e, now));
   m.bullets.forEach(b => dBlt(ctx, b));
@@ -962,8 +1055,8 @@ export function dMissionHUD(ctx, m, now) {
   ctx.fillStyle = 'rgba(120,120,80,0.5)'; ctx.font = '9px monospace';
   ctx.fillText(
     m.objective === 'defend'
-      ? '← → MOVE   SPACE/CLICK FIRE   HOLD THE FLAG'
-      : '← → MOVE   SPACE/CLICK FIRE   REACH GOAL',
+      ? '← → MOVE   SPACE/CLICK FIRE   W/S CHANGE LANE   HOLD THE FLAG'
+      : '← → MOVE   SPACE/CLICK FIRE   W/S CHANGE LANE   REACH GOAL',
     12, CH - 12,
   );
 
