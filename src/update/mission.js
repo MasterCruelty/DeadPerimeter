@@ -88,10 +88,12 @@ export function mkMission(soldier, dest, wave = 1) {
   }
 
   // Mission objective: 70% normal "reach the goal", 30% "defend".
-  // DEFEND missions replace the run-to-goal with holding a marked
-  // position for `defendDuration` ms while zombies pile in from the right.
+  // DEFEND missions cut the travel short: the lead reaches a hastily
+  // built sandbag emplacement around 45% of the map, then has to hold
+  // the position for `defendDuration` ms against waves of zombies
+  // pouring in from the deeper city to the right.
   const objective = (dest.risk !== 'LOW' && Math.random() < 0.30) ? 'defend' : 'reach';
-  const defendAnchor = MISSION_W * 0.65;
+  const defendAnchor = MISSION_W * 0.45;
   const defendDuration = 45000;
 
   // Branching path: random 50% on MED/HIGH (mutually exclusive with defend
@@ -220,12 +222,44 @@ export function mkMission(soldier, dest, wave = 1) {
   const msol = buildMissionSoldier(lead, 0);
   const followers = partySoldiers.slice(1).map((s, i) => buildMissionSoldier(s, i + 1));
 
+  // Pre-place a small ambush group just past the defend anchor. They
+  // start activated so they charge the player on arrival, selling the
+  // "you walked into an ambush" beat.
+  if (objective === 'defend') {
+    const ambushCount = dest.risk === 'HIGH' ? rng(4, 6) : rng(3, 4);
+    const ambushTypes = enableSpitter && dest.risk === 'HIGH'
+      ? ['walker', 'walker', 'runner', 'tank', 'spitter']
+      : enableSpitter
+        ? ['walker', 'walker', 'runner', 'spitter']
+        : dest.risk === 'HIGH'
+          ? ['walker', 'walker', 'runner', 'tank']
+          : ['walker', 'walker', 'runner'];
+    for (let i = 0; i < ambushCount; i++) {
+      const t = ambushTypes[Math.floor(Math.random() * ambushTypes.length)];
+      const z = ZTP[t];
+      zombies.push({
+        id: uid(), type: t, z,
+        x: defendAnchor + 90 + Math.random() * 220,
+        hp: z.hp, maxHp: z.hp,
+        spd: z.spd * (0.85 + Math.random() * 0.3),
+        state: 'idle', facing: -1,
+        walkPhase: Math.random() * Math.PI * 2,
+        atkTimer: 0, hurtTimer: 0, deadAt: 0, lane: 0,
+        activated: true,
+        ...(t === 'spitter' ? { _spitDmg: spitDmgScaled, _spitRate: spitRateScaled } : {}),
+      });
+    }
+  }
+
   return {
     soldier: msol, followers,
     origSoldier: lead,                   // back-compat: legacy field points to lead
     origSoldiers: partySoldiers,         // full original-soldiers list (for finishMission)
     dest, biomeKey, fork,
     objective, defendAnchor, defendDuration,
+    // Wave-scaled spitter values, cached so the DEFEND wave-spawner
+    // applies the same scaling as initial mkMission spawns.
+    _spitDmgScaled: spitDmgScaled, _spitRateScaled: spitRateScaled,
     defendStartedAt: 0, defendNextSpawn: 0,
     zombies, pickups, obstacles, props, hazards, rescuables,
     bullets: [], effects: [], soundQ: [],
@@ -559,6 +593,7 @@ export function updateMission(m, now, dt) {
           walkPhase: Math.random() * Math.PI * 2,
           atkTimer: 0, hurtTimer: 0, deadAt: 0, lane: 0,
           activated: true,
+          ...(t === 'spitter' ? { _spitDmg: m._spitDmgScaled, _spitRate: m._spitRateScaled } : {}),
         });
         m.activatedCount++;
       }
@@ -1042,16 +1077,58 @@ export function dMissionWorld(ctx, m, now) {
   m.bullets.forEach(b => dBlt(ctx, b));
 
   if (m.objective === 'defend') {
-    // Defense anchor flag
+    // Sandbag emplacement: a U-shaped barricade around the anchor with
+    // the gap facing the player (left). The right wall is the tallest
+    // since that's where the zombies are pouring in from. Each bag is
+    // a rounded brown sack with a tan top stripe.
     const ax = m.defendAnchor;
+    const drawBag = (bx, by) => {
+      ctx.fillStyle = '#7a5a32';
+      ctx.beginPath();
+      // Rounded rectangle (manual since roundRect isn't everywhere yet).
+      const w = 11, h = 7, r = 2.5;
+      ctx.moveTo(bx - w / 2 + r, by);
+      ctx.lineTo(bx + w / 2 - r, by);
+      ctx.quadraticCurveTo(bx + w / 2, by, bx + w / 2, by + r);
+      ctx.lineTo(bx + w / 2, by + h - r);
+      ctx.quadraticCurveTo(bx + w / 2, by + h, bx + w / 2 - r, by + h);
+      ctx.lineTo(bx - w / 2 + r, by + h);
+      ctx.quadraticCurveTo(bx - w / 2, by + h, bx - w / 2, by + h - r);
+      ctx.lineTo(bx - w / 2, by + r);
+      ctx.quadraticCurveTo(bx - w / 2, by, bx - w / 2 + r, by);
+      ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#a07b48'; ctx.fillRect(bx - 4, by + 0.5, 8, 1.5);
+      ctx.strokeStyle = '#4a3820'; ctx.lineWidth = 0.6;
+      ctx.beginPath(); ctx.moveTo(bx - 4, by + 4); ctx.lineTo(bx + 4, by + 4); ctx.stroke();
+    };
+    // Right wall: 3 high, 4 wide (faces the zombie horde)
+    for (let row = 0; row < 3; row++) {
+      const y = MGY - 7 - row * 7;
+      const offset = (row % 2) * 5;
+      for (let col = 0; col < 4; col++) {
+        drawBag(ax + 20 + offset + col * 11, y);
+      }
+    }
+    // Left wall: short stub, just hip-high (player can see / shoot over)
+    for (let row = 0; row < 2; row++) {
+      const y = MGY - 7 - row * 7;
+      drawBag(ax - 32 + (row % 2) * 5, y);
+      drawBag(ax - 21 + (row % 2) * 5, y);
+    }
+    // Back wall (behind the flag): 1 row, 3 bags
+    for (let col = 0; col < 3; col++) {
+      drawBag(ax - 8 + col * 11, MGY - 14);
+    }
+
+    // Defense anchor flag (sits on top of the back wall)
     const pulse = 0.6 + 0.4 * Math.sin(now / 280);
-    ctx.fillStyle = '#1a1a1a'; ctx.fillRect(ax - 1, MGY - 70, 2, 70);
+    ctx.fillStyle = '#1a1a1a'; ctx.fillRect(ax - 1, MGY - 70, 2, 56);
     ctx.fillStyle = `rgba(255,140,40,${0.5 + pulse * 0.4})`;
     ctx.beginPath();
     ctx.moveTo(ax + 1, MGY - 68); ctx.lineTo(ax + 26, MGY - 60); ctx.lineTo(ax + 1, MGY - 52);
     ctx.closePath(); ctx.fill();
     ctx.fillStyle = C.acc; ctx.font = 'bold 10px monospace'; ctx.textAlign = 'center';
-    ctx.fillText('★ DEFEND ★', ax, MGY - 80); ctx.textAlign = 'left';
+    ctx.fillText('★ LAST STAND ★', ax, MGY - 80); ctx.textAlign = 'left';
   } else {
     const goalX = MISSION_W - 30;
     const pulse = 0.6 + 0.4 * Math.sin(now / 300);
@@ -1075,8 +1152,17 @@ export function dMissionHUD(ctx, m, now) {
 
   const px = 180, pw = 450, ph = 10;
   ctx.fillStyle = '#1a1a1a'; ctx.fillRect(px, 14, pw, ph);
-  const pct = m.soldier.x / MISSION_W;
-  ctx.fillStyle = C.acc; ctx.fillRect(px, 14, pw * pct, ph);
+  // In DEFEND mode once the timer starts, the bar tracks survival time
+  // instead of map progress so the player can see the countdown.
+  let pct;
+  if (m.objective === 'defend' && m.defendStartedAt) {
+    pct = Math.min(1, (now - m.defendStartedAt) / m.defendDuration);
+    ctx.fillStyle = '#ff8844';
+  } else {
+    pct = m.soldier.x / MISSION_W;
+    ctx.fillStyle = C.acc;
+  }
+  ctx.fillRect(px, 14, pw * pct, ph);
   ctx.strokeStyle = C.uib; ctx.strokeRect(px, 14, pw, ph);
   ctx.fillStyle = C.acc; ctx.fillText('★', px + pw + 4, 23);
 
