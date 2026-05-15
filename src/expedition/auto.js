@@ -1,6 +1,11 @@
 import { rng } from '../constants.js';
-import { RECRUIT_NAMES, RECRUIT_WEAPONS } from '../data/expeditions.js';
+import { RECRUIT_NAMES, CIVILIAN_WEAPONS, VETERAN_WEAPONS, KIND_HP } from '../data/expeditions.js';
 import { WPN } from '../data/weapons.js';
+
+// Chance of finding a lost military soldier instead of a civilian on a
+// successful expedition. LOW destinations never yield veterans (just
+// civilians), MED has a small chance, HIGH a real chance.
+const VETERAN_CHANCE = { LOW: 0, MED: 0.12, HIGH: 0.25 };
 
 // Auto-resolve odds are now skill-based rather than pure RNG.
 //   threshold = base + hp_bonus + weapon_bonus + ammo_bonus
@@ -35,10 +40,19 @@ export function resolveExpedition(soldier, dest, gs) {
     else if (dest.risk === 'MED') { reward.ammo = rng(20, 40); reward.materials = rng(5, 12); reward.sniperAmmo = rng(2, 5); reward.turretAmmo = rng(8, 18); }
     else { reward.ammo = rng(15, 25); reward.medicine = rng(8, 15); reward.food = rng(10, 20); reward.materials = rng(8, 18); reward.sniperAmmo = rng(4, 8); reward.turretAmmo = rng(12, 25); }
     const availNames = RECRUIT_NAMES.filter(n => !gs.usedNames.has(n));
-    if (availNames.length > 0 && gs.soldiers.filter(s => s.state !== 'dead').length < 6) {
+    if (availNames.length > 0) {
+      const isVeteran = Math.random() < (VETERAN_CHANCE[dest.risk] || 0);
+      const pool = isVeteran ? VETERAN_WEAPONS : CIVILIAN_WEAPONS;
       const name = availNames[Math.floor(Math.random() * availNames.length)];
-      const weapon = RECRUIT_WEAPONS[Math.floor(Math.random() * RECRUIT_WEAPONS.length)];
-      recruit = { name, weapon, hp: rng(55, 85) };
+      const weapon = pool[Math.floor(Math.random() * pool.length)];
+      const cap = isVeteran ? KIND_HP.veteran : KIND_HP.civilian;
+      // Wounded on rescue — HP scales with kind cap so veterans
+      // come back tougher than civilians.
+      const baseHp = isVeteran ? rng(70, cap - 10) : rng(35, cap - 10);
+      recruit = {
+        name, weapon, hp: baseHp,
+        civilian: !isVeteran, veteran: isVeteran,
+      };
       gs.usedNames.add(name);
     }
   } else {

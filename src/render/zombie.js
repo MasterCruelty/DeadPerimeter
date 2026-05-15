@@ -4,6 +4,7 @@ export function dZombie(ctx, z, now) {
   const ly = laneY(z.lane), sc = laneSc(z.lane);
   ctx.save(); ctx.translate(z.x, ly); ctx.scale(sc, sc);
   if (z.type === 'tank') ctx.scale(1.35, 1.35);
+  else if (z.type === 'brute') ctx.scale(1.7, 1.7);
   ctx.scale(z.facing, 1);
   const cc = z.z.cc;
   const sc2 = z.z.sc;
@@ -62,8 +63,15 @@ export function dZombie(ctx, z, now) {
   ctx.restore(); ctx.restore();
 
   if (z.hp < z.maxHp) {
-    const bary = ly - Math.round(58 * (z.type === 'tank' ? sc * 1.35 : sc));
-    ctx.fillStyle = '#1a1a1a'; ctx.fillRect(z.x - 18, bary, 36, 4);
-    ctx.fillStyle = C.dng; ctx.fillRect(z.x - 18, bary, 36 * (z.hp / z.maxHp), 4);
+    const scaleMul = z.type === 'brute' ? 1.7 : z.type === 'tank' ? 1.35 : 1;
+    const bary = ly - Math.round(58 * sc * scaleMul);
+    const w = z.type === 'brute' ? 60 : 36;
+    ctx.fillStyle = '#1a1a1a'; ctx.fillRect(z.x - w / 2, bary, w, 4);
+    ctx.fillStyle = z.type === 'brute' ? '#cc4400' : C.dng;
+    ctx.fillRect(z.x - w / 2, bary, w * (z.hp / z.maxHp), 4);
+    if (z.type === 'brute') {
+      ctx.fillStyle = '#cc4400'; ctx.font = 'bold 8px monospace'; ctx.textAlign = 'center';
+      ctx.fillText('★ BRUTE ★', z.x, bary - 4); ctx.textAlign = 'left';
+    }
   }
 }

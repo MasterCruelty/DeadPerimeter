@@ -441,7 +441,10 @@ export function update(gs, now, dt) {
         gs.soldiers.filter(s => s.state !== 'dead' && !s.onExpedition).length < BALANCE.maxActiveSoldiers
       ) {
         const r = gs.reserve.shift();
-        const ns = mkSoldier(r.name, r.weapon, 270, 100, Math.floor(Math.random() * 3), !!r.civilian);
+        const ns = mkSoldier(
+          r.name, r.weapon, 270, r.hp ?? undefined,
+          Math.floor(Math.random() * 3), !!r.civilian, false, { veteran: !!r.veteran },
+        );
         ns.ammo = 0;
         gs.soldiers.push(ns);
       }
