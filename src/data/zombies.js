@@ -6,4 +6,8 @@ export const ZTP = {
   tank:   { hp: 220, spd: 0.28, dmg: 18, sc: C.tsk, cc: C.tcl },
   // Mission-only end-of-stage boss for HIGH-risk runs.
   brute:  { hp: 600, spd: 0.40, dmg: 30, sc: '#3a4632', cc: '#0a1208' },
+  // Mission-only ranged zombie. Stops at "spitRange" and lobs an acid
+  // projectile at the closest party member every spitRate ms.
+  spitter:{ hp: 80,  spd: 0.50, dmg: 6,  sc: '#4d8040', cc: '#1f3818',
+           ranged: true, spitRange: 280, spitRate: 1500, spitSpd: 6 },
 };
