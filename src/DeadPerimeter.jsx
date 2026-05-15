@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 
 import { C, CW, CH, WX, laneY, clickToLane, rng } from './constants.js';
 import { WPN } from './data/weapons.js';
-import { EXPEDITION_DESTS, RECRUIT_NAMES, RECRUIT_WEAPONS } from './data/expeditions.js';
+import { rollDestinations, RECRUIT_NAMES, RECRUIT_WEAPONS } from './data/expeditions.js';
 import { isHumanWaveNumber } from './data/humans.js';
 
 import { getAM, processSounds } from './audio/AudioEngine.js';
@@ -51,6 +51,11 @@ export default function DeadPerimeter() {
   const [expVisible, setExpVisible] = useState(0);
   const expSolsRef = useRef([]);
   const expDstRef = useRef(null);
+  // The three destinations currently shown on the expedition screen.
+  // Re-rolled by resetExp() so consecutive sortie sessions never see
+  // the same trio of locations.
+  const expDestsRef = useRef(rollDestinations());
+  const [expDests, setExpDests] = useState(expDestsRef.current);
   const toggleSoldier = useCallback(i => {
     const cur = expSolsRef.current;
     if (cur.includes(i)) {
@@ -149,7 +154,7 @@ export default function DeadPerimeter() {
     if ((gs.expeditionsToday || 0) >= BALANCE.expeditionsPerDay) return;
     const soldiers = idxs.map(i => gs.soldiers[i]).filter(s => s && s.state !== 'dead');
     if (soldiers.length === 0) return;
-    const dest = EXPEDITION_DESTS[di];
+    const dest = expDestsRef.current[di];
 
     const result = soldiers.length === 1
       ? resolveExpedition(soldiers[0], dest, gs)
@@ -197,7 +202,7 @@ export default function DeadPerimeter() {
 
     const party = idxs.map(i => gs.soldiers[i]).filter(s => s && s.state !== 'dead');
     if (party.length === 0) return;
-    const dest = EXPEDITION_DESTS[di];
+    const dest = expDestsRef.current[di];
 
     // Issue ammo from Fort Omega's pool for every party member.
     party.forEach(soldier => {
@@ -209,7 +214,7 @@ export default function DeadPerimeter() {
       soldier.onExpedition = true;
     });
 
-    const m = mkMission(party, dest);
+    const m = mkMission(party, dest, gs.wave || 1);
     missionRef.current = m;
     inputRef.current = { left: false, right: false, shoot: false, up: false, down: false };
     gs.expeditionsToday = (gs.expeditionsToday || 0) + 1;
@@ -321,6 +326,36 @@ export default function DeadPerimeter() {
 
   const skipEvac = useCallback(() => { applyEvac(); }, [applyEvac]);
 
+  // Resolves an open survivor-trade dialog. ACCEPT swaps resources +
+  // makes the camp vanish; REFUSE turns the whole camp hostile.
+  const resolveTrade = useCallback((action) => {
+    const m = missionRef.current; const gs = gsRef.current;
+    if (!m?.dialog || !m.encounter || !gs) return;
+    const ids = m.encounter.humanIds || [];
+    if (action === 'accept') {
+      const offer = m.dialog.offer;
+      const ok = Object.entries(offer.give).every(([k, v]) => (gs.resources[k] || 0) >= v);
+      if (!ok) {
+        // Keep dialog open; the player can REFUSE to back out.
+        m.dialog._error = 'Not enough supplies at Fort Omega.';
+        return;
+      }
+      Object.entries(offer.give).forEach(([k, v]) => { gs.resources[k] = (gs.resources[k] || 0) - v; });
+      Object.entries(offer.get).forEach(([k, v]) => { m.collected[k] = (m.collected[k] || 0) + v; });
+      m.humans = (m.humans || []).filter(h => !ids.includes(h.id));
+      m.encounter.resolved = true;
+      m.dialog = null;
+    } else if (action === 'refuse') {
+      (m.humans || []).forEach(h => {
+        if (ids.includes(h.id)) {
+          h.hostile = true; h.bandit = true; h.activated = true;
+        }
+      });
+      m.encounter.resolved = true;
+      m.dialog = null;
+    }
+  }, []);
+
   const buildTurret = useCallback(() => {
     const gs = gsRef.current;
     if (
@@ -377,6 +412,14 @@ export default function DeadPerimeter() {
     const onClick = e => {
       const r = canvas.getBoundingClientRect();
       const mx = (e.clientX - r.left) * (CW / r.width), my = (e.clientY - r.top) * (CH / r.height);
+      // Mission survivor-trade dialog: route clicks to ACCEPT / REFUSE.
+      const md = missionRef.current?.dialog;
+      if (md && md._buttons) {
+        const hit = (b, p) => p.x >= b.x && p.x <= b.x + b.w && p.y >= b.y && p.y <= b.y + b.h;
+        if (hit({ x: mx, y: my }, md._buttons.accept))      { resolveTrade('accept'); return; }
+        if (hit({ x: mx, y: my }, md._buttons.refuse))      { resolveTrade('refuse'); return; }
+        return;
+      }
       if (mx > 850 && mx < 892 && my > 4 && my < 34) { toggleMute(); return; }
       const gs = gsRef.current;
       if (!gs || gs.phase !== 'siege' || my <= 38) return;
@@ -627,6 +670,10 @@ export default function DeadPerimeter() {
     setExpResult(null); setExpPhase(null); setExpEvents([]); setExpVisible(0);
     expSolsRef.current = []; expDstRef.current = null;
     setExpSoldierIdxs([]); setExpDestIdx(null);
+    // Re-roll the three destinations on every fresh expedition session
+    // so the player never sees the same trio twice in a row.
+    expDestsRef.current = rollDestinations();
+    setExpDests(expDestsRef.current);
   };
 
   const sortiesLeft = gs ? BALANCE.expeditionsPerDay - (gs.expeditionsToday || 0) : 0;
@@ -664,7 +711,7 @@ export default function DeadPerimeter() {
               );
             })}</div>
             <div style={h2}>CHOOSE DESTINATION</div>
-            <div style={row}>{EXPEDITION_DESTS.map((d, i) => (
+            <div style={row}>{expDests.map((d, i) => (
               <div key={i} onClick={() => pickDest(i)} style={{ ...card, cursor: 'pointer', flex: 1, borderColor: expDestIdx === i ? d.riskColor : C.uib, opacity: expDestIdx === i ? 1 : 0.72 }}>
                 <div style={{ fontSize: '17px', marginBottom: '2px' }}>{d.icon}</div>
                 <div style={{ color: C.acc, fontWeight: 'bold', fontSize: '10px' }}>{d.name}</div>

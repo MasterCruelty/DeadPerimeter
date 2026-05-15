@@ -8,6 +8,9 @@ export const ZTP = {
   brute:  { hp: 600, spd: 0.40, dmg: 30, sc: '#3a4632', cc: '#0a1208' },
   // Mission-only ranged zombie. Stops at "spitRange" and lobs an acid
   // projectile at the closest party member every spitRate ms.
-  spitter:{ hp: 80,  spd: 0.50, dmg: 6,  sc: '#4d8040', cc: '#1f3818',
-           ranged: true, spitRange: 280, spitRate: 1500, spitSpd: 6 },
+  // Base values are the late-game baseline. mkMission spawns spitters
+  // with per-instance _spitDmg / _spitRate overrides so early waves
+  // get gentler stats; from wave ~13 onward the base values apply.
+  spitter:{ hp: 80,  spd: 0.50, dmg: 4,  sc: '#4d8040', cc: '#1f3818',
+           ranged: true, spitRange: 240, spitRate: 1500, spitSpd: 6 },
 };
