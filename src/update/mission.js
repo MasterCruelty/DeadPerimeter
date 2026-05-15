@@ -14,8 +14,8 @@ export function mkMission(soldier, dest) {
   for (let i = 0; i < totalZ; i++) {
     const x = 400 + Math.random() * (MISSION_W - 700);
     const types = dest.risk === 'LOW' ? ['walker']
-      : dest.risk === 'MED' ? ['walker', 'walker', 'runner']
-      : ['walker', 'runner', 'runner', 'tank'];
+      : dest.risk === 'MED' ? ['walker', 'walker', 'runner', 'spitter']
+      : ['walker', 'runner', 'runner', 'tank', 'spitter'];
     const t = types[Math.floor(Math.random() * types.length)];
     const z = ZTP[t];
     zombies.push({
@@ -45,6 +45,13 @@ export function mkMission(soldier, dest) {
   }
   const civChance = dest.risk === 'HIGH' ? 1.0 : dest.risk === 'MED' ? 0.5 : 0;
   if (Math.random() < civChance) pickups.push({ id: uid(), x: MISSION_W - 200, type: 'civilian', value: 1, collected: false });
+
+  // Mission objective: 70% normal "reach the goal", 30% "defend".
+  // DEFEND missions replace the run-to-goal with holding a marked
+  // position for `defendDuration` ms while zombies pile in from the right.
+  const objective = (dest.risk !== 'LOW' && Math.random() < 0.30) ? 'defend' : 'reach';
+  const defendAnchor = MISSION_W * 0.65;
+  const defendDuration = 45000;
 
   // End-of-stage Brute boss on HIGH-risk runs.
   if (dest.risk === 'HIGH') {
@@ -145,6 +152,8 @@ export function mkMission(soldier, dest) {
     origSoldier: lead,                   // back-compat: legacy field points to lead
     origSoldiers: partySoldiers,         // full original-soldiers list (for finishMission)
     dest, biomeKey,
+    objective, defendAnchor, defendDuration,
+    defendStartedAt: 0, defendNextSpawn: 0,
     zombies, pickups, obstacles, props, hazards, rescuables,
     bullets: [], effects: [], soundQ: [],
     cameraX: 0,
@@ -318,6 +327,47 @@ export function updateMission(m, now, dt) {
     if (targets.length === 0) return;
     const tgt = targets.reduce((a, b) => Math.abs(a.x - z.x) < Math.abs(b.x - z.x) ? a : b);
     const dx = tgt.x - z.x;
+    const meta = z.z;
+
+    // ── Ranged zombies (spitters) keep their distance and lob acid ──
+    if (meta.ranged) {
+      z.facing = dx > 0 ? 1 : -1;
+      const absDx = Math.abs(dx);
+      const idealMin = meta.spitRange * 0.5;
+      const idealMax = meta.spitRange * 0.95;
+      if (absDx > idealMax) {
+        // Close in to range
+        z.x += z.spd * z.facing * (dt / 16);
+        z.state = 'walk';
+      } else if (absDx < idealMin) {
+        // Back away
+        z.x -= z.spd * 0.6 * z.facing * (dt / 16);
+        z.state = 'walk';
+      } else {
+        z.state = 'attack';
+      }
+      if (z.state === 'attack') {
+        z.atkTimer += dt;
+        if (z.atkTimer >= meta.spitRate) {
+          z.atkTimer = 0;
+          const dxr = tgt.x - z.x;
+          const dyr = -10;
+          const len = Math.hypot(dxr, dyr);
+          m.bullets.push({
+            id: uid(),
+            x: z.x + z.facing * 14, y: MGY - 24,
+            dx: (dxr / len) * meta.spitSpd,
+            dy: (dyr / len) * meta.spitSpd + 0.06, // slight gravity arc
+            dmg: meta.dmg,
+            life: Math.ceil(meta.spitRange / meta.spitSpd * 1.4),
+            spit: true,
+          });
+          m.soundQ.push({ t: 'zatk' });
+        }
+      }
+      return;
+    }
+
     if (z.state === 'idle' || z.state === 'walk') {
       z.facing = dx > 0 ? 1 : -1;
       if (Math.abs(dx) > 40) { z.x += z.spd * z.facing * (dt / 16); if (z.state === 'idle') z.state = 'walk'; }
@@ -384,6 +434,46 @@ export function updateMission(m, now, dt) {
     aiShoot(m, f, now, dt);
   });
 
+  // ── DEFEND OBJECTIVE ─────────────────────────────────────────
+  // The lead must reach the anchor flag to start the timer, then
+  // survive until defendDuration ms elapse. New zombies spawn from the
+  // right edge at a steady cadence until time is up.
+  if (m.objective === 'defend') {
+    if (!m.defendStartedAt && Math.abs(s.x - m.defendAnchor) < 32) {
+      m.defendStartedAt = now;
+      m.defendNextSpawn = now + 800;
+      m.effects.push({ type: 'txt', x: s.x, y: MGY - 80, v: 'HOLD POSITION!', col: '#ff8800', at: now, dur: 1800 });
+    }
+    if (m.defendStartedAt) {
+      const elapsed = now - m.defendStartedAt;
+      // Spawn cadence ramps up as time progresses
+      const cadence = Math.max(700, 1800 - elapsed / 30);
+      if (now >= (m.defendNextSpawn || 0)) {
+        m.defendNextSpawn = now + cadence;
+        // Pick a type based on elapsed (harder enemies later)
+        const t = elapsed > 25000 && Math.random() < 0.25 ? 'tank'
+               : elapsed > 10000 && Math.random() < 0.35 ? 'runner'
+               : elapsed > 15000 && Math.random() < 0.18 ? 'spitter'
+               : 'walker';
+        const z = ZTP[t];
+        m.zombies.push({
+          id: uid(), type: t, z,
+          x: m.defendAnchor + 260 + Math.random() * 60,
+          hp: z.hp, maxHp: z.hp,
+          spd: z.spd * (0.85 + Math.random() * 0.3),
+          state: 'walk', facing: -1,
+          walkPhase: Math.random() * Math.PI * 2,
+          atkTimer: 0, hurtTimer: 0, deadAt: 0, lane: 0,
+          activated: true,
+        });
+        m.activatedCount++;
+      }
+      if (elapsed >= m.defendDuration) {
+        m.state = 'won'; m.endedAt = now;
+      }
+    }
+  }
+
   // ── HAZARDS ──────────────────────────────────────────────────
   // Mines: trigger on first contact with any party member, AoE damage.
   // Acid pools: tick damage every 500 ms while standing on them.
@@ -429,6 +519,28 @@ export function updateMission(m, now, dt) {
   m.bullets = m.bullets.filter(b => {
     b.x += b.dx; b.y += b.dy; b.life--;
     if (b.life <= 0 || b.x < 0 || b.x > MISSION_W) return false;
+
+    if (b.spit) {
+      // Acid spit hits any living party member or rescuable in its path.
+      const hit = aliveTargets(m).find(p => Math.abs(p.x - b.x) < 18 && b.y > MGY - 38);
+      if (hit) {
+        hit.hp -= b.dmg; hit.hurtTimer = 240;
+        m.effects.push({ type: 'txt', x: hit.x, y: MGY - 60, v: `-${b.dmg}`, col: '#88cc44', at: now, dur: 700 });
+        m.effects.push({ type: 'hit', x: b.x, y: b.y, at: now, dur: 220 });
+        if (hit.hp <= 0) {
+          hit.hp = 0; hit.state = 'dead';
+          if (hit.id === s.id) { m.state = 'lost'; m.endedAt = now; }
+        }
+        return false;
+      }
+      // Splash on the ground
+      if (b.y >= MGY - 2) {
+        m.effects.push({ type: 'hit', x: b.x, y: MGY - 2, at: now, dur: 260 });
+        return false;
+      }
+      return true;
+    }
+
     const hit = m.zombies.find(z => z.state !== 'dead' && Math.abs(z.x - b.x) < 20);
     if (hit) {
       hit.hp -= b.dmg; hit.hurtTimer = 210; m.soundQ.push({ t: 'hit', now });
@@ -456,7 +568,9 @@ export function updateMission(m, now, dt) {
 
   // Goal gate: cannot exit until you've cleared enough of the hostiles you
   // woke up. Prevents "sprint past everything for free".
-  if (s.x >= MISSION_W - 50) {
+  // Goal-gate only applies to "reach the goal" missions. Defend missions
+  // win when the survive timer expires (handled above).
+  if (m.objective !== 'defend' && s.x >= MISSION_W - 50) {
     const need = Math.ceil(m.activatedCount * BALANCE.missionGoalKillRatio);
     if (m.killedCount >= need) {
       // Tally rescuables that made it to within the goal zone alive.
@@ -754,12 +868,25 @@ export function dMissionWorld(ctx, m, now) {
   m.effects.forEach(e => dFx(ctx, e, now));
   m.bullets.forEach(b => dBlt(ctx, b));
 
-  const goalX = MISSION_W - 30;
-  const pulse = 0.6 + 0.4 * Math.sin(now / 300);
-  ctx.fillStyle = `rgba(114,188,64,${pulse * 0.4})`;
-  ctx.fillRect(goalX - 3, MGY - 120, 6, 120);
-  ctx.fillStyle = C.acc; ctx.font = 'bold 11px monospace';
-  ctx.fillText('★ GOAL ★', goalX - 26, MGY - 128);
+  if (m.objective === 'defend') {
+    // Defense anchor flag
+    const ax = m.defendAnchor;
+    const pulse = 0.6 + 0.4 * Math.sin(now / 280);
+    ctx.fillStyle = '#1a1a1a'; ctx.fillRect(ax - 1, MGY - 70, 2, 70);
+    ctx.fillStyle = `rgba(255,140,40,${0.5 + pulse * 0.4})`;
+    ctx.beginPath();
+    ctx.moveTo(ax + 1, MGY - 68); ctx.lineTo(ax + 26, MGY - 60); ctx.lineTo(ax + 1, MGY - 52);
+    ctx.closePath(); ctx.fill();
+    ctx.fillStyle = C.acc; ctx.font = 'bold 10px monospace'; ctx.textAlign = 'center';
+    ctx.fillText('★ DEFEND ★', ax, MGY - 80); ctx.textAlign = 'left';
+  } else {
+    const goalX = MISSION_W - 30;
+    const pulse = 0.6 + 0.4 * Math.sin(now / 300);
+    ctx.fillStyle = `rgba(114,188,64,${pulse * 0.4})`;
+    ctx.fillRect(goalX - 3, MGY - 120, 6, 120);
+    ctx.fillStyle = C.acc; ctx.font = 'bold 11px monospace';
+    ctx.fillText('★ GOAL ★', goalX - 26, MGY - 128);
+  }
 
   ctx.restore();
 }
@@ -811,8 +938,34 @@ export function dMissionHUD(ctx, m, now) {
     }
   });
 
+  // Defend timer overlay
+  if (m.objective === 'defend') {
+    if (m.defendStartedAt) {
+      const left = Math.max(0, Math.ceil((m.defendDuration - (now - m.defendStartedAt)) / 1000));
+      const total = Math.ceil(m.defendDuration / 1000);
+      ctx.fillStyle = 'rgba(0,0,0,0.78)'; ctx.fillRect(CW_ / 2 - 80, 4, 160, 28);
+      ctx.strokeStyle = '#ff8800'; ctx.lineWidth = 1; ctx.strokeRect(CW_ / 2 - 80, 4, 160, 28);
+      ctx.fillStyle = '#ff8800'; ctx.font = 'bold 13px monospace'; ctx.textAlign = 'center';
+      ctx.fillText(`⌛ DEFEND ${left}s`, CW_ / 2, 24); ctx.textAlign = 'left';
+      // Progress bar
+      const p = 1 - left / total;
+      ctx.fillStyle = '#1a1a1a'; ctx.fillRect(CW_ / 2 - 78, 30, 156, 3);
+      ctx.fillStyle = '#ff8800'; ctx.fillRect(CW_ / 2 - 78, 30, 156 * p, 3);
+    } else {
+      ctx.fillStyle = 'rgba(0,0,0,0.78)'; ctx.fillRect(CW_ / 2 - 110, 4, 220, 28);
+      ctx.strokeStyle = '#ff8800'; ctx.lineWidth = 1; ctx.strokeRect(CW_ / 2 - 110, 4, 220, 28);
+      ctx.fillStyle = '#ff8800'; ctx.font = 'bold 11px monospace'; ctx.textAlign = 'center';
+      ctx.fillText('REACH THE DEFEND FLAG →', CW_ / 2, 22); ctx.textAlign = 'left';
+    }
+  }
+
   ctx.fillStyle = 'rgba(120,120,80,0.5)'; ctx.font = '9px monospace';
-  ctx.fillText('← → MOVE   SPACE/CLICK FIRE   REACH GOAL', 12, CH - 12);
+  ctx.fillText(
+    m.objective === 'defend'
+      ? '← → MOVE   SPACE/CLICK FIRE   HOLD THE FLAG'
+      : '← → MOVE   SPACE/CLICK FIRE   REACH GOAL',
+    12, CH - 12,
+  );
 
   if (m.state === 'won' || m.state === 'lost') {
     const f = Math.min(1, (now - m.endedAt) / 600);

@@ -67,6 +67,19 @@ export function dBarricade(ctx, b) {
 
 export function dBlt(ctx, b) {
   ctx.save(); ctx.translate(b.x, b.y); ctx.rotate(Math.atan2(b.dy, b.dx));
+  if (b.spit) {
+    // Acid spit: green blob with a faint trail.
+    const g = ctx.createLinearGradient(-10, 0, 0, 0);
+    g.addColorStop(0, 'rgba(120,200,40,0)');
+    g.addColorStop(1, 'rgba(160,240,80,0.85)');
+    ctx.fillStyle = g; ctx.fillRect(-10, -1.5, 10, 3);
+    ctx.fillStyle = '#a8e060';
+    ctx.beginPath(); ctx.arc(0, 0, 3, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#cfff8a';
+    ctx.beginPath(); ctx.arc(-1, 0, 1.2, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+    return;
+  }
   const g = ctx.createLinearGradient(-14, 0, 0, 0);
   g.addColorStop(0, 'rgba(255,200,0,0)');
   g.addColorStop(1, b.hostile ? '#ff7733' : C.trc);
