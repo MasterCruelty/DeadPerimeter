@@ -31,7 +31,7 @@ export const EXPEDITION_DESTS = [
 export const MISSION_W = 1900;
 export const MISSION_VIEW = CW;
 export const MGY = GY;
-export const objIcons = { medicine: '💊', ammo: '🔫', food: '🥫', materials: '🔧', sniperAmmo: '🎯', turretAmmo: '🟠', civilian: '👤' };
+export const objIcons = { medicine: '💊', ammo: '🔫', food: '🥫', materials: '🔧', sniperAmmo: '🎯', turretAmmo: '🟠', civilian: '👤', lostSoldier: '🪖' };
 
 export const STARS = Array.from({ length: 28 }, (_, i) => ({
   x: (i * 181 + 53) % CW,
@@ -50,4 +50,18 @@ export const RECRUIT_NAMES = [
   'Delta', 'Echo', 'Foxtrot', 'Ghost', 'Hunter', 'Iris', 'Kilo', 'Lima',
   'Mako', 'Nova', 'Oscar', 'Puma', 'Quinn', 'Recon', 'Sierra', 'Tango', 'Viper', 'Wolf',
 ];
-export const RECRUIT_WEAPONS = ['rifle', 'rifle', 'pistol', 'pistol', 'shotgun'];
+
+// Recruit weapon pools by kind. Civilians are unschooled, so they only
+// know how to handle a pistol or (rarely) a shotgun. Veterans / lost
+// military soldiers are the elite — full rifle pool plus a chance at
+// the sniper rifle. Standard recruits keep the original mixed pool.
+export const RECRUIT_WEAPONS  = ['rifle', 'rifle', 'pistol', 'pistol', 'shotgun'];
+export const CIVILIAN_WEAPONS = ['pistol', 'pistol', 'pistol', 'shotgun'];
+export const VETERAN_WEAPONS  = ['rifle', 'rifle', 'rifle', 'shotgun', 'sniper'];
+
+// Per-kind max-HP defaults. mkSoldier reads these via the helpers below.
+export const KIND_HP = {
+  recruit:  100,
+  civilian:  70,
+  veteran:  120,
+};

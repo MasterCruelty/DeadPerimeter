@@ -1,5 +1,5 @@
 import { rng } from '../constants.js';
-import { RECRUIT_NAMES, RECRUIT_WEAPONS } from '../data/expeditions.js';
+import { RECRUIT_NAMES, RECRUIT_WEAPONS, CIVILIAN_WEAPONS, VETERAN_WEAPONS, KIND_HP } from '../data/expeditions.js';
 import { BALANCE } from '../data/difficulty.js';
 import { mkSoldier } from '../entities/soldier.js';
 
@@ -51,25 +51,43 @@ export function finishMission(m, gs) {
     reward.rescuedCivs = rescued;
   }
 
+  // Helper: pick the right weapon pool / hp range / flags for a recruit
+  // depending on whether they're a civilian or a recovered military
+  // soldier. Pushes to active duty if there is room, otherwise reserve.
+  const pushRecruit = (kind /* 'civilian' | 'veteran' */) => {
+    const availNames = RECRUIT_NAMES.filter(n => !gs.usedNames.has(n));
+    if (availNames.length === 0) return null;
+    const isVet = kind === 'veteran';
+    const name = availNames[Math.floor(Math.random() * availNames.length)];
+    const pool = isVet ? VETERAN_WEAPONS : CIVILIAN_WEAPONS;
+    const weapon = pool[Math.floor(Math.random() * pool.length)];
+    const cap = isVet ? KIND_HP.veteran : KIND_HP.civilian;
+    const hp = isVet ? rng(70, cap - 10) : rng(35, cap - 10);
+    gs.usedNames.add(name);
+    const activeCount = gs.soldiers.filter(s => s.state !== 'dead').length;
+    if (activeCount < BALANCE.maxActiveSoldiers) {
+      const ns = mkSoldier(name, weapon, 270, hp, Math.floor(Math.random() * 3), !isVet, false, { veteran: isVet });
+      ns.ammo = 0;
+      gs.soldiers.push(ns);
+    } else if ((gs.reserve?.length || 0) < BALANCE.maxReserveSoldiers) {
+      gs.reserve = gs.reserve || [];
+      gs.reserve.push({ name, weapon, civilian: !isVet, veteran: isVet, hp });
+    } else {
+      return null;
+    }
+    return { name, weapon, hp, civilian: !isVet, veteran: isVet };
+  };
+
   let recruit = null;
   if (m.collected.civilian && outcome === 'success') {
-    const availNames = RECRUIT_NAMES.filter(n => !gs.usedNames.has(n));
-    if (availNames.length > 0) {
-      const name = availNames[Math.floor(Math.random() * availNames.length)];
-      const weapon = RECRUIT_WEAPONS[Math.floor(Math.random() * RECRUIT_WEAPONS.length)];
-      recruit = { name, weapon, hp: rng(55, 85) };
-      gs.usedNames.add(name);
-      // Push to active duty if there is room, otherwise to the reserve.
-      const activeCount = gs.soldiers.filter(s => s.state !== 'dead').length;
-      if (activeCount < BALANCE.maxActiveSoldiers) {
-        const ns = mkSoldier(name, weapon, 270, recruit.hp, Math.floor(Math.random() * 3), true);
-        ns.ammo = 0;
-        gs.soldiers.push(ns);
-      } else if ((gs.reserve?.length || 0) < BALANCE.maxReserveSoldiers) {
-        gs.reserve = gs.reserve || [];
-        gs.reserve.push({ name, weapon, civilian: true });
-      }
-    }
+    recruit = pushRecruit('civilian');
+  }
+  if (m.collected.lostSoldier && outcome === 'success') {
+    const vet = pushRecruit('veteran');
+    if (vet) reward.lostSoldier = 1;
+    // The narrative log uses `recruit` for the headline; prefer the
+    // veteran when both are collected (it's the rarer find).
+    if (vet) recruit = vet;
   }
   const totalDmg = partyMission.reduce((sum, ms) => sum + Math.max(0, ms.maxHp - ms.hp), 0);
   const kiaNames = partyMission.filter(ms => ms.hp <= 0 || ms.state === 'dead').map(ms => ms.name);
