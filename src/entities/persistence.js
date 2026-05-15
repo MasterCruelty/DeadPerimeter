@@ -30,12 +30,19 @@ export function saveGame(gs) {
         lane: s.lane, x: s.x, hp: s.hp, maxHp: s.maxHp,
         ammo: s.ammo, maxAmmo: s.maxAmmo,
         state: s.state === 'dead' ? 'dead' : 'idle',
-        facing: s.facing, civilian: !!s.civilian, onRoof: !!s.onRoof,
+        facing: s.facing,
+        civilian: !!s.civilian, veteran: !!s.veteran,
+        kind: s.kind,
+        onRoof: !!s.onRoof,
       })),
       barricades: gs.barricades.map(b => ({ id: b.id, x: b.x, hp: b.hp, maxHp: b.maxHp })),
       turrets: (gs.turrets || []).map(t => ({ id: t.id, x: t.x, lane: t.lane })),
       score: gs.score, kills: gs.kills,
-      reserve: (gs.reserve || []).map(r => ({ name: r.name, weapon: r.weapon, civilian: !!r.civilian, hp: r.hp ?? 100 })),
+      reserve: (gs.reserve || []).map(r => ({
+        name: r.name, weapon: r.weapon,
+        civilian: !!r.civilian, veteran: !!r.veteran,
+        hp: r.hp ?? 100,
+      })),
       expeditionsToday: gs.expeditionsToday || 0,
       lastEvacWave: gs.lastEvacWave ?? -10,
       usedNames: Array.from(gs.usedNames || []),
@@ -59,16 +66,22 @@ export function loadGame(mkGS) {
     gs.baseHp = data.baseHp; gs.baseMaxHp = data.baseMaxHp;
     gs.resources = { ...gs.resources, ...data.resources };
 
-    gs.soldiers = data.soldiers.map(s => ({
-      id: s.id, name: s.name, weapon: s.weapon, destX: s.destX,
-      lane: s.lane, x: s.x, hp: s.hp, maxHp: s.maxHp,
-      ammo: s.ammo, maxAmmo: s.maxAmmo,
-      state: s.state, facing: s.facing,
-      civilian: s.civilian, onRoof: s.onRoof,
-      lastShot: 0, reloadStart: 0, shootAt: 0, knifeTimer: 0, recoil: 0,
-      walkPhase: Math.random() * Math.PI * 2, hurtTimer: 0,
-      reloadTriggered: false, onExpedition: false,
-    }));
+    gs.soldiers = data.soldiers.map(s => {
+      const civilian = !!s.civilian;
+      const veteran = !!s.veteran;
+      const kind = s.kind || (civilian ? 'civilian' : veteran ? 'veteran' : 'recruit');
+      return {
+        id: s.id, name: s.name, weapon: s.weapon, destX: s.destX,
+        lane: s.lane, x: s.x, hp: s.hp, maxHp: s.maxHp,
+        ammo: s.ammo, maxAmmo: s.maxAmmo,
+        state: s.state, facing: s.facing,
+        civilian, veteran, kind,
+        onRoof: s.onRoof,
+        lastShot: 0, reloadStart: 0, shootAt: 0, knifeTimer: 0, recoil: 0,
+        walkPhase: Math.random() * Math.PI * 2, hurtTimer: 0,
+        reloadTriggered: false, onExpedition: false,
+      };
+    });
     gs.barricades = data.barricades.map(b => ({ ...b }));
     gs.turrets = (data.turrets || []).map(t => ({ ...t, lastShot: 0 }));
     gs.score = data.score || 0; gs.kills = data.kills || 0;

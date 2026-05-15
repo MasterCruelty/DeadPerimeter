@@ -7,6 +7,7 @@ export const EXPEDITION_DESTS = [
     rewards: 'Medicine +15–25, food +10–18, chance of civilian',
     solDmg: [0, 14],
     missionLen: 1400, zSpawn: 0.6,
+    biome: 'hospital',
   },
   {
     name: 'Armory Cache', icon: '🔫', risk: 'MED', riskColor: C.wrn,
@@ -14,6 +15,7 @@ export const EXPEDITION_DESTS = [
     rewards: 'Ammo +20–40, materials +5–12, chance of civilian',
     solDmg: [10, 34],
     missionLen: 1700, zSpawn: 1.1,
+    biome: 'armory',
   },
   {
     name: 'Downtown Core', icon: '🏙️', risk: 'HIGH', riskColor: C.dng,
@@ -21,6 +23,7 @@ export const EXPEDITION_DESTS = [
     rewards: 'All resources + materials, civilian guaranteed',
     solDmg: [20, 58],
     missionLen: 2000, zSpawn: 1.7,
+    biome: 'downtown',
   },
 ];
 
@@ -28,7 +31,7 @@ export const EXPEDITION_DESTS = [
 export const MISSION_W = 1900;
 export const MISSION_VIEW = CW;
 export const MGY = GY;
-export const objIcons = { medicine: '💊', ammo: '🔫', food: '🥫', materials: '🔧', sniperAmmo: '🎯', turretAmmo: '🟠', civilian: '👤' };
+export const objIcons = { medicine: '💊', ammo: '🔫', food: '🥫', materials: '🔧', sniperAmmo: '🎯', turretAmmo: '🟠', civilian: '👤', lostSoldier: '🪖' };
 
 export const STARS = Array.from({ length: 28 }, (_, i) => ({
   x: (i * 181 + 53) % CW,
@@ -47,4 +50,18 @@ export const RECRUIT_NAMES = [
   'Delta', 'Echo', 'Foxtrot', 'Ghost', 'Hunter', 'Iris', 'Kilo', 'Lima',
   'Mako', 'Nova', 'Oscar', 'Puma', 'Quinn', 'Recon', 'Sierra', 'Tango', 'Viper', 'Wolf',
 ];
-export const RECRUIT_WEAPONS = ['rifle', 'rifle', 'pistol', 'pistol', 'shotgun'];
+
+// Recruit weapon pools by kind. Civilians are unschooled, so they only
+// know how to handle a pistol or (rarely) a shotgun. Veterans / lost
+// military soldiers are the elite — full rifle pool plus a chance at
+// the sniper rifle. Standard recruits keep the original mixed pool.
+export const RECRUIT_WEAPONS  = ['rifle', 'rifle', 'pistol', 'pistol', 'shotgun'];
+export const CIVILIAN_WEAPONS = ['pistol', 'pistol', 'pistol', 'shotgun'];
+export const VETERAN_WEAPONS  = ['rifle', 'rifle', 'rifle', 'shotgun', 'sniper'];
+
+// Per-kind max-HP defaults. mkSoldier reads these via the helpers below.
+export const KIND_HP = {
+  recruit:  100,
+  civilian:  70,
+  veteran:  120,
+};

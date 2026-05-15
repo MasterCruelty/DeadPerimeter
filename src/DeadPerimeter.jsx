@@ -23,6 +23,7 @@ import { dHuman } from './render/human.js';
 import { dBarricade, dBlt, dFx } from './render/effects.js';
 import { dTurret } from './render/turret.js';
 import { dSquadMarker, dHUD } from './render/hud.js';
+import { dEvacScene, EVAC_DURATION } from './render/evac.js';
 
 import { update } from './update/siege.js';
 import { mkMission, updateMission, dMissionWorld, dMissionHUD } from './update/mission.js';
@@ -34,6 +35,7 @@ import { genEvents } from './expedition/events.js';
 export default function DeadPerimeter() {
   const cvs = useRef(null), gsRef = useRef(null), rafId = useRef(null), prevT = useRef(0), mutedR = useRef(false);
   const missionRef = useRef(null);
+  const evacRef = useRef(null);                // active helicopter-evac animation, if any
   const inputRef = useRef({ left: false, right: false, shoot: false });
   const pausedRef = useRef(false);
   const [scr, setScr] = useState('menu'), [ui, setUi] = useState(null), [muted, setMuted] = useState(false);
@@ -164,11 +166,11 @@ export default function DeadPerimeter() {
       const r = result.recruit;
       const activeCount = gs.soldiers.filter(s => s.state !== 'dead').length;
       if (activeCount < BALANCE.maxActiveSoldiers) {
-        const ns = mkSoldier(r.name, r.weapon, 270, r.hp, Math.floor(Math.random() * 3), true);
+        const ns = mkSoldier(r.name, r.weapon, 270, r.hp, Math.floor(Math.random() * 3), !!r.civilian, false, { veteran: !!r.veteran });
         ns.ammo = 0; gs.soldiers.push(ns);
       } else if ((gs.reserve?.length || 0) < BALANCE.maxReserveSoldiers) {
         gs.reserve = gs.reserve || [];
-        gs.reserve.push({ name: r.name, weapon: r.weapon, civilian: true, hp: r.hp });
+        gs.reserve.push({ name: r.name, weapon: r.weapon, civilian: !!r.civilian, veteran: !!r.veteran, hp: r.hp });
       }
     }
 
@@ -209,7 +211,7 @@ export default function DeadPerimeter() {
 
     const m = mkMission(party, dest);
     missionRef.current = m;
-    inputRef.current = { left: false, right: false, shoot: false };
+    inputRef.current = { left: false, right: false, shoot: false, up: false, down: false };
     gs.expeditionsToday = (gs.expeditionsToday || 0) + 1;
     setScr('mission');
   }, []);
@@ -257,7 +259,7 @@ export default function DeadPerimeter() {
     if (s.onRoof) return;
     if ((gs.reserve?.length || 0) >= BALANCE.maxReserveSoldiers) return;
     gs.reserve = gs.reserve || [];
-    gs.reserve.push({ name: s.name, weapon: s.weapon, civilian: !!s.civilian, hp: s.hp });
+    gs.reserve.push({ name: s.name, weapon: s.weapon, civilian: !!s.civilian, veteran: !!s.veteran, hp: s.hp });
     gs.soldiers.splice(idx, 1);
     saveGame(gs); setHasSave(true);
     setUi({ ...gs, soldiers: gs.soldiers.map(s => ({ ...s })) });
@@ -267,7 +269,7 @@ export default function DeadPerimeter() {
     const gs = gsRef.current; if (!gs) return;
     const r = (gs.reserve || [])[idx]; if (!r) return;
     if (gs.soldiers.filter(s => s.state !== 'dead').length >= BALANCE.maxActiveSoldiers) return;
-    const ns = mkSoldier(r.name, r.weapon, 270, r.hp ?? 100, Math.floor(Math.random() * 3), !!r.civilian);
+    const ns = mkSoldier(r.name, r.weapon, 270, r.hp ?? 100, Math.floor(Math.random() * 3), !!r.civilian, false, { veteran: !!r.veteran });
     ns.ammo = 0;
     gs.soldiers.push(ns);
     gs.reserve.splice(idx, 1);
@@ -281,21 +283,43 @@ export default function DeadPerimeter() {
     setUi({ ...gs, soldiers: gs.soldiers.map(s => ({ ...s })) });
   }, []);
 
+  // Apply the actual evac effects (called by the animation when it ends).
+  const applyEvac = useCallback(() => {
+    const gs = gsRef.current; const evac = evacRef.current;
+    if (!gs || !evac) return;
+    gs.reserve = (gs.reserve || []).filter(r => !r.civilian);
+    gs.resources.food       = Math.min(999, (gs.resources.food       || 0) + (evac.reward.food       || 0));
+    gs.resources.medicine   = Math.min(999, (gs.resources.medicine   || 0) + (evac.reward.medicine   || 0));
+    gs.resources.sniperAmmo = Math.min(99,  (gs.resources.sniperAmmo || 0) + (evac.reward.sniperAmmo || 0));
+    gs.lastEvacWave = gs.wave;
+    evacRef.current = null;
+    saveGame(gs); setHasSave(true);
+    setUi({ ...gs, soldiers: gs.soldiers.map(s => ({ ...s })) });
+    setScr('management');
+  }, []);
+
   const callEvac = useCallback(() => {
     const gs = gsRef.current; if (!gs) return;
     const civs = (gs.reserve || []).filter(r => r.civilian).length;
     if (civs < BALANCE.evacMinReserve) return;
     if ((gs.wave - (gs.lastEvacWave ?? -10)) < BALANCE.evacWaveCooldown) return;
 
-    const evac = (gs.reserve || []).filter(r => r.civilian);
-    gs.reserve = (gs.reserve || []).filter(r => !r.civilian);
-    gs.resources.food       = Math.min(999, (gs.resources.food       || 0) + evac.length * BALANCE.evacFoodPerCiv);
-    gs.resources.medicine   = Math.min(999, (gs.resources.medicine   || 0) + evac.length * BALANCE.evacMedicinePerCiv);
-    gs.resources.sniperAmmo = Math.min(99,  (gs.resources.sniperAmmo || 0) + evac.length * BALANCE.evacSniperAmmoPerCiv);
-    gs.lastEvacWave = gs.wave;
-    saveGame(gs); setHasSave(true);
-    setUi({ ...gs, soldiers: gs.soldiers.map(s => ({ ...s })) });
+    // Stage the animation. The actual reserve / resource mutation
+    // happens in applyEvac when the helicopter is gone.
+    evacRef.current = {
+      startedAt: 0, // initialised on the first frame of the loop
+      civCount: civs,
+      baseHp: gs.baseHp, baseMaxHp: gs.baseMaxHp,
+      reward: {
+        food:       civs * BALANCE.evacFoodPerCiv,
+        medicine:   civs * BALANCE.evacMedicinePerCiv,
+        sniperAmmo: civs * BALANCE.evacSniperAmmoPerCiv,
+      },
+    };
+    setScr('evac');
   }, []);
+
+  const skipEvac = useCallback(() => { applyEvac(); }, [applyEvac]);
 
   const buildTurret = useCallback(() => {
     const gs = gsRef.current;
@@ -400,12 +424,16 @@ export default function DeadPerimeter() {
       if (missionRef.current && missionRef.current.state === 'active') {
         if (e.key === 'ArrowLeft'  || e.key === 'a' || e.key === 'A') { inputRef.current.left = true;  e.preventDefault(); }
         if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') { inputRef.current.right = true; e.preventDefault(); }
+        if (e.key === 'ArrowUp'    || e.key === 'w' || e.key === 'W') { inputRef.current.up = true;    e.preventDefault(); }
+        if (e.key === 'ArrowDown'  || e.key === 's' || e.key === 'S') { inputRef.current.down = true;  e.preventDefault(); }
         if (e.key === ' ' || e.key === 'Spacebar') { inputRef.current.shoot = true; e.preventDefault(); }
       }
     };
     const onKeyUp = e => {
       if (e.key === 'ArrowLeft'  || e.key === 'a' || e.key === 'A') inputRef.current.left = false;
       if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') inputRef.current.right = false;
+      if (e.key === 'ArrowUp'    || e.key === 'w' || e.key === 'W') inputRef.current.up = false;
+      if (e.key === 'ArrowDown'  || e.key === 's' || e.key === 'S') inputRef.current.down = false;
       if (e.key === ' ' || e.key === 'Spacebar') inputRef.current.shoot = false;
     };
     const onMouseDown = e => {
@@ -480,8 +508,20 @@ export default function DeadPerimeter() {
       const dt = Math.min(now - prevT.current, 50); prevT.current = now;
       const gs = gsRef.current;
 
+      // Helicopter evac animation overrides everything else.
+      const evac = evacRef.current;
+      if (evac) {
+        if (!evac.startedAt) evac.startedAt = now;
+        dEvacScene(ctx, evac, now);
+        if (now - evac.startedAt >= EVAC_DURATION) applyEvac();
+        rafId.current = requestAnimationFrame(loop);
+        return;
+      }
+
       const m = missionRef.current;
       if (m) {
+        m.inputUp    = inputRef.current.up;
+        m.inputDown  = inputRef.current.down;
         m.inputLeft  = inputRef.current.left;
         m.inputRight = inputRef.current.right;
         m.inputShoot = inputRef.current.shoot;
@@ -700,7 +740,7 @@ export default function DeadPerimeter() {
 
   return (
     <div style={{ background: '#030504', minHeight: '100vh', fontFamily: F, color: C.txt }}>
-      <div style={{ display: (scr === 'siege' || scr === 'mission') ? 'flex' : 'none', flexDirection: 'column', alignItems: 'center', padding: '10px 0' }}>
+      <div style={{ display: (scr === 'siege' || scr === 'mission' || scr === 'evac') ? 'flex' : 'none', flexDirection: 'column', alignItems: 'center', padding: '10px 0' }}>
         <canvas ref={cvs} width={CW} height={CH} style={{ border: `1px solid ${C.uib}`, maxWidth: '100%', cursor: scr === 'mission' ? 'crosshair' : 'crosshair', display: 'block', outline: 'none' }} tabIndex={0} />
         {scr === 'siege' && (
           <div style={{ display: 'flex', gap: '7px', marginTop: '7px', flexWrap: 'wrap', justifyContent: 'center', alignItems: 'center', width: '100%', maxWidth: CW }}>
@@ -745,6 +785,12 @@ export default function DeadPerimeter() {
             ) : (
               <button style={btn('#1a3a18')} onClick={finalizeMission}>✦ RETURN TO BASE ✦</button>
             )}
+          </div>
+        )}
+        {scr === 'evac' && (
+          <div style={{ display: 'flex', gap: '8px', marginTop: '8px', flexWrap: 'wrap', justifyContent: 'center', alignItems: 'center', width: '100%', maxWidth: CW }}>
+            <span style={{ color: '#88ddff', fontSize: '11px' }}>🚁 Helicopter evac in progress…</span>
+            <button style={mbtn} onClick={skipEvac}>⏩ SKIP</button>
           </div>
         )}
       </div>
@@ -823,7 +869,9 @@ export default function DeadPerimeter() {
               {gs?.soldiers?.map((s, i) => (
                 <div key={s.id} style={{ ...card, opacity: s.state === 'dead' ? 0.34 : 1, borderColor: s.state === 'dead' ? C.dng : C.uib, minWidth: '130px' }}>
                   <div style={{ color: s.state === 'dead' ? C.dng : C.acc, fontWeight: 'bold', fontSize: '11px' }}>
-                    {s.name} {s.state === 'dead' && '†'} {s.civilian && s.state !== 'dead' && <span style={{ color: '#88ddff', fontSize: '9px', marginLeft: '2px' }}>· civ</span>}
+                    {s.name} {s.state === 'dead' && '†'}
+                    {s.civilian && s.state !== 'dead' && <span style={{ color: '#88ddff', fontSize: '9px', marginLeft: '2px' }}>· civ</span>}
+                    {s.veteran && s.state !== 'dead' && <span style={{ color: '#ffd54a', fontSize: '9px', marginLeft: '2px' }}>· vet</span>}
                   </div>
                   <div style={{ fontSize: '9px', color: C.txt }}>{WPN[s.weapon]?.name} · Lane {'FMB'[s.lane || 0]}</div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '4px' }}>
@@ -852,21 +900,33 @@ export default function DeadPerimeter() {
               <>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <div style={h2}>🛏 RESERVE ROSTER ({reserveCount}/{BALANCE.maxReserveSoldiers})</div>
-                  {reserveCivCount >= BALANCE.evacMinReserve && (
+                  {reserveCivCount > 0 && (
                     <button
-                      style={{ ...btn('#1a2c3a', '#3380b8'), fontSize: '10px', padding: '4px 10px' }}
+                      style={{
+                        ...btn('#1a2c3a', '#3380b8'),
+                        fontSize: '10px', padding: '4px 10px',
+                        opacity: canEvac ? 1 : 0.55,
+                      }}
                       onClick={callEvac}
                       disabled={!canEvac}
-                      title={canEvac ? `Evacuate ${reserveCivCount} civilians` : `Cooldown: ${evacCooldownLeft} more wave${evacCooldownLeft === 1 ? '' : 's'}`}
+                      title={
+                        reserveCivCount < BALANCE.evacMinReserve
+                          ? `Need ${BALANCE.evacMinReserve - reserveCivCount} more civilian${BALANCE.evacMinReserve - reserveCivCount === 1 ? '' : 's'} in reserve`
+                          : evacCooldownLeft > 0
+                            ? `Cool-down: ${evacCooldownLeft} more wave${evacCooldownLeft === 1 ? '' : 's'}`
+                            : `Airlift ${reserveCivCount} civilian${reserveCivCount === 1 ? '' : 's'}`
+                      }
                     >
-                      🚁 EVAC CIVILIANS ({reserveCivCount})
-                      {!canEvac && ` — ${evacCooldownLeft}w`}
+                      🚁 EVAC ({reserveCivCount}/{BALANCE.evacMinReserve})
+                      {reserveCivCount < BALANCE.evacMinReserve && ` — need ${BALANCE.evacMinReserve - reserveCivCount}`}
+                      {reserveCivCount >= BALANCE.evacMinReserve && evacCooldownLeft > 0 && ` — wait ${evacCooldownLeft}w`}
                     </button>
                   )}
                 </div>
                 <div style={{ fontSize: '9px', color: C.txt, opacity: 0.55, marginBottom: '6px' }}>
                   Civilians and recruits at rest. Auto-promoted to active duty when a slot opens up after each wave.
-                  Call evac to airlift civilians out: +{BALANCE.evacFoodPerCiv} food, +{BALANCE.evacMedicinePerCiv} med, +{BALANCE.evacSniperAmmoPerCiv} sniper ammo per civ.
+                  Helicopter evac unlocks at <b>{BALANCE.evacMinReserve} civilians</b> in reserve, then needs a {BALANCE.evacWaveCooldown}-wave cool-down between calls.
+                  Reward: +{BALANCE.evacFoodPerCiv} food, +{BALANCE.evacMedicinePerCiv} med, +{BALANCE.evacSniperAmmoPerCiv} sniper ammo per civ.
                 </div>
                 <div style={row}>
                   {gs.reserve.map((r, i) => {
@@ -874,7 +934,9 @@ export default function DeadPerimeter() {
                     return (
                       <div key={i} style={{ ...card, minWidth: '110px', borderColor: '#1a3a52', background: 'rgba(12,20,30,0.85)' }}>
                         <div style={{ color: '#88ddff', fontWeight: 'bold', fontSize: '11px' }}>
-                          {r.name} {r.civilian && <span style={{ color: '#88ddff', fontSize: '8px' }}>· civ</span>}
+                          {r.name}
+                          {r.civilian && <span style={{ color: '#88ddff', fontSize: '8px', marginLeft: '2px' }}>· civ</span>}
+                          {r.veteran && <span style={{ color: '#ffd54a', fontSize: '8px', marginLeft: '2px' }}>· vet</span>}
                         </div>
                         <div style={{ fontSize: '9px', color: C.txt }}>{WPN[r.weapon]?.name}</div>
                         <div style={{ fontSize: '8px', color: C.txt, opacity: 0.6, marginTop: '2px' }}>standby</div>
