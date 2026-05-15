@@ -8,14 +8,30 @@ import { dZombie } from '../render/zombie.js';
 import { dSoldier } from '../render/soldier.js';
 import { dFx, dBlt } from '../render/effects.js';
 
-export function mkMission(soldier, dest) {
+export function mkMission(soldier, dest, wave = 1) {
   const zombies = [], pickups = [], obstacles = [];
+
+  // Spitters are the most punishing zombie kind (ranged + chip damage).
+  // Gate them behind wave 3 so the very first sortie isn't a meatgrinder,
+  // and scale their lethality up with wave count for late-game runs.
+  const waveAbove = Math.max(0, wave - 3);
+  const enableSpitter = wave >= 3;
+  const spitDmgScaled = Math.max(3, Math.round(ZTP.spitter.dmg * (1 + waveAbove * 0.10)));
+  const spitRateScaled = Math.max(1500, 2800 - waveAbove * 130);
+
   const totalZ = Math.floor(8 * dest.zSpawn + rng(0, 4));
   for (let i = 0; i < totalZ; i++) {
     const x = 400 + Math.random() * (MISSION_W - 700);
-    const types = dest.risk === 'LOW' ? ['walker']
-      : dest.risk === 'MED' ? ['walker', 'walker', 'runner', 'spitter']
-      : ['walker', 'runner', 'runner', 'tank', 'spitter'];
+    let types;
+    if (dest.risk === 'LOW') {
+      types = ['walker'];
+    } else if (dest.risk === 'MED') {
+      types = enableSpitter ? ['walker', 'walker', 'walker', 'runner', 'spitter']
+                            : ['walker', 'walker', 'walker', 'runner'];
+    } else {
+      types = enableSpitter ? ['walker', 'runner', 'runner', 'tank', 'spitter']
+                            : ['walker', 'walker', 'runner', 'runner', 'tank'];
+    }
     const t = types[Math.floor(Math.random() * types.length)];
     const z = ZTP[t];
     zombies.push({
@@ -25,33 +41,49 @@ export function mkMission(soldier, dest) {
       walkPhase: Math.random() * Math.PI * 2,
       atkTimer: 0, hurtTimer: 0, deadAt: 0, lane: 0,
       activated: false,
+      // Wave-scaled per-instance overrides for the spitter (so the same
+      // ZTP entry can stay the late-game baseline while early waves get
+      // gentler values).
+      ...(t === 'spitter' ? { _spitDmg: spitDmgScaled, _spitRate: spitRateScaled } : {}),
     });
   }
 
-  const pkOptions = dest.risk === 'LOW' ? ['medicine', 'medicine', 'food']
-    : dest.risk === 'MED' ? ['ammo', 'ammo', 'materials', 'sniperAmmo', 'turretAmmo']
-    : ['ammo', 'medicine', 'food', 'materials', 'sniperAmmo', 'turretAmmo'];
+  // Pickup pool is now driven by the destination's loot table (each
+  // location in DEST_POOL specifies its own emphasis: pharmacy=meds,
+  // gun shop=ammo, school=civilians, etc.). 'civilian' / 'lostSoldier'
+  // are filtered out here — they get their own dedicated spawn below.
+  const RESOURCE_TYPES = new Set(['ammo', 'medicine', 'food', 'materials', 'sniperAmmo', 'turretAmmo']);
+  const pkOptions = (dest.loot || []).filter(t => RESOURCE_TYPES.has(t));
+  // Fallback for legacy callers without a loot list.
+  if (pkOptions.length === 0) {
+    pkOptions.push(...(dest.risk === 'LOW' ? ['medicine', 'food']
+      : dest.risk === 'MED' ? ['ammo', 'materials']
+      : ['ammo', 'medicine', 'materials']));
+  }
   const pkCount = dest.risk === 'LOW' ? 4 : dest.risk === 'MED' ? 5 : 7;
+  // Pickup values scale modestly with wave so late-game runs reward
+  // proportional to their increased threat.
+  const waveBonus = Math.floor(Math.max(0, wave - 1) / 2);
   for (let i = 0; i < pkCount; i++) {
     const x = 300 + Math.floor(MISSION_W / (pkCount + 1)) * (i + 1) + rng(-60, 60);
     const type = pkOptions[Math.floor(Math.random() * pkOptions.length)];
-    const value = type === 'medicine' ? rng(4, 8)
+    const base = type === 'medicine' ? rng(4, 8)
       : type === 'ammo' ? rng(8, 15)
       : type === 'food' ? rng(5, 10)
       : type === 'sniperAmmo' ? rng(2, 4)
       : type === 'turretAmmo' ? rng(6, 14)
       : rng(3, 6);
-    // Default lane = 0; bumped to lane 1 below for the high-lane fork cluster.
-    pickups.push({ id: uid(), x, type, value, collected: false, lane: 0 });
+    pickups.push({ id: uid(), x, type, value: base + waveBonus, collected: false, lane: 0 });
   }
-  const civChance = dest.risk === 'HIGH' ? 1.0 : dest.risk === 'MED' ? 0.5 : 0;
-  if (Math.random() < civChance) pickups.push({ id: uid(), x: MISSION_W - 200, type: 'civilian', value: 1, collected: false, lane: 0 });
-
-  // Rare lost-military-soldier pickup. Small chance on MED, real chance
-  // on HIGH; never on LOW. Visual icon: 🪖 (helmet). Yields a veteran
-  // recruit with a stronger weapon pool and 120 max HP.
-  const lostChance = dest.risk === 'HIGH' ? 0.45 : dest.risk === 'MED' ? 0.18 : 0;
-  if (Math.random() < lostChance) {
+  // 'civilian' / 'lostSoldier' are flagged via the loot table when the
+  // location can yield them, with risk-modulated base chance.
+  const lootHas = t => (dest.loot || []).includes(t);
+  const civBase  = dest.risk === 'HIGH' ? 1.0 : dest.risk === 'MED' ? 0.6 : 0.0;
+  const lostBase = dest.risk === 'HIGH' ? 0.55 : dest.risk === 'MED' ? 0.22 : 0.0;
+  if (lootHas('civilian') && Math.random() < civBase) {
+    pickups.push({ id: uid(), x: MISSION_W - 200, type: 'civilian', value: 1, collected: false, lane: 0 });
+  }
+  if (lootHas('lostSoldier') && Math.random() < lostBase) {
     pickups.push({ id: uid(), x: MISSION_W - 320 + rng(-40, 40), type: 'lostSoldier', value: 1, collected: false, lane: 0 });
   }
 
@@ -409,7 +441,8 @@ export function updateMission(m, now, dt) {
       }
       if (z.state === 'attack') {
         z.atkTimer += dt;
-        if (z.atkTimer >= meta.spitRate) {
+        const rate = z._spitRate ?? meta.spitRate;
+        if (z.atkTimer >= rate) {
           z.atkTimer = 0;
           const dxr = tgt.x - z.x;
           const dyr = -10;
@@ -419,7 +452,7 @@ export function updateMission(m, now, dt) {
             x: z.x + z.facing * 14, y: MGY - 24,
             dx: (dxr / len) * meta.spitSpd,
             dy: (dyr / len) * meta.spitSpd + 0.06, // slight gravity arc
-            dmg: meta.dmg,
+            dmg: z._spitDmg ?? meta.dmg,
             life: Math.ceil(meta.spitRange / meta.spitSpd * 1.4),
             spit: true,
           });
