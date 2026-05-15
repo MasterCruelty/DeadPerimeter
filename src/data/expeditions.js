@@ -1,31 +1,76 @@
 import { C, CW, GY } from '../constants.js';
 
-export const EXPEDITION_DESTS = [
-  {
-    name: 'Ruined Hospital', icon: '🏥', risk: 'LOW', riskColor: '#44bb44',
-    desc: 'Scout nearby clinic ruins. Low zombie density.',
-    rewards: 'Medicine +15–25, food +10–18, chance of civilian',
-    solDmg: [0, 14],
-    missionLen: 1400, zSpawn: 0.6,
-    biome: 'hospital',
-  },
-  {
-    name: 'Armory Cache', icon: '🔫', risk: 'MED', riskColor: C.wrn,
-    desc: 'Raid an overrun armory depot. Heavy resistance.',
-    rewards: 'Ammo +20–40, materials +5–12, chance of civilian',
-    solDmg: [10, 34],
-    missionLen: 1700, zSpawn: 1.1,
-    biome: 'armory',
-  },
-  {
-    name: 'Downtown Core', icon: '🏙️', risk: 'HIGH', riskColor: C.dng,
-    desc: 'Dangerous run into the city center. Maximum reward.',
-    rewards: 'All resources + materials, civilian guaranteed',
-    solDmg: [20, 58],
-    missionLen: 2000, zSpawn: 1.7,
-    biome: 'downtown',
-  },
-];
+// Mission location pools, one per risk tier. Each entry describes a
+// specific spot in the city around Fort Omega — the player sees a
+// different mix every time the Expedition screen is opened, instead
+// of "Ruined Hospital / Armory / Downtown" on repeat.
+//
+//   biome: drives the visual palette (see data/biomes.js).
+//   loot:  pool the mission's pickup generator samples from. Listing
+//          a resource twice doubles its chance. Special tokens
+//          'civilian' and 'lostSoldier' enable the corresponding
+//          rescue pickups.
+//   desc:  flavour text shown on the destination card.
+export const DEST_POOL = {
+  LOW: [
+    { name: 'Pharmacy',          icon: '💊', biome: 'hospital', loot: ['medicine','medicine','medicine','food'],                desc: 'Looted but not empty. Some pills survived.' },
+    { name: 'Supermarket',       icon: '🛒', biome: 'downtown', loot: ['food','food','food','medicine'],                        desc: 'Shattered glass front. Half-empty shelves.' },
+    { name: 'Hardware Store',    icon: '🔧', biome: 'armory',   loot: ['materials','materials','materials','ammo'],              desc: 'Tools and screws. A forgotten lunchbox.' },
+    { name: 'Convenience Store', icon: '🏪', biome: 'downtown', loot: ['food','medicine','food','materials'],                    desc: 'Open 24/7 — was. Power\'s been out for weeks.' },
+    { name: 'Diner',             icon: '🍔', biome: 'downtown', loot: ['food','food','medicine'],                                desc: 'Walk-in freezer still cold. Worth a look.' },
+  ],
+  MED: [
+    { name: 'Police Station',    icon: '🚓', biome: 'armory',   loot: ['ammo','ammo','civilian','lostSoldier','materials'],      desc: 'Local PD armory. Heavily contested.' },
+    { name: 'Residential Block', icon: '🏢', biome: 'downtown', loot: ['civilian','medicine','materials','food','civilian'],     desc: 'Survivors barricaded on the upper floors.' },
+    { name: 'Gun Shop',          icon: '🔫', biome: 'armory',   loot: ['ammo','ammo','sniperAmmo','turretAmmo'],                  desc: 'Sporting goods + ammo, if you can clear it.' },
+    { name: 'School Shelter',    icon: '🏫', biome: 'hospital', loot: ['civilian','food','medicine','civilian'],                  desc: 'Last-known evac point. People stayed behind.' },
+    { name: 'Gas Station',       icon: '⛽', biome: 'downtown', loot: ['materials','ammo','food','materials'],                    desc: 'Fuel\'s gone, but the shop is mostly intact.' },
+    { name: 'Clinic',            icon: '🩺', biome: 'hospital', loot: ['medicine','medicine','civilian','food'],                  desc: 'Small private clinic. Pharmacy in back.' },
+  ],
+  HIGH: [
+    { name: 'Central Hospital',  icon: '🏥', biome: 'hospital', loot: ['medicine','medicine','civilian','lostSoldier','food'],   desc: 'Military ward inside. Massive draw for the dead.' },
+    { name: 'Office Tower',      icon: '🌆', biome: 'downtown', loot: ['sniperAmmo','materials','civilian','sniperAmmo'],         desc: 'Sniper rooftop. Long climb up the stairwell.' },
+    { name: 'Shopping Mall',     icon: '🛍️', biome: 'downtown', loot: ['ammo','food','materials','civilian','medicine'],          desc: 'A thousand zombies between you and the prize.' },
+    { name: 'Precinct HQ',       icon: '🚔', biome: 'armory',   loot: ['ammo','sniperAmmo','lostSoldier','turretAmmo','ammo'],   desc: 'The main armory. Brute reported on-site.' },
+    { name: 'Industrial Depot',  icon: '🏭', biome: 'armory',   loot: ['materials','turretAmmo','ammo','materials','lostSoldier'], desc: 'Truck yard. Heavy infected presence.' },
+  ],
+};
+
+// Shared mechanical parameters per risk tier. The rolled destination
+// inherits these so the auto-dispatcher and mission generator keep
+// working without per-location bookkeeping.
+export const RISK_BASE = {
+  LOW:  { riskColor: '#44bb44', solDmg: [0, 14],  missionLen: 1400, zSpawn: 0.6 },
+  MED:  { riskColor: C.wrn,    solDmg: [10, 34], missionLen: 1700, zSpawn: 1.1 },
+  HIGH: { riskColor: C.dng,    solDmg: [20, 58], missionLen: 2000, zSpawn: 1.7 },
+};
+
+// Pretty list of icons summarising the loot pool for the card UI.
+function lootSummary(loot) {
+  const seen = new Set(); const icons = [];
+  for (const l of loot) {
+    if (seen.has(l)) continue; seen.add(l);
+    icons.push(objIcons[l] || l);
+  }
+  return icons.join('  ');
+}
+
+// Roll three fresh destinations, one per risk tier. The expedition
+// screen invokes this every time the player re-enters the screen so
+// no two sortie sessions show the same trio of locations.
+export function rollDestinations() {
+  const out = [];
+  for (const risk of ['LOW', 'MED', 'HIGH']) {
+    const pool = DEST_POOL[risk];
+    const pick = pool[Math.floor(Math.random() * pool.length)];
+    const base = RISK_BASE[risk];
+    out.push({
+      ...pick, ...base, risk,
+      rewards: lootSummary(pick.loot),
+    });
+  }
+  return out;
+}
 
 // Playable side-scrolling mission constants
 export const MISSION_W = 1900;

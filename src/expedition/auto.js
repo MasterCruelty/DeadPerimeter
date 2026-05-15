@@ -33,12 +33,16 @@ export function resolveExpedition(soldier, dest, gs) {
 
   // Reward tables now also drop turretAmmo on MED / HIGH runs since the
   // dedicated MG-ammo pool can't be replenished from regular ammo crates.
+  // Late-game waves give a small reward bump: +5% per wave above 1, capped
+  // at +100% so a wave-21 run pays double what a wave-1 run does.
+  const waveMul = 1 + Math.min(1.0, Math.max(0, (gs?.wave || 1) - 1) * 0.05);
+  const scale = v => Math.max(1, Math.round(v * waveMul));
   let outcome, reward = {}, recruit = null;
   if (roll < threshold) {
     outcome = 'success';
-    if (dest.risk === 'LOW') { reward.medicine = rng(15, 25); reward.food = rng(10, 18); }
-    else if (dest.risk === 'MED') { reward.ammo = rng(20, 40); reward.materials = rng(5, 12); reward.sniperAmmo = rng(2, 5); reward.turretAmmo = rng(8, 18); }
-    else { reward.ammo = rng(15, 25); reward.medicine = rng(8, 15); reward.food = rng(10, 20); reward.materials = rng(8, 18); reward.sniperAmmo = rng(4, 8); reward.turretAmmo = rng(12, 25); }
+    if (dest.risk === 'LOW') { reward.medicine = scale(rng(15, 25)); reward.food = scale(rng(10, 18)); }
+    else if (dest.risk === 'MED') { reward.ammo = scale(rng(20, 40)); reward.materials = scale(rng(5, 12)); reward.sniperAmmo = scale(rng(2, 5)); reward.turretAmmo = scale(rng(8, 18)); }
+    else { reward.ammo = scale(rng(15, 25)); reward.medicine = scale(rng(8, 15)); reward.food = scale(rng(10, 20)); reward.materials = scale(rng(8, 18)); reward.sniperAmmo = scale(rng(4, 8)); reward.turretAmmo = scale(rng(12, 25)); }
     const availNames = RECRUIT_NAMES.filter(n => !gs.usedNames.has(n));
     if (availNames.length > 0) {
       const isVeteran = Math.random() < (VETERAN_CHANCE[dest.risk] || 0);
