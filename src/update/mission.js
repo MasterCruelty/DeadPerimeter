@@ -1,21 +1,37 @@
 import { C, CH, uid, rng } from '../constants.js';
 import { WPN } from '../data/weapons.js';
 import { ZTP } from '../data/zombies.js';
-import { MISSION_W, MISSION_VIEW, MGY, objIcons } from '../data/expeditions.js';
+import { MISSION_W, MISSION_VIEW, MGY, objIcons, rollEncounter } from '../data/expeditions.js';
 import { BIOMES, DEFAULT_BIOME } from '../data/biomes.js';
 import { BALANCE } from '../data/difficulty.js';
 import { dZombie } from '../render/zombie.js';
 import { dSoldier } from '../render/soldier.js';
 import { dFx, dBlt } from '../render/effects.js';
 
-export function mkMission(soldier, dest) {
+export function mkMission(soldier, dest, wave = 1) {
   const zombies = [], pickups = [], obstacles = [];
+
+  // Spitters are the most punishing zombie kind (ranged + chip damage).
+  // Gate them behind wave 3 so the very first sortie isn't a meatgrinder,
+  // and scale their lethality up with wave count for late-game runs.
+  const waveAbove = Math.max(0, wave - 3);
+  const enableSpitter = wave >= 3;
+  const spitDmgScaled = Math.max(3, Math.round(ZTP.spitter.dmg * (1 + waveAbove * 0.10)));
+  const spitRateScaled = Math.max(1500, 2800 - waveAbove * 130);
+
   const totalZ = Math.floor(8 * dest.zSpawn + rng(0, 4));
   for (let i = 0; i < totalZ; i++) {
     const x = 400 + Math.random() * (MISSION_W - 700);
-    const types = dest.risk === 'LOW' ? ['walker']
-      : dest.risk === 'MED' ? ['walker', 'walker', 'runner', 'spitter']
-      : ['walker', 'runner', 'runner', 'tank', 'spitter'];
+    let types;
+    if (dest.risk === 'LOW') {
+      types = ['walker'];
+    } else if (dest.risk === 'MED') {
+      types = enableSpitter ? ['walker', 'walker', 'walker', 'runner', 'spitter']
+                            : ['walker', 'walker', 'walker', 'runner'];
+    } else {
+      types = enableSpitter ? ['walker', 'runner', 'runner', 'tank', 'spitter']
+                            : ['walker', 'walker', 'runner', 'runner', 'tank'];
+    }
     const t = types[Math.floor(Math.random() * types.length)];
     const z = ZTP[t];
     zombies.push({
@@ -25,41 +41,59 @@ export function mkMission(soldier, dest) {
       walkPhase: Math.random() * Math.PI * 2,
       atkTimer: 0, hurtTimer: 0, deadAt: 0, lane: 0,
       activated: false,
+      // Wave-scaled per-instance overrides for the spitter (so the same
+      // ZTP entry can stay the late-game baseline while early waves get
+      // gentler values).
+      ...(t === 'spitter' ? { _spitDmg: spitDmgScaled, _spitRate: spitRateScaled } : {}),
     });
   }
 
-  const pkOptions = dest.risk === 'LOW' ? ['medicine', 'medicine', 'food']
-    : dest.risk === 'MED' ? ['ammo', 'ammo', 'materials', 'sniperAmmo', 'turretAmmo']
-    : ['ammo', 'medicine', 'food', 'materials', 'sniperAmmo', 'turretAmmo'];
+  // Pickup pool is now driven by the destination's loot table (each
+  // location in DEST_POOL specifies its own emphasis: pharmacy=meds,
+  // gun shop=ammo, school=civilians, etc.). 'civilian' / 'lostSoldier'
+  // are filtered out here — they get their own dedicated spawn below.
+  const RESOURCE_TYPES = new Set(['ammo', 'medicine', 'food', 'materials', 'sniperAmmo', 'turretAmmo']);
+  const pkOptions = (dest.loot || []).filter(t => RESOURCE_TYPES.has(t));
+  // Fallback for legacy callers without a loot list.
+  if (pkOptions.length === 0) {
+    pkOptions.push(...(dest.risk === 'LOW' ? ['medicine', 'food']
+      : dest.risk === 'MED' ? ['ammo', 'materials']
+      : ['ammo', 'medicine', 'materials']));
+  }
   const pkCount = dest.risk === 'LOW' ? 4 : dest.risk === 'MED' ? 5 : 7;
+  // Pickup values scale modestly with wave so late-game runs reward
+  // proportional to their increased threat.
+  const waveBonus = Math.floor(Math.max(0, wave - 1) / 2);
   for (let i = 0; i < pkCount; i++) {
     const x = 300 + Math.floor(MISSION_W / (pkCount + 1)) * (i + 1) + rng(-60, 60);
     const type = pkOptions[Math.floor(Math.random() * pkOptions.length)];
-    const value = type === 'medicine' ? rng(4, 8)
+    const base = type === 'medicine' ? rng(4, 8)
       : type === 'ammo' ? rng(8, 15)
       : type === 'food' ? rng(5, 10)
       : type === 'sniperAmmo' ? rng(2, 4)
       : type === 'turretAmmo' ? rng(6, 14)
       : rng(3, 6);
-    // Default lane = 0; bumped to lane 1 below for the high-lane fork cluster.
-    pickups.push({ id: uid(), x, type, value, collected: false, lane: 0 });
+    pickups.push({ id: uid(), x, type, value: base + waveBonus, collected: false, lane: 0 });
   }
-  const civChance = dest.risk === 'HIGH' ? 1.0 : dest.risk === 'MED' ? 0.5 : 0;
-  if (Math.random() < civChance) pickups.push({ id: uid(), x: MISSION_W - 200, type: 'civilian', value: 1, collected: false, lane: 0 });
-
-  // Rare lost-military-soldier pickup. Small chance on MED, real chance
-  // on HIGH; never on LOW. Visual icon: 🪖 (helmet). Yields a veteran
-  // recruit with a stronger weapon pool and 120 max HP.
-  const lostChance = dest.risk === 'HIGH' ? 0.45 : dest.risk === 'MED' ? 0.18 : 0;
-  if (Math.random() < lostChance) {
+  // 'civilian' / 'lostSoldier' are flagged via the loot table when the
+  // location can yield them, with risk-modulated base chance.
+  const lootHas = t => (dest.loot || []).includes(t);
+  const civBase  = dest.risk === 'HIGH' ? 1.0 : dest.risk === 'MED' ? 0.6 : 0.0;
+  const lostBase = dest.risk === 'HIGH' ? 0.55 : dest.risk === 'MED' ? 0.22 : 0.0;
+  if (lootHas('civilian') && Math.random() < civBase) {
+    pickups.push({ id: uid(), x: MISSION_W - 200, type: 'civilian', value: 1, collected: false, lane: 0 });
+  }
+  if (lootHas('lostSoldier') && Math.random() < lostBase) {
     pickups.push({ id: uid(), x: MISSION_W - 320 + rng(-40, 40), type: 'lostSoldier', value: 1, collected: false, lane: 0 });
   }
 
   // Mission objective: 70% normal "reach the goal", 30% "defend".
-  // DEFEND missions replace the run-to-goal with holding a marked
-  // position for `defendDuration` ms while zombies pile in from the right.
+  // DEFEND missions cut the travel short: the lead reaches a hastily
+  // built sandbag emplacement around 45% of the map, then has to hold
+  // the position for `defendDuration` ms against waves of zombies
+  // pouring in from the deeper city to the right.
   const objective = (dest.risk !== 'LOW' && Math.random() < 0.30) ? 'defend' : 'reach';
-  const defendAnchor = MISSION_W * 0.65;
+  const defendAnchor = MISSION_W * 0.45;
   const defendDuration = 45000;
 
   // Branching path: random 50% on MED/HIGH (mutually exclusive with defend
@@ -188,12 +222,84 @@ export function mkMission(soldier, dest) {
   const msol = buildMissionSoldier(lead, 0);
   const followers = partySoldiers.slice(1).map((s, i) => buildMissionSoldier(s, i + 1));
 
+  // ── SURVIVOR ENCOUNTER ─────────────────────────────────────────
+  // Defend missions skip the encounter (the ambush IS the event).
+  // Reach missions get a 28% / 40% chance (MED / HIGH) of running
+  // into another group of survivors mid-route. The group is either
+  // already hostile (bandits) or peaceful traders who turn hostile
+  // if the player refuses their offer.
+  const humans = [];
+  let encounter = null;
+  if (objective !== 'defend') {
+    encounter = rollEncounter(dest.risk);
+    if (encounter) {
+      encounter.x = MISSION_W * (0.32 + Math.random() * 0.10);
+      encounter.resolved = false;
+      const bandit = encounter.type === 'hostile';
+      const count = bandit ? rng(3, 4) : rng(2, 3);
+      const weapons = ['pistol', 'pistol', 'shotgun', 'rifle'];
+      for (let i = 0; i < count; i++) {
+        const w = weapons[Math.floor(Math.random() * weapons.length)];
+        const meta = WPN[w];
+        humans.push({
+          id: uid(), x: encounter.x + 40 + i * 18,
+          hp: 50, maxHp: 50,
+          weapon: w, maxAmmo: meta.ammo, ammo: Math.floor(meta.ammo * 0.7),
+          state: 'idle', facing: -1,
+          civilian: false, bandit, hostile: bandit,
+          walkPhase: Math.random() * Math.PI * 2,
+          lastShot: 0, reloadStart: 0, hurtTimer: 0, deadAt: 0,
+          // Both bandits and traders start un-activated; the proximity
+          // check (or trader-refuse) flips them on, which also bumps
+          // m.activatedCount toward the goal kill-ratio gate.
+          activated: false,
+          forkLane: 0, _laneY: 0,
+        });
+      }
+      encounter.humanIds = humans.map(h => h.id);
+    }
+  }
+
+  // Pre-place a small ambush group just past the defend anchor. They
+  // start activated so they charge the player on arrival, selling the
+  // "you walked into an ambush" beat.
+  if (objective === 'defend') {
+    const ambushCount = dest.risk === 'HIGH' ? rng(4, 6) : rng(3, 4);
+    const ambushTypes = enableSpitter && dest.risk === 'HIGH'
+      ? ['walker', 'walker', 'runner', 'tank', 'spitter']
+      : enableSpitter
+        ? ['walker', 'walker', 'runner', 'spitter']
+        : dest.risk === 'HIGH'
+          ? ['walker', 'walker', 'runner', 'tank']
+          : ['walker', 'walker', 'runner'];
+    for (let i = 0; i < ambushCount; i++) {
+      const t = ambushTypes[Math.floor(Math.random() * ambushTypes.length)];
+      const z = ZTP[t];
+      zombies.push({
+        id: uid(), type: t, z,
+        x: defendAnchor + 90 + Math.random() * 220,
+        hp: z.hp, maxHp: z.hp,
+        spd: z.spd * (0.85 + Math.random() * 0.3),
+        state: 'idle', facing: -1,
+        walkPhase: Math.random() * Math.PI * 2,
+        atkTimer: 0, hurtTimer: 0, deadAt: 0, lane: 0,
+        activated: true,
+        ...(t === 'spitter' ? { _spitDmg: spitDmgScaled, _spitRate: spitRateScaled } : {}),
+      });
+    }
+  }
+
   return {
     soldier: msol, followers,
     origSoldier: lead,                   // back-compat: legacy field points to lead
     origSoldiers: partySoldiers,         // full original-soldiers list (for finishMission)
     dest, biomeKey, fork,
+    humans, encounter,
+    dialog: null,                        // { type: 'trade', accept, refuse } when active
     objective, defendAnchor, defendDuration,
+    // Wave-scaled spitter values, cached so the DEFEND wave-spawner
+    // applies the same scaling as initial mkMission spawns.
+    _spitDmgScaled: spitDmgScaled, _spitRateScaled: spitRateScaled,
     defendStartedAt: 0, defendNextSpawn: 0,
     zombies, pickups, obstacles, props, hazards, rescuables,
     bullets: [], effects: [], soundQ: [],
@@ -296,10 +402,22 @@ function aiShoot(m, who, now, dt) {
 
 export function updateMission(m, now, dt) {
   if (m.state !== 'active') return;
+  if (m.dialog) return; // Pause world simulation while a survivor dialog is open
   if (!m.startedAt) m.startedAt = now;
   const s = m.soldier;
   s.hurtTimer = Math.max(0, s.hurtTimer - dt);
   (m.followers || []).forEach(f => { f.hurtTimer = Math.max(0, f.hurtTimer - dt); });
+  (m.humans   || []).forEach(h => { h.hurtTimer = Math.max(0, h.hurtTimer - dt); });
+
+  // Trader proximity: open the trade dialog the first time the lead
+  // walks into the camp's radius. Hostile camps skip this and just
+  // attack on sight.
+  if (m.encounter && !m.encounter.resolved && m.encounter.type === 'trader') {
+    if (Math.abs(s.x - m.encounter.x) < 90) {
+      m.dialog = { type: 'trade', offer: m.encounter.offer };
+      return;
+    }
+  }
 
   // Lead movement (player-controlled). Acid pool slows movement to 50%.
   const onAcid = (m.hazards || []).some(h => h.type === 'acid' && Math.abs(s.x - h.x) <= h.w / 2);
@@ -409,7 +527,8 @@ export function updateMission(m, now, dt) {
       }
       if (z.state === 'attack') {
         z.atkTimer += dt;
-        if (z.atkTimer >= meta.spitRate) {
+        const rate = z._spitRate ?? meta.spitRate;
+        if (z.atkTimer >= rate) {
           z.atkTimer = 0;
           const dxr = tgt.x - z.x;
           const dyr = -10;
@@ -419,7 +538,7 @@ export function updateMission(m, now, dt) {
             x: z.x + z.facing * 14, y: MGY - 24,
             dx: (dxr / len) * meta.spitSpd,
             dy: (dyr / len) * meta.spitSpd + 0.06, // slight gravity arc
-            dmg: meta.dmg,
+            dmg: z._spitDmg ?? meta.dmg,
             life: Math.ceil(meta.spitRange / meta.spitSpd * 1.4),
             spit: true,
           });
@@ -526,6 +645,7 @@ export function updateMission(m, now, dt) {
           walkPhase: Math.random() * Math.PI * 2,
           atkTimer: 0, hurtTimer: 0, deadAt: 0, lane: 0,
           activated: true,
+          ...(t === 'spitter' ? { _spitDmg: m._spitDmgScaled, _spitRate: m._spitRateScaled } : {}),
         });
         m.activatedCount++;
       }
@@ -534,6 +654,62 @@ export function updateMission(m, now, dt) {
       }
     }
   }
+
+  // ── HOSTILE HUMANS AI ────────────────────────────────────────
+  // Bandits / refused-trader survivors walk into shooting range, hold
+  // position, and fire at the closest party member. Their bullets hit
+  // party members through the same b.hostile pathway used by spitters.
+  (m.humans || []).forEach(h => {
+    if (h.state === 'dead' || !h.hostile || !h.activated) return;
+    const tgt = aliveParty(m).reduce((best, p) => {
+      if (!best) return p;
+      return Math.abs(p.x - h.x) < Math.abs(best.x - h.x) ? p : best;
+    }, null);
+    if (!tgt) return;
+    const dx = tgt.x - h.x;
+    const dist = Math.abs(dx);
+    h.facing = dx >= 0 ? 1 : -1;
+    const wMeta = WPN[h.weapon];
+    const idealRange = (wMeta.range || 220) * 0.7;
+    if (h.state === 'reload') {
+      if (now - h.reloadStart >= wMeta.rl) { h.state = 'idle'; h.ammo = h.maxAmmo; }
+    } else if (dist > idealRange + 30) {
+      h.x += 0.9 * h.facing * (dt / 16);
+      h.state = 'walk';
+    } else if (dist < idealRange - 60) {
+      h.x -= 0.6 * h.facing * (dt / 16);
+      h.state = 'walk';
+    } else {
+      h.state = 'idle';
+      if (h.ammo <= 0) { h.state = 'reload'; h.reloadStart = now; }
+      else if (now - h.lastShot > wMeta.rate) {
+        h.lastShot = now; h.state = 'shoot'; h.ammo--;
+        const pellets = wMeta.pel || 1;
+        for (let p = 0; p < pellets; p++) {
+          const spread = (Math.random() - 0.5) * (wMeta.spread || 0.04);
+          const ang = spread;
+          m.bullets.push({
+            id: uid(),
+            x: h.x + h.facing * 10, y: MGY - 26,
+            dx: h.facing * wMeta.spd * Math.cos(ang),
+            dy: wMeta.spd * Math.sin(ang),
+            dmg: wMeta.pel ? wMeta.dmg / wMeta.pel : wMeta.dmg,
+            life: Math.ceil(wMeta.range / wMeta.spd * 1.15),
+            hostile: true,
+          });
+        }
+        m.soundQ.push({ t: 'fire', w: h.weapon });
+      }
+    }
+  });
+  // Trigger any non-yet-activated bandits when the lead gets close.
+  // Each newly-activated hostile counts toward the kill-ratio gate.
+  (m.humans || []).forEach(h => {
+    if (!h.activated && h.hostile && h.state !== 'dead' && Math.abs(s.x - h.x) < 280) {
+      h.activated = true;
+      m.activatedCount++;
+    }
+  });
 
   // ── HAZARDS ──────────────────────────────────────────────────
   // Mine detonation helper. Used by both the proximity trigger
@@ -608,6 +784,22 @@ export function updateMission(m, now, dt) {
       return true;
     }
 
+    // Hostile-human bullets damage the party / rescuables / civilians.
+    if (b.hostile) {
+      const hit = aliveTargets(m).find(p => Math.abs(p.x - b.x) < 18);
+      if (hit) {
+        hit.hp -= b.dmg; hit.hurtTimer = 220;
+        m.effects.push({ type: 'txt', x: hit.x, y: MGY - 60, v: `-${Math.round(b.dmg)}`, col: '#ff6644', at: now, dur: 700 });
+        m.effects.push({ type: 'hit', x: b.x, y: b.y, at: now, dur: 200 });
+        if (hit.hp <= 0) {
+          hit.hp = 0; hit.state = 'dead';
+          if (hit.id === s.id) { m.state = 'lost'; m.endedAt = now; }
+        }
+        return false;
+      }
+      return true;
+    }
+
     // Shootable mines: any bullet whose path crosses the mine's x at
     // ground level detonates it (lets the player clear hazards from a
     // safe distance outside the 40 px blast radius).
@@ -617,6 +809,24 @@ export function updateMission(m, now, dt) {
     );
     if (mineHit) {
       m._detonateMine(mineHit);
+      return false;
+    }
+
+    // Friendly bullets hit hostile humans before zombies (humans are
+    // typically closer once an engagement starts).
+    const humanHit = (m.humans || []).find(h =>
+      h.state !== 'dead' && h.hostile && Math.abs(h.x - b.x) < 16
+    );
+    if (humanHit) {
+      humanHit.hp -= b.dmg; humanHit.hurtTimer = 210;
+      m.soundQ.push({ t: 'hit', now });
+      m.effects.push({ type: 'blood', x: b.x, y: b.y, drops: Array.from({ length: 5 }, () => ({ x: 0, y: 0, vx: (Math.random() - 0.5) * 3, vy: -Math.random() * 2 - 0.5, r: 1.4 + Math.random() * 2.4 })), at: now, dur: 580 });
+      m.effects.push({ type: 'hit', x: b.x, y: b.y, at: now, dur: 200 });
+      m.effects.push({ type: 'txt', x: humanHit.x, y: MGY - 60, v: `-${Math.round(b.dmg)}`, col: C.bld, at: now, dur: 680 });
+      if (humanHit.hp <= 0) {
+        humanHit.hp = 0; humanHit.state = 'dead'; humanHit.deadAt = now;
+        m.killedCount++;
+      }
       return false;
     }
 
@@ -992,6 +1202,27 @@ export function dMissionWorld(ctx, m, now) {
     }
   });
 
+  // Survivor humans (bandits when hostile, neutral traders before they
+  // turn). Rendered between rescuables and the party so they read as
+  // "out in the world" rather than part of the squad.
+  (m.humans || []).forEach(h => {
+    const hc = {
+      ...h, lane: 0, onExpedition: false,
+      civilian: false, bandit: h.bandit, maxHp: h.maxHp, hp: h.hp,
+    };
+    dSoldier(ctx, hc, now);
+    // Tiny status pip above their head: red for hostile, green for trader
+    const px = h.x, py = MGY - 64;
+    ctx.fillStyle = h.hostile ? '#cc2222' : '#44bb44';
+    ctx.beginPath(); ctx.arc(px, py, 2, 0, Math.PI * 2); ctx.fill();
+    if (h.state !== 'dead' && h.hp < h.maxHp) {
+      // small hp bar
+      ctx.fillStyle = 'rgba(20,20,20,0.7)'; ctx.fillRect(px - 11, py + 4, 22, 3);
+      ctx.fillStyle = h.hostile ? '#cc2222' : '#44bb44';
+      ctx.fillRect(px - 11, py + 4, 22 * (h.hp / h.maxHp), 3);
+    }
+  });
+
   // Draw followers first so the lead reads as in front of them.
   (m.followers || []).forEach(f => {
     const fc = { ...f, lane: 0, onExpedition: false, state: f.state };
@@ -1009,16 +1240,58 @@ export function dMissionWorld(ctx, m, now) {
   m.bullets.forEach(b => dBlt(ctx, b));
 
   if (m.objective === 'defend') {
-    // Defense anchor flag
+    // Sandbag emplacement: a U-shaped barricade around the anchor with
+    // the gap facing the player (left). The right wall is the tallest
+    // since that's where the zombies are pouring in from. Each bag is
+    // a rounded brown sack with a tan top stripe.
     const ax = m.defendAnchor;
+    const drawBag = (bx, by) => {
+      ctx.fillStyle = '#7a5a32';
+      ctx.beginPath();
+      // Rounded rectangle (manual since roundRect isn't everywhere yet).
+      const w = 11, h = 7, r = 2.5;
+      ctx.moveTo(bx - w / 2 + r, by);
+      ctx.lineTo(bx + w / 2 - r, by);
+      ctx.quadraticCurveTo(bx + w / 2, by, bx + w / 2, by + r);
+      ctx.lineTo(bx + w / 2, by + h - r);
+      ctx.quadraticCurveTo(bx + w / 2, by + h, bx + w / 2 - r, by + h);
+      ctx.lineTo(bx - w / 2 + r, by + h);
+      ctx.quadraticCurveTo(bx - w / 2, by + h, bx - w / 2, by + h - r);
+      ctx.lineTo(bx - w / 2, by + r);
+      ctx.quadraticCurveTo(bx - w / 2, by, bx - w / 2 + r, by);
+      ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#a07b48'; ctx.fillRect(bx - 4, by + 0.5, 8, 1.5);
+      ctx.strokeStyle = '#4a3820'; ctx.lineWidth = 0.6;
+      ctx.beginPath(); ctx.moveTo(bx - 4, by + 4); ctx.lineTo(bx + 4, by + 4); ctx.stroke();
+    };
+    // Right wall: 3 high, 4 wide (faces the zombie horde)
+    for (let row = 0; row < 3; row++) {
+      const y = MGY - 7 - row * 7;
+      const offset = (row % 2) * 5;
+      for (let col = 0; col < 4; col++) {
+        drawBag(ax + 20 + offset + col * 11, y);
+      }
+    }
+    // Left wall: short stub, just hip-high (player can see / shoot over)
+    for (let row = 0; row < 2; row++) {
+      const y = MGY - 7 - row * 7;
+      drawBag(ax - 32 + (row % 2) * 5, y);
+      drawBag(ax - 21 + (row % 2) * 5, y);
+    }
+    // Back wall (behind the flag): 1 row, 3 bags
+    for (let col = 0; col < 3; col++) {
+      drawBag(ax - 8 + col * 11, MGY - 14);
+    }
+
+    // Defense anchor flag (sits on top of the back wall)
     const pulse = 0.6 + 0.4 * Math.sin(now / 280);
-    ctx.fillStyle = '#1a1a1a'; ctx.fillRect(ax - 1, MGY - 70, 2, 70);
+    ctx.fillStyle = '#1a1a1a'; ctx.fillRect(ax - 1, MGY - 70, 2, 56);
     ctx.fillStyle = `rgba(255,140,40,${0.5 + pulse * 0.4})`;
     ctx.beginPath();
     ctx.moveTo(ax + 1, MGY - 68); ctx.lineTo(ax + 26, MGY - 60); ctx.lineTo(ax + 1, MGY - 52);
     ctx.closePath(); ctx.fill();
     ctx.fillStyle = C.acc; ctx.font = 'bold 10px monospace'; ctx.textAlign = 'center';
-    ctx.fillText('★ DEFEND ★', ax, MGY - 80); ctx.textAlign = 'left';
+    ctx.fillText('★ LAST STAND ★', ax, MGY - 80); ctx.textAlign = 'left';
   } else {
     const goalX = MISSION_W - 30;
     const pulse = 0.6 + 0.4 * Math.sin(now / 300);
@@ -1042,8 +1315,17 @@ export function dMissionHUD(ctx, m, now) {
 
   const px = 180, pw = 450, ph = 10;
   ctx.fillStyle = '#1a1a1a'; ctx.fillRect(px, 14, pw, ph);
-  const pct = m.soldier.x / MISSION_W;
-  ctx.fillStyle = C.acc; ctx.fillRect(px, 14, pw * pct, ph);
+  // In DEFEND mode once the timer starts, the bar tracks survival time
+  // instead of map progress so the player can see the countdown.
+  let pct;
+  if (m.objective === 'defend' && m.defendStartedAt) {
+    pct = Math.min(1, (now - m.defendStartedAt) / m.defendDuration);
+    ctx.fillStyle = '#ff8844';
+  } else {
+    pct = m.soldier.x / MISSION_W;
+    ctx.fillStyle = C.acc;
+  }
+  ctx.fillRect(px, 14, pw * pct, ph);
   ctx.strokeStyle = C.uib; ctx.strokeRect(px, 14, pw, ph);
   ctx.fillStyle = C.acc; ctx.fillText('★', px + pw + 4, 23);
 
@@ -1116,5 +1398,53 @@ export function dMissionHUD(ctx, m, now) {
     ctx.font = '12px monospace'; ctx.fillStyle = C.txt;
     ctx.fillText(m.state === 'won' ? 'Returning to Fort Omega...' : `${m.soldier.name} did not return.`, CW_ / 2, CH / 2 + 10);
     ctx.textAlign = 'left';
+  }
+
+  // ── SURVIVOR TRADE DIALOG ───────────────────────────────────
+  // Drawn on top of everything when active. Hit zones for ACCEPT /
+  // REFUSE are returned via m.dialog._buttons so the canvas click
+  // handler can route mouse clicks back to the resolution callbacks.
+  if (m.dialog && m.dialog.type === 'trade') {
+    const offer = m.dialog.offer;
+    const w = 520, h = 200, x = (CW_ - w) / 2, y = (CH - h) / 2;
+    ctx.fillStyle = 'rgba(0,0,0,0.85)'; ctx.fillRect(0, 0, CW_, CH);
+    ctx.fillStyle = 'rgba(10,18,10,0.96)'; ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = C.acc; ctx.lineWidth = 2; ctx.strokeRect(x, y, w, h);
+    ctx.fillStyle = C.acc; ctx.font = 'bold 14px monospace'; ctx.textAlign = 'center';
+    ctx.fillText('SURVIVOR CAMP — TRADE OFFER', CW_ / 2, y + 24);
+    ctx.fillStyle = C.txt; ctx.font = '11px monospace';
+    ctx.fillText('"We can spare some supplies — but it\'s not free."', CW_ / 2, y + 46);
+    ctx.fillText(`They offer: ${offer.desc}`, CW_ / 2, y + 64);
+
+    const fmt = obj => Object.entries(obj).map(([k, v]) => `${v} ${objIcons[k] || k}`).join('   ');
+    ctx.fillStyle = '#ff8855'; ctx.font = 'bold 12px monospace';
+    ctx.fillText(`YOU GIVE: ${fmt(offer.give)}`,  CW_ / 2, y + 92);
+    ctx.fillStyle = '#88ddff';
+    ctx.fillText(`YOU GET:  ${fmt(offer.get)}`,   CW_ / 2, y + 112);
+
+    // Two buttons at the bottom
+    const bw = 200, bh = 32, by = y + h - bh - 16;
+    const ax = x + 24, rx = x + w - bw - 24;
+    ctx.fillStyle = '#1a3a18'; ctx.fillRect(ax, by, bw, bh);
+    ctx.strokeStyle = C.acc; ctx.strokeRect(ax, by, bw, bh);
+    ctx.fillStyle = C.acc; ctx.font = 'bold 12px monospace';
+    ctx.fillText('✓ ACCEPT', ax + bw / 2, by + 21);
+    ctx.fillStyle = '#3a1818'; ctx.fillRect(rx, by, bw, bh);
+    ctx.strokeStyle = C.dng; ctx.strokeRect(rx, by, bw, bh);
+    ctx.fillStyle = C.dng;
+    ctx.fillText('✖ REFUSE (fight)', rx + bw / 2, by + 21);
+    ctx.textAlign = 'left';
+
+    if (m.dialog._error) {
+      ctx.fillStyle = C.dng; ctx.font = '10px monospace'; ctx.textAlign = 'center';
+      ctx.fillText(m.dialog._error, CW_ / 2, by - 8);
+      ctx.textAlign = 'left';
+    }
+
+    // Store hit zones so the canvas onClick can resolve the dialog
+    m.dialog._buttons = {
+      accept: { x: ax, y: by, w: bw, h: bh },
+      refuse: { x: rx, y: by, w: bw, h: bh },
+    };
   }
 }
