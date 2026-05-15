@@ -240,6 +240,26 @@ function dEvacCivilian(ctx, x, y, t) {
   ctx.restore();
 }
 
+// Schedules audio for the evac cinematic: rotor loop kicks in
+// immediately and runs through the whole sequence, with the volume
+// stepping up as the chopper closes the distance to the LZ.
+function scheduleEvacAudio(evac, elapsed) {
+  if (!evac._fired) evac._fired = new Set();
+  if (!evac.soundQ) evac.soundQ = [];
+  const fire = (k, cond, ev) => {
+    if (!cond || evac._fired.has(k)) return;
+    evac._fired.add(k); evac.soundQ.push(ev);
+  };
+  // Distant rotor as the chopper enters from off-screen.
+  fire('heliFar', elapsed > 50,   { t: 'heliStart', intensity: 0.55 });
+  // Close-in rotor once it's on station (slight delay to feel like a
+  // gain ramp — heliStop+restart gives a louder layer over the same loop).
+  fire('heliStop1', elapsed > 1300, { t: 'heliStop' });
+  fire('heliNear',  elapsed > 1450, { t: 'heliStart', intensity: 1.0 });
+  // Stop when the helicopter is gone.
+  fire('heliOff',   elapsed >= EVAC_DURATION - 200, { t: 'heliStop' });
+}
+
 export function dEvacScene(ctx, evac, now) {
   // Background + base reused from the siege scene so the player sees
   // Fort Omega in the same posture they're used to.
@@ -248,6 +268,7 @@ export function dEvacScene(ctx, evac, now) {
   dBase(ctx, evac.baseHp ?? 200, evac.baseMaxHp ?? 200);
 
   const elapsed = now - (evac.startedAt || now);
+  scheduleEvacAudio(evac, elapsed);
   let heliX, doorOpen = false;
   if (elapsed < PHASE_ARRIVE) {
     // Arriving — slide in from off-screen left

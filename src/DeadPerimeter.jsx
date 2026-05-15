@@ -101,8 +101,11 @@ export default function DeadPerimeter() {
   }, [expPhase, expVisible, expEvents]);
 
   // Triggered from the intro (or its SKIP button) to actually drop the
-  // player into management once the cinematic is finished.
+  // player into management once the cinematic is finished. Cleans up
+  // every persistent audio loop the cinematic might have started.
   const finishIntro = useCallback(() => {
+    const am = getAM();
+    if (am) { am.heliStop(); am.windStop(); am.cityHumStop(); }
     introRef.current = null;
     setScr('management');
   }, []);
@@ -305,6 +308,7 @@ export default function DeadPerimeter() {
   const applyEvac = useCallback(() => {
     const gs = gsRef.current; const evac = evacRef.current;
     if (!gs || !evac) return;
+    const am = getAM(); if (am) am.heliStop();
     gs.reserve = (gs.reserve || []).filter(r => !r.civilian);
     gs.resources.food       = Math.min(999, (gs.resources.food       || 0) + (evac.reward.food       || 0));
     gs.resources.medicine   = Math.min(999, (gs.resources.medicine   || 0) + (evac.reward.medicine   || 0));
@@ -578,7 +582,9 @@ export default function DeadPerimeter() {
       const intro = introRef.current;
       if (intro) {
         if (!intro.startedAt) intro.startedAt = now;
+        if (!intro.soundQ) intro.soundQ = [];
         dIntroScene(ctx, intro, now);
+        processSounds(intro.soundQ, getAM(), mutedR);
         if (now - intro.startedAt >= INTRO_DURATION) finishIntro();
         rafId.current = requestAnimationFrame(loop);
         return;
@@ -588,7 +594,9 @@ export default function DeadPerimeter() {
       const evac = evacRef.current;
       if (evac) {
         if (!evac.startedAt) evac.startedAt = now;
+        if (!evac.soundQ) evac.soundQ = [];
         dEvacScene(ctx, evac, now);
+        processSounds(evac.soundQ, getAM(), mutedR);
         if (now - evac.startedAt >= EVAC_DURATION) applyEvac();
         rafId.current = requestAnimationFrame(loop);
         return;

@@ -403,8 +403,70 @@ function dFortOmegaScene(ctx, ph, now) {
   ctx.globalAlpha = 1;
 }
 
+// Fire-once helper: queues an audio event the first time the
+// condition flips true, keyed so repeated frames don't re-fire it.
+function fireOnce(intro, key, condition, evt) {
+  if (!condition) return;
+  if (intro._fired.has(key)) return;
+  intro._fired.add(key);
+  intro.soundQ.push(evt);
+}
+
+// Schedules the soundtrack for the cinematic — looping ambients
+// (cityHum / wind / heliRotor), one-shots (sirens, screams, fire
+// crackles, gunshots) and the title sting on the Fort Omega beat.
+function scheduleIntroAudio(intro, elapsed) {
+  if (!intro._fired) intro._fired = new Set();
+  if (!intro.soundQ) intro.soundQ = [];
+
+  // Scene 1 — city ambient hum kicks in almost immediately.
+  fireOnce(intro, 'hum', elapsed > 200, { t: 'cityHum' });
+
+  // Scene 2 — panic. First screams as the outbreak hits.
+  fireOnce(intro, 'scream1', elapsed > 5700, { t: 'scream' });
+  fireOnce(intro, 'scream2', elapsed > 7100, { t: 'scream' });
+  fireOnce(intro, 'scream3', elapsed > 8600, { t: 'scream' });
+
+  // Scene 3 — police containment. Sirens, then sustained gunfire.
+  fireOnce(intro, 'siren1', elapsed >  9500, { t: 'siren' });
+  fireOnce(intro, 'siren2', elapsed > 11200, { t: 'siren' });
+  fireOnce(intro, 'siren3', elapsed > 13400, { t: 'siren' });
+  const shotTimes = [10200, 10650, 11150, 11700, 12250, 12750, 13300, 13900, 14500, 15050];
+  shotTimes.forEach((tm, i) => {
+    fireOnce(intro, 'shot' + i, elapsed > tm,
+      { t: 'shot', w: (i % 3 === 0) ? 'rifle' : 'pistol' });
+  });
+  // Scream during the police phase too (officer / civvy going down)
+  fireOnce(intro, 'screamP1', elapsed > 13200, { t: 'scream' });
+  fireOnce(intro, 'screamP2', elapsed > 14600, { t: 'scream' });
+
+  // Scene 4 — collapse. Drop the city hum, start wind, distant heli.
+  fireOnce(intro, 'humOff',    elapsed > 15400, { t: 'cityHumStop' });
+  fireOnce(intro, 'windOn',    elapsed > 15500, { t: 'windStart', intensity: 0.55 });
+  fireOnce(intro, 'heliFar',   elapsed > 15800, { t: 'heliStart',  intensity: 0.32 });
+  // Fire crackles staggered across the burning skyline
+  [16100, 16800, 17500, 18300, 19000, 19700].forEach((tm, i) => {
+    fireOnce(intro, 'crack' + i, elapsed > tm, { t: 'crackle' });
+  });
+  fireOnce(intro, 'heliFarOff', elapsed > 20100, { t: 'heliStop' });
+
+  // Scene 5 — Fort Omega. Title sting, then drop the wind for the
+  // hush that precedes the first wave.
+  fireOnce(intro, 'sting',    elapsed > 21900, { t: 'titleSting' });
+  fireOnce(intro, 'windOff',  elapsed > 26500, { t: 'windStop' });
+
+  // Backstop: when the cinematic ends, make sure every loop is told
+  // to stop even if the user skipped scenes via timing edge cases.
+  if (elapsed >= INTRO_DURATION) {
+    fireOnce(intro, 'finalHum',  true, { t: 'cityHumStop' });
+    fireOnce(intro, 'finalWind', true, { t: 'windStop' });
+    fireOnce(intro, 'finalHeli', true, { t: 'heliStop' });
+  }
+}
+
 export function dIntroScene(ctx, intro, now) {
   const elapsed = now - (intro.startedAt || now);
+  scheduleIntroAudio(intro, elapsed);
   const ph = phaseAt(Math.min(elapsed, INTRO_DURATION));
   ctx.save(); ctx.clearRect(0, 0, CW, CH);
   if      (ph.name === 'normal')    dNormal(ctx, ph, now);
