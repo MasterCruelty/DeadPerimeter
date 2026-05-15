@@ -55,6 +55,21 @@ export function mkMission(soldier, dest) {
     pickups.push({ id: uid(), x: MISSION_W - 320 + rng(-40, 40), type: 'lostSoldier', value: 1, collected: false, lane: 0 });
   }
 
+  // Mission objective: 70% normal "reach the goal", 30% "defend".
+  // DEFEND missions replace the run-to-goal with holding a marked
+  // position for `defendDuration` ms while zombies pile in from the right.
+  const objective = (dest.risk !== 'LOW' && Math.random() < 0.30) ? 'defend' : 'reach';
+  const defendAnchor = MISSION_W * 0.65;
+  const defendDuration = 45000;
+
+  // Branching path: random 50% on MED/HIGH (mutually exclusive with defend
+  // because the defend anchor sits inside the fork range). Two parallel
+  // lanes between fork.startX and fork.endX. Each lane has its own pickup
+  // cluster; the player picks via W/S on the keyboard.
+  const fork = (objective !== 'defend' && dest.risk !== 'LOW' && Math.random() < 0.50)
+    ? { startX: MISSION_W * 0.40, endX: MISSION_W * 0.62 }
+    : null;
+
   // Fork pickup clusters: per-lane bonus content. Low lane = combat
   // resources (ammo / turret ammo / materials), High lane = healing /
   // sniper ammo / a chance of a survivor pickup.
@@ -73,21 +88,6 @@ export function mkMission(soldier, dest) {
       pickups.push({ id: uid(), x: fx, type: thi, value: vhi, collected: false, lane: 1, fork: true });
     }
   }
-
-  // Mission objective: 70% normal "reach the goal", 30% "defend".
-  // DEFEND missions replace the run-to-goal with holding a marked
-  // position for `defendDuration` ms while zombies pile in from the right.
-  const objective = (dest.risk !== 'LOW' && Math.random() < 0.30) ? 'defend' : 'reach';
-  const defendAnchor = MISSION_W * 0.65;
-  const defendDuration = 45000;
-
-  // Branching path: random 50% on MED/HIGH (mutually exclusive with defend
-  // because the defend anchor sits inside the fork range). Two parallel
-  // lanes between fork.startX and fork.endX. Each lane has its own pickup
-  // cluster; the player picks via W/S on the keyboard.
-  const fork = (objective !== 'defend' && dest.risk !== 'LOW' && Math.random() < 0.50)
-    ? { startX: MISSION_W * 0.40, endX: MISSION_W * 0.62 }
-    : null;
 
   // End-of-stage Brute boss on HIGH-risk runs.
   if (dest.risk === 'HIGH') {
