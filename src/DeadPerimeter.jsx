@@ -23,6 +23,7 @@ import { dHuman } from './render/human.js';
 import { dBarricade, dBlt, dFx } from './render/effects.js';
 import { dTurret } from './render/turret.js';
 import { dSquadMarker, dHUD } from './render/hud.js';
+import { dEvacScene, EVAC_DURATION } from './render/evac.js';
 
 import { update } from './update/siege.js';
 import { mkMission, updateMission, dMissionWorld, dMissionHUD } from './update/mission.js';
@@ -34,6 +35,7 @@ import { genEvents } from './expedition/events.js';
 export default function DeadPerimeter() {
   const cvs = useRef(null), gsRef = useRef(null), rafId = useRef(null), prevT = useRef(0), mutedR = useRef(false);
   const missionRef = useRef(null);
+  const evacRef = useRef(null);                // active helicopter-evac animation, if any
   const inputRef = useRef({ left: false, right: false, shoot: false });
   const pausedRef = useRef(false);
   const [scr, setScr] = useState('menu'), [ui, setUi] = useState(null), [muted, setMuted] = useState(false);
@@ -281,21 +283,43 @@ export default function DeadPerimeter() {
     setUi({ ...gs, soldiers: gs.soldiers.map(s => ({ ...s })) });
   }, []);
 
+  // Apply the actual evac effects (called by the animation when it ends).
+  const applyEvac = useCallback(() => {
+    const gs = gsRef.current; const evac = evacRef.current;
+    if (!gs || !evac) return;
+    gs.reserve = (gs.reserve || []).filter(r => !r.civilian);
+    gs.resources.food       = Math.min(999, (gs.resources.food       || 0) + (evac.reward.food       || 0));
+    gs.resources.medicine   = Math.min(999, (gs.resources.medicine   || 0) + (evac.reward.medicine   || 0));
+    gs.resources.sniperAmmo = Math.min(99,  (gs.resources.sniperAmmo || 0) + (evac.reward.sniperAmmo || 0));
+    gs.lastEvacWave = gs.wave;
+    evacRef.current = null;
+    saveGame(gs); setHasSave(true);
+    setUi({ ...gs, soldiers: gs.soldiers.map(s => ({ ...s })) });
+    setScr('management');
+  }, []);
+
   const callEvac = useCallback(() => {
     const gs = gsRef.current; if (!gs) return;
     const civs = (gs.reserve || []).filter(r => r.civilian).length;
     if (civs < BALANCE.evacMinReserve) return;
     if ((gs.wave - (gs.lastEvacWave ?? -10)) < BALANCE.evacWaveCooldown) return;
 
-    const evac = (gs.reserve || []).filter(r => r.civilian);
-    gs.reserve = (gs.reserve || []).filter(r => !r.civilian);
-    gs.resources.food       = Math.min(999, (gs.resources.food       || 0) + evac.length * BALANCE.evacFoodPerCiv);
-    gs.resources.medicine   = Math.min(999, (gs.resources.medicine   || 0) + evac.length * BALANCE.evacMedicinePerCiv);
-    gs.resources.sniperAmmo = Math.min(99,  (gs.resources.sniperAmmo || 0) + evac.length * BALANCE.evacSniperAmmoPerCiv);
-    gs.lastEvacWave = gs.wave;
-    saveGame(gs); setHasSave(true);
-    setUi({ ...gs, soldiers: gs.soldiers.map(s => ({ ...s })) });
+    // Stage the animation. The actual reserve / resource mutation
+    // happens in applyEvac when the helicopter is gone.
+    evacRef.current = {
+      startedAt: 0, // initialised on the first frame of the loop
+      civCount: civs,
+      baseHp: gs.baseHp, baseMaxHp: gs.baseMaxHp,
+      reward: {
+        food:       civs * BALANCE.evacFoodPerCiv,
+        medicine:   civs * BALANCE.evacMedicinePerCiv,
+        sniperAmmo: civs * BALANCE.evacSniperAmmoPerCiv,
+      },
+    };
+    setScr('evac');
   }, []);
+
+  const skipEvac = useCallback(() => { applyEvac(); }, [applyEvac]);
 
   const buildTurret = useCallback(() => {
     const gs = gsRef.current;
@@ -483,6 +507,16 @@ export default function DeadPerimeter() {
     const loop = now => {
       const dt = Math.min(now - prevT.current, 50); prevT.current = now;
       const gs = gsRef.current;
+
+      // Helicopter evac animation overrides everything else.
+      const evac = evacRef.current;
+      if (evac) {
+        if (!evac.startedAt) evac.startedAt = now;
+        dEvacScene(ctx, evac, now);
+        if (now - evac.startedAt >= EVAC_DURATION) applyEvac();
+        rafId.current = requestAnimationFrame(loop);
+        return;
+      }
 
       const m = missionRef.current;
       if (m) {
@@ -706,7 +740,7 @@ export default function DeadPerimeter() {
 
   return (
     <div style={{ background: '#030504', minHeight: '100vh', fontFamily: F, color: C.txt }}>
-      <div style={{ display: (scr === 'siege' || scr === 'mission') ? 'flex' : 'none', flexDirection: 'column', alignItems: 'center', padding: '10px 0' }}>
+      <div style={{ display: (scr === 'siege' || scr === 'mission' || scr === 'evac') ? 'flex' : 'none', flexDirection: 'column', alignItems: 'center', padding: '10px 0' }}>
         <canvas ref={cvs} width={CW} height={CH} style={{ border: `1px solid ${C.uib}`, maxWidth: '100%', cursor: scr === 'mission' ? 'crosshair' : 'crosshair', display: 'block', outline: 'none' }} tabIndex={0} />
         {scr === 'siege' && (
           <div style={{ display: 'flex', gap: '7px', marginTop: '7px', flexWrap: 'wrap', justifyContent: 'center', alignItems: 'center', width: '100%', maxWidth: CW }}>
@@ -751,6 +785,12 @@ export default function DeadPerimeter() {
             ) : (
               <button style={btn('#1a3a18')} onClick={finalizeMission}>✦ RETURN TO BASE ✦</button>
             )}
+          </div>
+        )}
+        {scr === 'evac' && (
+          <div style={{ display: 'flex', gap: '8px', marginTop: '8px', flexWrap: 'wrap', justifyContent: 'center', alignItems: 'center', width: '100%', maxWidth: CW }}>
+            <span style={{ color: '#88ddff', fontSize: '11px' }}>🚁 Helicopter evac in progress…</span>
+            <button style={mbtn} onClick={skipEvac}>⏩ SKIP</button>
           </div>
         )}
       </div>
