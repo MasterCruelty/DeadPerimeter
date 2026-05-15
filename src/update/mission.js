@@ -151,6 +151,8 @@ export function mkMission(soldier, dest) {
       id: uid(), type: 'mine',
       x: 350 + Math.random() * (MISSION_W - 600),
       dmg: 30, triggered: false, triggeredAt: 0,
+      // Mines are shootable from range. One bullet detonates them.
+      hp: 1, radius: 40,
     });
   }
   for (let i = 0; i < acidCount; i++) {
@@ -534,30 +536,36 @@ export function updateMission(m, now, dt) {
   }
 
   // ── HAZARDS ──────────────────────────────────────────────────
-  // Mines: trigger on first contact with any party member, AoE damage.
+  // Mine detonation helper. Used by both the proximity trigger
+  // (party member walks on it) and the bullet-shot trigger
+  // (player shoots the mine from a safe distance).
+  const detonateMine = h => {
+    if (h.triggered) return;
+    h.triggered = true; h.triggeredAt = now;
+    m.soundQ.push({ t: 'bhit' });
+    const radius = h.radius || 40;
+    aliveParty(m).forEach(p => {
+      if (Math.abs(p.x - h.x) > radius) return;
+      p.hp -= h.dmg; p.hurtTimer = 320;
+      m.effects.push({ type: 'txt', x: p.x, y: MGY - 70, v: `MINE -${h.dmg}`, col: '#ff4400', at: now, dur: 1200 });
+      if (p.hp <= 0) {
+        p.hp = 0; p.state = 'dead';
+        if (p.id === s.id) { m.state = 'lost'; m.endedAt = now; }
+      }
+    });
+    m.effects.push({ type: 'hit', x: h.x, y: MGY - 12, at: now, dur: 480 });
+    m.effects.push({ type: 'blood', x: h.x, y: MGY - 12,
+      drops: Array.from({ length: 12 }, () => ({ x: 0, y: 0, vx: (Math.random() - 0.5) * 5, vy: -Math.random() * 3 - 0.5, r: 2 + Math.random() * 4 })),
+      at: now, dur: 700 });
+  };
+  m._detonateMine = detonateMine;
+
+  // Mines: proximity trigger on first contact with any party member.
   // Acid pools: tick damage every 500 ms while standing on them.
   (m.hazards || []).forEach(h => {
     if (h.type === 'mine' && !h.triggered) {
       const stepper = aliveParty(m).find(p => Math.abs(p.x - h.x) < 18);
-      if (stepper) {
-        h.triggered = true; h.triggeredAt = now;
-        m.soundQ.push({ t: 'bhit' });
-        // Damage every party member within 40 px of the mine
-        aliveParty(m).forEach(p => {
-          if (Math.abs(p.x - h.x) > 40) return;
-          p.hp -= h.dmg; p.hurtTimer = 320;
-          m.effects.push({ type: 'txt', x: p.x, y: MGY - 70, v: `MINE -${h.dmg}`, col: '#ff4400', at: now, dur: 1200 });
-          if (p.hp <= 0) {
-            p.hp = 0; p.state = 'dead';
-            if (p.id === s.id) { m.state = 'lost'; m.endedAt = now; }
-          }
-        });
-        m.effects.push({ type: 'hit', x: h.x, y: MGY - 12, at: now, dur: 480 });
-        // Visible blast cloud
-        m.effects.push({ type: 'blood', x: h.x, y: MGY - 12,
-          drops: Array.from({ length: 12 }, () => ({ x: 0, y: 0, vx: (Math.random() - 0.5) * 5, vy: -Math.random() * 3 - 0.5, r: 2 + Math.random() * 4 })),
-          at: now, dur: 700 });
-      }
+      if (stepper) detonateMine(h);
     } else if (h.type === 'acid') {
       h._lastTick = h._lastTick || 0;
       if (now - h._lastTick > 500) {
@@ -598,6 +606,18 @@ export function updateMission(m, now, dt) {
         return false;
       }
       return true;
+    }
+
+    // Shootable mines: any bullet whose path crosses the mine's x at
+    // ground level detonates it (lets the player clear hazards from a
+    // safe distance outside the 40 px blast radius).
+    const mineHit = (m.hazards || []).find(h =>
+      h.type === 'mine' && !h.triggered &&
+      Math.abs(h.x - b.x) < 14 && b.y >= MGY - 38 && b.y <= MGY
+    );
+    if (mineHit) {
+      m._detonateMine(mineHit);
+      return false;
     }
 
     const hit = m.zombies.find(z => z.state !== 'dead' && Math.abs(z.x - b.x) < 20);
@@ -675,15 +695,26 @@ function dHazard(ctx, h, now) {
   if (h.type === 'mine') {
     if (h.triggered) return; // exploded mines fade away with the blast effect
     const x = h.x;
-    // Faint metallic disc + tiny prong — readable but easy to miss
-    ctx.fillStyle = 'rgba(40,38,34,0.92)';
-    ctx.beginPath(); ctx.ellipse(x, MGY - 1, 9, 3, 0, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = '#1a1814'; ctx.fillRect(x - 1, MGY - 4, 2, 3);
-    ctx.fillStyle = '#cc3300';
+    const r = h.radius || 40;
     const blink = Math.sin(now / 220) * 0.5 + 0.5;
-    ctx.globalAlpha = 0.4 + blink * 0.5;
-    ctx.beginPath(); ctx.arc(x, MGY - 4, 1.2, 0, Math.PI * 2); ctx.fill();
-    ctx.globalAlpha = 1;
+    // Danger zone: faint red AoE ring on the ground so the player can
+    // see how far the blast reaches and stop in time.
+    ctx.strokeStyle = `rgba(220,60,30,${0.18 + blink * 0.22})`;
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([4, 3]);
+    ctx.beginPath(); ctx.ellipse(x, MGY + 1, r, 6, 0, 0, Math.PI * 2); ctx.stroke();
+    ctx.setLineDash([]);
+    // Metallic disc + prong
+    ctx.fillStyle = 'rgba(40,38,34,0.95)';
+    ctx.beginPath(); ctx.ellipse(x, MGY - 1, 10, 3.5, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#2a2620';
+    ctx.beginPath(); ctx.ellipse(x, MGY - 2, 6, 2, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#1a1814'; ctx.fillRect(x - 1.2, MGY - 5, 2.4, 4);
+    // Blinking LED + soft halo
+    ctx.fillStyle = `rgba(255,60,20,${0.25 + blink * 0.55})`;
+    ctx.beginPath(); ctx.arc(x, MGY - 5, 3.5 + blink * 1.2, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#ff6620';
+    ctx.beginPath(); ctx.arc(x, MGY - 5, 1.5, 0, Math.PI * 2); ctx.fill();
   } else if (h.type === 'acid') {
     const x = h.x, w = h.w;
     // Bubbling green puddle
