@@ -24,6 +24,7 @@ import { dBarricade, dBlt, dFx } from './render/effects.js';
 import { dTurret } from './render/turret.js';
 import { dSquadMarker, dHUD } from './render/hud.js';
 import { dEvacScene, EVAC_DURATION } from './render/evac.js';
+import { dIntroScene, INTRO_DURATION } from './render/intro.js';
 
 import { update } from './update/siege.js';
 import { mkMission, updateMission, dMissionWorld, dMissionHUD } from './update/mission.js';
@@ -36,6 +37,7 @@ export default function DeadPerimeter() {
   const cvs = useRef(null), gsRef = useRef(null), rafId = useRef(null), prevT = useRef(0), mutedR = useRef(false);
   const missionRef = useRef(null);
   const evacRef = useRef(null);                // active helicopter-evac animation, if any
+  const introRef = useRef(null);               // opening cinematic state, if any
   const inputRef = useRef({ left: false, right: false, shoot: false });
   const pausedRef = useRef(false);
   const [scr, setScr] = useState('menu'), [ui, setUi] = useState(null), [muted, setMuted] = useState(false);
@@ -98,13 +100,24 @@ export default function DeadPerimeter() {
     return () => clearTimeout(to);
   }, [expPhase, expVisible, expEvents]);
 
+  // Triggered from the intro (or its SKIP button) to actually drop the
+  // player into management once the cinematic is finished.
+  const finishIntro = useCallback(() => {
+    introRef.current = null;
+    setScr('management');
+  }, []);
+
   const newGame = useCallback(() => {
     const am = getAM(); if (am) am.resume();
     clearSave();
     const gs = mkGS();
     gs.soldiers.forEach(s => { s.ammo = WPN[s.weapon].ammo; gs.resources.ammo -= WPN[s.weapon].ammoCost; });
-    gsRef.current = gs; setUi({ ...gs }); setScr('management');
+    gsRef.current = gs; setUi({ ...gs });
     setHasSave(false);
+    // Roll the opening cinematic before the player sees management.
+    // Loaded games (continueGame) skip this and go straight to play.
+    introRef.current = { startedAt: 0 };
+    setScr('intro');
   }, []);
 
   const continueGame = useCallback(() => {
@@ -412,6 +425,16 @@ export default function DeadPerimeter() {
     const onClick = e => {
       const r = canvas.getBoundingClientRect();
       const mx = (e.clientX - r.left) * (CW / r.width), my = (e.clientY - r.top) * (CH / r.height);
+      // Intro SKIP button.
+      const intro = introRef.current;
+      if (intro && intro._skipBtn) {
+        const b = intro._skipBtn;
+        if (mx >= b.x && mx <= b.x + b.w && my >= b.y && my <= b.y + b.h) {
+          finishIntro(); return;
+        }
+        return;
+      }
+
       // Mission survivor-trade dialog: route clicks to ACCEPT / REFUSE.
       const md = missionRef.current?.dialog;
       if (md && md._buttons) {
@@ -550,6 +573,16 @@ export default function DeadPerimeter() {
     const loop = now => {
       const dt = Math.min(now - prevT.current, 50); prevT.current = now;
       const gs = gsRef.current;
+
+      // Opening cinematic overrides everything else when present.
+      const intro = introRef.current;
+      if (intro) {
+        if (!intro.startedAt) intro.startedAt = now;
+        dIntroScene(ctx, intro, now);
+        if (now - intro.startedAt >= INTRO_DURATION) finishIntro();
+        rafId.current = requestAnimationFrame(loop);
+        return;
+      }
 
       // Helicopter evac animation overrides everything else.
       const evac = evacRef.current;
@@ -791,7 +824,7 @@ export default function DeadPerimeter() {
 
   return (
     <div style={{ background: '#030504', minHeight: '100vh', fontFamily: F, color: C.txt }}>
-      <div style={{ display: (scr === 'siege' || scr === 'mission' || scr === 'evac') ? 'flex' : 'none', flexDirection: 'column', alignItems: 'center', padding: '10px 0' }}>
+      <div style={{ display: (scr === 'siege' || scr === 'mission' || scr === 'evac' || scr === 'intro') ? 'flex' : 'none', flexDirection: 'column', alignItems: 'center', padding: '10px 0' }}>
         <canvas ref={cvs} width={CW} height={CH} style={{ border: `1px solid ${C.uib}`, maxWidth: '100%', cursor: scr === 'mission' ? 'crosshair' : 'crosshair', display: 'block', outline: 'none' }} tabIndex={0} />
         {scr === 'siege' && (
           <div style={{ display: 'flex', gap: '7px', marginTop: '7px', flexWrap: 'wrap', justifyContent: 'center', alignItems: 'center', width: '100%', maxWidth: CW }}>
