@@ -7,6 +7,22 @@ import { BALANCE } from '../data/difficulty.js';
 import { dZombie } from '../render/zombie.js';
 import { dSoldier } from '../render/soldier.js';
 import { dFx, dBlt } from '../render/effects.js';
+import { dRadioSubtitle } from '../render/hud.js';
+import { pushRadio } from '../audio/radio.js';
+
+// Hurt-callout helper (same logic as siege): fires once when a party
+// member's HP drops below 35% of max, resets above 60%.
+function missionHurtCallout(m, p) {
+  if (!p || p.state === 'dead' || p.civilian) return;
+  if (p.hp <= 0) return;
+  const pct = p.hp / (p.maxHp || 100);
+  if (pct < 0.35 && !p._hurtCallout) {
+    p._hurtCallout = true;
+    pushRadio(m, 'hurt', { urgent: true });
+  } else if (pct > 0.60) {
+    p._hurtCallout = false;
+  }
+}
 
 export function mkMission(soldier, dest, wave = 1) {
   const zombies = [], pickups = [], obstacles = [];
@@ -616,7 +632,7 @@ export function updateMission(m, now, dt) {
         });
       }
       m.effects.push({ type: 'shell', x: s.x - s.facing * 8, y: MGY - 26, vx: -s.facing * (1.4 + Math.random()), at: now, dur: 780 });
-      if (s.ammo === 0) { s.state = 'reload'; s.reloadStart = now; s.ammo = s.maxAmmo; m.soundQ.push({ t: 'reload', w: s.weapon, dur: w.rl }); }
+      if (s.ammo === 0) { s.state = 'reload'; s.reloadStart = now; s.ammo = s.maxAmmo; m.soundQ.push({ t: 'reload', w: s.weapon, dur: w.rl }); pushRadio(m, 'reload'); }
     } else if (now - s.lastShot > w.rate * 0.5) s.state = 'walk';
   }
   if (s.state === 'shoot' && now - s.shootAt > 200) s.state = m.inputLeft || m.inputRight ? 'walk' : 'idle';
@@ -757,7 +773,7 @@ export function updateMission(m, now, dt) {
       if (p.hp <= 0) {
         p.hp = 0; p.state = 'dead';
         if (p.id === s.id) { m.state = 'lost'; m.endedAt = now; }
-      }
+      } else missionHurtCallout(m, p);
     });
     m.effects.push({ type: 'hit', x: h.x, y: MGY - 12, at: now, dur: 480 });
     m.effects.push({ type: 'blood', x: h.x, y: MGY - 12,
@@ -783,7 +799,7 @@ export function updateMission(m, now, dt) {
           if (p.hp <= 0) {
             p.hp = 0; p.state = 'dead';
             if (p.id === s.id) { m.state = 'lost'; m.endedAt = now; }
-          }
+          } else missionHurtCallout(m, p);
         });
       }
     }
@@ -803,7 +819,7 @@ export function updateMission(m, now, dt) {
         if (hit.hp <= 0) {
           hit.hp = 0; hit.state = 'dead';
           if (hit.id === s.id) { m.state = 'lost'; m.endedAt = now; }
-        }
+        } else missionHurtCallout(m, hit);
         return false;
       }
       // Splash on the ground
@@ -824,7 +840,7 @@ export function updateMission(m, now, dt) {
         if (hit.hp <= 0) {
           hit.hp = 0; hit.state = 'dead';
           if (hit.id === s.id) { m.state = 'lost'; m.endedAt = now; }
-        }
+        } else missionHurtCallout(m, hit);
         return false;
       }
       return true;
@@ -1336,6 +1352,7 @@ export function dMissionWorld(ctx, m, now) {
 
 export function dMissionHUD(ctx, m, now) {
   const CW_ = 900;
+  dRadioSubtitle(ctx, m, now);
   ctx.fillStyle = 'rgba(0,0,0,0.78)'; ctx.fillRect(0, 0, CW_, 40);
   ctx.strokeStyle = C.uib; ctx.lineWidth = 1; ctx.strokeRect(0, 0, CW_, 40);
   ctx.fillStyle = C.acc; ctx.font = 'bold 12px monospace';
