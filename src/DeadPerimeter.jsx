@@ -24,6 +24,9 @@ import { dBarricade, dBlt, dFx } from './render/effects.js';
 import { dTurret } from './render/turret.js';
 import { dSquadMarker, dHUD } from './render/hud.js';
 import { dEvacScene, EVAC_DURATION } from './render/evac.js';
+import { dIntroScene, INTRO_DURATION } from './render/intro.js';
+import { dDefeatScene, DEFEAT_DURATION } from './render/defeat.js';
+import { pushRadio } from './audio/radio.js';
 
 import { update } from './update/siege.js';
 import { mkMission, updateMission, dMissionWorld, dMissionHUD } from './update/mission.js';
@@ -36,6 +39,8 @@ export default function DeadPerimeter() {
   const cvs = useRef(null), gsRef = useRef(null), rafId = useRef(null), prevT = useRef(0), mutedR = useRef(false);
   const missionRef = useRef(null);
   const evacRef = useRef(null);                // active helicopter-evac animation, if any
+  const introRef = useRef(null);               // opening cinematic state, if any
+  const defeatRef = useRef(null);              // game-over cinematic state, if any
   const inputRef = useRef({ left: false, right: false, shoot: false });
   const pausedRef = useRef(false);
   const [scr, setScr] = useState('menu'), [ui, setUi] = useState(null), [muted, setMuted] = useState(false);
@@ -98,13 +103,36 @@ export default function DeadPerimeter() {
     return () => clearTimeout(to);
   }, [expPhase, expVisible, expEvents]);
 
+  // Triggered from the intro (or its SKIP button) to actually drop the
+  // player into management once the cinematic is finished. Cleans up
+  // every persistent audio loop the cinematic might have started.
+  const finishIntro = useCallback(() => {
+    const am = getAM();
+    if (am) { am.heliStop(); am.windStop(); am.cityHumStop(); }
+    introRef.current = null;
+    setScr('management');
+  }, []);
+
+  // Same teardown for the game-over cinematic, routes into the stats
+  // screen once the cinematic ends (or is skipped).
+  const finishDefeat = useCallback(() => {
+    const am = getAM();
+    if (am) { am.windStop(); am.heliStop(); am.cityHumStop(); }
+    defeatRef.current = null;
+    setScr('gameover');
+  }, []);
+
   const newGame = useCallback(() => {
     const am = getAM(); if (am) am.resume();
     clearSave();
     const gs = mkGS();
     gs.soldiers.forEach(s => { s.ammo = WPN[s.weapon].ammo; gs.resources.ammo -= WPN[s.weapon].ammoCost; });
-    gsRef.current = gs; setUi({ ...gs }); setScr('management');
+    gsRef.current = gs; setUi({ ...gs });
     setHasSave(false);
+    // Roll the opening cinematic before the player sees management.
+    // Loaded games (continueGame) skip this and go straight to play.
+    introRef.current = { startedAt: 0 };
+    setScr('intro');
   }, []);
 
   const continueGame = useCallback(() => {
@@ -292,6 +320,7 @@ export default function DeadPerimeter() {
   const applyEvac = useCallback(() => {
     const gs = gsRef.current; const evac = evacRef.current;
     if (!gs || !evac) return;
+    const am = getAM(); if (am) am.heliStop();
     gs.reserve = (gs.reserve || []).filter(r => !r.civilian);
     gs.resources.food       = Math.min(999, (gs.resources.food       || 0) + (evac.reward.food       || 0));
     gs.resources.medicine   = Math.min(999, (gs.resources.medicine   || 0) + (evac.reward.medicine   || 0));
@@ -392,6 +421,10 @@ export default function DeadPerimeter() {
       s.destX = Math.max(WX + 35, Math.min(CW - 70, gs.squadTarget + (i - 1) * 22));
       s.state = 'walk';
     });
+    if (movables.length > 0) {
+      pushRadio(gs, dir === 'retreat' ? 'retreat' : 'advance',
+        { urgent: dir === 'retreat', speaker: movables[0] });
+    }
   }, []);
 
   // Poll mission state to trigger re-render of UI buttons
@@ -412,6 +445,26 @@ export default function DeadPerimeter() {
     const onClick = e => {
       const r = canvas.getBoundingClientRect();
       const mx = (e.clientX - r.left) * (CW / r.width), my = (e.clientY - r.top) * (CH / r.height);
+      // Intro SKIP button.
+      const intro = introRef.current;
+      if (intro && intro._skipBtn) {
+        const b = intro._skipBtn;
+        if (mx >= b.x && mx <= b.x + b.w && my >= b.y && my <= b.y + b.h) {
+          finishIntro(); return;
+        }
+        return;
+      }
+
+      // Game-over cinematic SKIP button.
+      const defeat = defeatRef.current;
+      if (defeat && defeat._skipBtn) {
+        const b = defeat._skipBtn;
+        if (mx >= b.x && mx <= b.x + b.w && my >= b.y && my <= b.y + b.h) {
+          finishDefeat(); return;
+        }
+        return;
+      }
+
       // Mission survivor-trade dialog: route clicks to ACCEPT / REFUSE.
       const md = missionRef.current?.dialog;
       if (md && md._buttons) {
@@ -551,11 +604,37 @@ export default function DeadPerimeter() {
       const dt = Math.min(now - prevT.current, 50); prevT.current = now;
       const gs = gsRef.current;
 
+      // Opening cinematic overrides everything else when present.
+      const intro = introRef.current;
+      if (intro) {
+        if (!intro.startedAt) intro.startedAt = now;
+        if (!intro.soundQ) intro.soundQ = [];
+        dIntroScene(ctx, intro, now);
+        processSounds(intro.soundQ, getAM(), mutedR);
+        if (now - intro.startedAt >= INTRO_DURATION) finishIntro();
+        rafId.current = requestAnimationFrame(loop);
+        return;
+      }
+
+      // Game-over cinematic — plays before the stats screen.
+      const defeat = defeatRef.current;
+      if (defeat) {
+        if (!defeat.startedAt) defeat.startedAt = now;
+        if (!defeat.soundQ) defeat.soundQ = [];
+        dDefeatScene(ctx, defeat, now);
+        processSounds(defeat.soundQ, getAM(), mutedR);
+        if (now - defeat.startedAt >= DEFEAT_DURATION) finishDefeat();
+        rafId.current = requestAnimationFrame(loop);
+        return;
+      }
+
       // Helicopter evac animation overrides everything else.
       const evac = evacRef.current;
       if (evac) {
         if (!evac.startedAt) evac.startedAt = now;
+        if (!evac.soundQ) evac.soundQ = [];
         dEvacScene(ctx, evac, now);
+        processSounds(evac.soundQ, getAM(), mutedR);
         if (now - evac.startedAt >= EVAC_DURATION) applyEvac();
         rafId.current = requestAnimationFrame(loop);
         return;
@@ -590,7 +669,13 @@ export default function DeadPerimeter() {
           else if (gs.phase === 'gameover') clearSave();
           setHasSave(hasSavedGame());
           setUi(mkSnap(gs));
-          setScr(gs.phase);
+          // Defeat goes through a 24 s cinematic before the stats screen.
+          if (gs.phase === 'gameover' && !defeatRef.current) {
+            defeatRef.current = { startedAt: 0 };
+            setScr('defeat');
+          } else {
+            setScr(gs.phase);
+          }
         } else {
           ctx.save(); ctx.clearRect(0, 0, CW, CH);
           if (gs.shakeTimer > 0) ctx.translate((Math.random() - 0.5) * 5, (Math.random() - 0.5) * 3);
@@ -677,7 +762,10 @@ export default function DeadPerimeter() {
   };
 
   const sortiesLeft = gs ? BALANCE.expeditionsPerDay - (gs.expeditionsToday || 0) : 0;
-  const canSortie = sortiesLeft > 0;
+  // Expeditions unlock after the first wave is cleared so the player
+  // gets a controlled "tutorial" wave before adding the off-map layer.
+  const expeditionsUnlocked = !gs || gs.wave >= 2;
+  const canSortie = sortiesLeft > 0 && expeditionsUnlocked;
   const partyValid = expSoldierIdxs.length > 0 && expSoldierIdxs.length <= BALANCE.maxExpeditionParty;
 
   const ExpeditionScreen = (
@@ -735,7 +823,8 @@ export default function DeadPerimeter() {
             <div style={{ fontSize: '9px', color: C.txt, opacity: 0.5, marginTop: '8px', lineHeight: '1.5' }}>
               <b style={{ color: C.acc }}>PLAY LIVE</b>: control the first picked soldier; the others follow as AI (auto-shoot in range, knife on dry mag). Lead death = mission failed.<br />
               <b style={{ color: C.txt }}>AUTO-DISPATCH</b>: text-based; up to {BALANCE.maxExpeditionParty} soldiers, rewards stack with diminishing returns.
-              {!canSortie && <><br /><b style={{ color: C.dng }}>NIGHTFALL</b>: no more sorties today — survive the next wave to dispatch again.</>}
+              {!expeditionsUnlocked && <><br /><b style={{ color: C.dng }}>LOCKED</b>: expeditions unlock from wave 2 onward.</>}
+              {expeditionsUnlocked && sortiesLeft <= 0 && <><br /><b style={{ color: C.dng }}>NIGHTFALL</b>: no more sorties today — survive the next wave to dispatch again.</>}
             </div>
           </>
         )}
@@ -787,7 +876,7 @@ export default function DeadPerimeter() {
 
   return (
     <div style={{ background: '#030504', minHeight: '100vh', fontFamily: F, color: C.txt }}>
-      <div style={{ display: (scr === 'siege' || scr === 'mission' || scr === 'evac') ? 'flex' : 'none', flexDirection: 'column', alignItems: 'center', padding: '10px 0' }}>
+      <div style={{ display: (scr === 'siege' || scr === 'mission' || scr === 'evac' || scr === 'intro' || scr === 'defeat') ? 'flex' : 'none', flexDirection: 'column', alignItems: 'center', padding: '10px 0' }}>
         <canvas ref={cvs} width={CW} height={CH} style={{ border: `1px solid ${C.uib}`, maxWidth: '100%', cursor: scr === 'mission' ? 'crosshair' : 'crosshair', display: 'block', outline: 'none' }} tabIndex={0} />
         {scr === 'siege' && (
           <div style={{ display: 'flex', gap: '7px', marginTop: '7px', flexWrap: 'wrap', justifyContent: 'center', alignItems: 'center', width: '100%', maxWidth: CW }}>
@@ -1028,9 +1117,18 @@ export default function DeadPerimeter() {
             <button
               style={btn('#1a1a3e', '#4444aa')}
               onClick={() => { resetExp(); setScr('expedition'); }}
-              disabled={sortiesLeft <= 0}
-              title={sortiesLeft <= 0 ? 'No sorties left today' : ''}
-            >🗺 EXPEDITION{sortiesLeft > 0 ? ` (${sortiesLeft}/${BALANCE.expeditionsPerDay})` : ' — NIGHTFALL'}</button>
+              disabled={!canSortie}
+              title={!expeditionsUnlocked ? 'Unlocks after the first wave' : sortiesLeft <= 0 ? 'No sorties left today' : ''}
+            >🗺 EXPEDITION{
+              !expeditionsUnlocked ? ' — LOCKED'
+              : sortiesLeft > 0 ? ` (${sortiesLeft}/${BALANCE.expeditionsPerDay})`
+              : ' — NIGHTFALL'
+            }</button>
+            {!expeditionsUnlocked && (
+              <div style={{ fontSize: '9px', color: C.txt, opacity: 0.55, marginTop: '4px', lineHeight: '1.4' }}>
+                Expeditions unlock from <b>WAVE 2</b>. Survive the first wave to deploy sorties off-base.
+              </div>
+            )}
             <button style={btn()} onClick={startWave} disabled={aliveSols.length === 0}>⚔ DEPLOY</button>
             {aliveSols.length === 0 && <span style={{ color: C.dng, fontSize: '11px', marginLeft: '8px' }}>No soldiers available</span>}
             {gs?.resources?.ammo < 30 && <div style={{ color: C.wrn, fontSize: '10px', marginTop: '6px' }}>⚠ Low ammo — soldiers may run dry mid-wave</div>}

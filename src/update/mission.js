@@ -7,6 +7,28 @@ import { BALANCE } from '../data/difficulty.js';
 import { dZombie } from '../render/zombie.js';
 import { dSoldier } from '../render/soldier.js';
 import { dFx, dBlt } from '../render/effects.js';
+import { dRadioSubtitle } from '../render/hud.js';
+import { pushRadio } from '../audio/radio.js';
+
+// Hurt-callout helper (same logic as siege): fires once when a party
+// member's HP drops below 35% of max, resets above 60%.
+function missionHurtCallout(m, p) {
+  if (!p || p.state === 'dead' || p.civilian) return;
+  if (p.hp <= 0) return;
+  const pct = p.hp / (p.maxHp || 100);
+  if (pct < 0.35 && !p._hurtCallout) {
+    p._hurtCallout = true;
+    pushRadio(m, 'hurt', { urgent: true, speaker: p });
+  } else if (pct > 0.60) {
+    p._hurtCallout = false;
+  }
+}
+
+// Random kill chatter in missions (8% chance, throttled by pushRadio).
+function missionKillChatter(m, sol) {
+  if (!sol || sol.civilian) return;
+  if (Math.random() < 0.08) pushRadio(m, 'kill', { speaker: sol });
+}
 
 export function mkMission(soldier, dest, wave = 1) {
   const zombies = [], pickups = [], obstacles = [];
@@ -228,6 +250,12 @@ export function mkMission(soldier, dest, wave = 1) {
   // into another group of survivors mid-route. The group is either
   // already hostile (bandits) or peaceful traders who turn hostile
   // if the player refuses their offer.
+  //
+  // When an encounter spawns, the immediate area around the camp is
+  // treated as "cleared" — survivors have killed or driven off any
+  // zombies that wandered in, so the player fights ONE faction at a
+  // time. The buffer is also re-applied at proximity (see
+  // updateMission below) to catch any zombie that walked in later.
   const humans = [];
   let encounter = null;
   if (objective !== 'defend') {
@@ -235,6 +263,15 @@ export function mkMission(soldier, dest, wave = 1) {
     if (encounter) {
       encounter.x = MISSION_W * (0.32 + Math.random() * 0.10);
       encounter.resolved = false;
+      encounter.clearRadius = 170;
+      encounter._proxCleared = false;
+      // Remove every zombie spawned inside the buffer so the camp
+      // starts off visually intact.
+      for (let i = zombies.length - 1; i >= 0; i--) {
+        if (Math.abs(zombies[i].x - encounter.x) <= encounter.clearRadius) {
+          zombies.splice(i, 1);
+        }
+      }
       const bandit = encounter.type === 'hostile';
       const count = bandit ? rng(3, 4) : rng(2, 3);
       const weapons = ['pistol', 'pistol', 'shotgun', 'rifle'];
@@ -408,6 +445,21 @@ export function updateMission(m, now, dt) {
   s.hurtTimer = Math.max(0, s.hurtTimer - dt);
   (m.followers || []).forEach(f => { f.hurtTimer = Math.max(0, f.hurtTimer - dt); });
   (m.humans   || []).forEach(h => { h.hurtTimer = Math.max(0, h.hurtTimer - dt); });
+
+  // Encounter buffer zone: when the lead gets close, sweep the area
+  // free of any zombies that drifted into the survivor camp so the
+  // player doesn't end up fighting both factions simultaneously.
+  // Survivors win the encounter zone — they're effectively "the new
+  // tenants" until the player resolves the meeting.
+  if (m.encounter && !m.encounter._proxCleared && Math.abs(s.x - m.encounter.x) < 280) {
+    const r = m.encounter.clearRadius || 170;
+    for (let i = m.zombies.length - 1; i >= 0; i--) {
+      const z = m.zombies[i];
+      if (z.state === 'dead') continue;
+      if (Math.abs(z.x - m.encounter.x) <= r) m.zombies.splice(i, 1);
+    }
+    m.encounter._proxCleared = true;
+  }
 
   // Trader proximity: open the trade dialog the first time the lead
   // walks into the camp's radius. Hostile camps skip this and just
@@ -586,7 +638,7 @@ export function updateMission(m, now, dt) {
         });
       }
       m.effects.push({ type: 'shell', x: s.x - s.facing * 8, y: MGY - 26, vx: -s.facing * (1.4 + Math.random()), at: now, dur: 780 });
-      if (s.ammo === 0) { s.state = 'reload'; s.reloadStart = now; s.ammo = s.maxAmmo; m.soundQ.push({ t: 'reload', w: s.weapon, dur: w.rl }); }
+      if (s.ammo === 0) { s.state = 'reload'; s.reloadStart = now; s.ammo = s.maxAmmo; m.soundQ.push({ t: 'reload', w: s.weapon, dur: w.rl }); pushRadio(m, 'reload', { speaker: s }); }
     } else if (now - s.lastShot > w.rate * 0.5) s.state = 'walk';
   }
   if (s.state === 'shoot' && now - s.shootAt > 200) s.state = m.inputLeft || m.inputRight ? 'walk' : 'idle';
@@ -727,7 +779,7 @@ export function updateMission(m, now, dt) {
       if (p.hp <= 0) {
         p.hp = 0; p.state = 'dead';
         if (p.id === s.id) { m.state = 'lost'; m.endedAt = now; }
-      }
+      } else missionHurtCallout(m, p);
     });
     m.effects.push({ type: 'hit', x: h.x, y: MGY - 12, at: now, dur: 480 });
     m.effects.push({ type: 'blood', x: h.x, y: MGY - 12,
@@ -753,7 +805,7 @@ export function updateMission(m, now, dt) {
           if (p.hp <= 0) {
             p.hp = 0; p.state = 'dead';
             if (p.id === s.id) { m.state = 'lost'; m.endedAt = now; }
-          }
+          } else missionHurtCallout(m, p);
         });
       }
     }
@@ -773,7 +825,7 @@ export function updateMission(m, now, dt) {
         if (hit.hp <= 0) {
           hit.hp = 0; hit.state = 'dead';
           if (hit.id === s.id) { m.state = 'lost'; m.endedAt = now; }
-        }
+        } else missionHurtCallout(m, hit);
         return false;
       }
       // Splash on the ground
@@ -794,7 +846,7 @@ export function updateMission(m, now, dt) {
         if (hit.hp <= 0) {
           hit.hp = 0; hit.state = 'dead';
           if (hit.id === s.id) { m.state = 'lost'; m.endedAt = now; }
-        }
+        } else missionHurtCallout(m, hit);
         return false;
       }
       return true;
@@ -826,6 +878,7 @@ export function updateMission(m, now, dt) {
       if (humanHit.hp <= 0) {
         humanHit.hp = 0; humanHit.state = 'dead'; humanHit.deadAt = now;
         m.killedCount++;
+        missionKillChatter(m, m.soldier);
       }
       return false;
     }
@@ -836,7 +889,12 @@ export function updateMission(m, now, dt) {
       m.effects.push({ type: 'blood', x: b.x, y: b.y, drops: Array.from({ length: 6 }, () => ({ x: 0, y: 0, vx: (Math.random() - 0.5) * 3.5, vy: -Math.random() * 2.5 - 0.5, r: 1.5 + Math.random() * 3 })), at: now, dur: 600 });
       m.effects.push({ type: 'hit', x: b.x, y: b.y, at: now, dur: 200 });
       m.effects.push({ type: 'txt', x: hit.x, y: MGY - 60, v: `-${Math.round(b.dmg)}`, col: C.bld, at: now, dur: 680 });
-      if (hit.hp <= 0) { hit.hp = 0; hit.state = 'dead'; hit.deadAt = now; m.soundQ.push({ t: 'zdie', zt: hit.type }); m.killedCount++; }
+      if (hit.hp <= 0) {
+        hit.hp = 0; hit.state = 'dead'; hit.deadAt = now;
+        m.soundQ.push({ t: 'zdie', zt: hit.type });
+        m.killedCount++;
+        missionKillChatter(m, m.soldier);
+      }
       return false;
     }
     return true;
@@ -1306,6 +1364,7 @@ export function dMissionWorld(ctx, m, now) {
 
 export function dMissionHUD(ctx, m, now) {
   const CW_ = 900;
+  dRadioSubtitle(ctx, m, now);
   ctx.fillStyle = 'rgba(0,0,0,0.78)'; ctx.fillRect(0, 0, CW_, 40);
   ctx.strokeStyle = C.uib; ctx.lineWidth = 1; ctx.strokeRect(0, 0, CW_, 40);
   ctx.fillStyle = C.acc; ctx.font = 'bold 12px monospace';
