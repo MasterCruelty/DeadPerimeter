@@ -1,5 +1,57 @@
 import { C, CW, CH, GY, WX } from '../constants.js';
 import { dBase } from './base.js';
+import { dSoldier } from './soldier.js';
+import { dZombie } from './zombie.js';
+import { ZTP } from '../data/zombies.js';
+
+// ── Sprite-scaling helper ──────────────────────────────────────
+// Re-uses an in-game sprite (dSoldier / dZombie) at an arbitrary
+// screen position and zoom. Feet land at (screenX, screenFootY).
+// Math: drawFn internally translate(s.x, laneY(s.lane)); for lane=0
+// that's (0, GY). We pre-translate so the post-scale composition
+// puts the feet exactly where we want.
+function dSpriteAt(drawFn, ctx, entity, screenX, screenFootY, scale, now) {
+  ctx.save();
+  ctx.translate(screenX, screenFootY - GY * scale);
+  ctx.scale(scale, scale);
+  const e = { ...entity, x: 0, lane: 0 };
+  drawFn(ctx, e, now);
+  ctx.restore();
+}
+
+// Convenience entity builders for the cinematic. These are minimal
+// records that satisfy dSoldier / dZombie's expectations without
+// pulling in the full mkSoldier / mkZombie factories.
+function mkIntroSoldier(opts = {}) {
+  return {
+    id: opts.id || 'i' + Math.random(), name: opts.name || 'X',
+    weapon: opts.weapon || 'rifle',
+    hp: opts.hp ?? 100, maxHp: 100,
+    ammo: opts.ammo ?? 30, maxAmmo: 30,
+    state: opts.state || 'idle',
+    facing: opts.facing ?? 1,
+    civilian: !!opts.civilian, bandit: !!opts.bandit, police: !!opts.police,
+    onRoof: false, onExpedition: false,
+    walkPhase: opts.walkPhase ?? Math.random() * Math.PI * 2,
+    lastShot: opts.lastShot ?? 0, reloadStart: 0, shootAt: 0, knifeTimer: 0,
+    hurtTimer: 0, recoil: 0,
+  };
+}
+
+function mkIntroZombie(opts = {}) {
+  const type = opts.type || 'walker';
+  const ztp = ZTP[type] || ZTP.walker;
+  return {
+    id: opts.id || 'z' + Math.random(),
+    type, z: ztp,
+    hp: opts.hp ?? ztp.hp, maxHp: ztp.hp,
+    state: opts.state || 'walk',
+    facing: opts.facing ?? -1,
+    walkPhase: opts.walkPhase ?? Math.random() * Math.PI * 2,
+    atkTimer: 0, hurtTimer: 0, deadAt: 0,
+    activated: true,
+  };
+}
 
 // Opening cinematic — storyboarded as 14 distinct shots over 50 s.
 // Player feedback v2: every close-up shot should feature a character
@@ -399,65 +451,16 @@ function dShotZombieBite(ctx, t, now) {
   ctx.fillStyle = '#8a5a3a';
   ctx.fillRect(vx + 30, vy - 70, 30, 24);
 
-  // The zombie — head + shoulders biting into her left shoulder area
-  const zx = CW * 0.65 - tug, zy = CH * 0.40;
-  // Zombie body / shoulders
-  ctx.fillStyle = '#2a3826';
-  ctx.beginPath();
-  ctx.moveTo(zx + 100, zy + 240);
-  ctx.lineTo(zx + 120, zy + 80);
-  ctx.lineTo(zx + 80, zy + 20);
-  ctx.lineTo(zx - 30, zy + 30);
-  ctx.lineTo(zx - 60, zy + 100);
-  ctx.lineTo(zx - 40, zy + 240);
-  ctx.closePath(); ctx.fill();
-  // Torn fabric details
-  ctx.fillStyle = '#1a2418';
-  for (let i = 0; i < 6; i++) {
-    ctx.fillRect(zx - 30 + i * 24, zy + 70 + (i % 2) * 30, 12, 8);
-  }
-  // Head — leaning forward, mouth gaping
-  ctx.fillStyle = '#5a7042';
-  ctx.beginPath();
-  ctx.arc(zx, zy, 50, 0, Math.PI * 2); ctx.fill();
-  // Bald patch + skin gash
-  ctx.fillStyle = '#3a4a30';
-  ctx.beginPath();
-  ctx.ellipse(zx - 4, zy - 24, 32, 16, 0, 0, Math.PI * 2); ctx.fill();
-  ctx.strokeStyle = '#1a1a08'; ctx.lineWidth = 1.5;
-  ctx.beginPath(); ctx.moveTo(zx + 6, zy - 36); ctx.lineTo(zx + 18, zy - 18); ctx.stroke();
-  // Hollow red eyes
-  ctx.fillStyle = '#1a0a0a';
-  ctx.fillRect(zx - 22, zy - 8, 14, 9);
-  ctx.fillRect(zx + 4,  zy - 8, 14, 9);
-  ctx.fillStyle = '#cc1818';
-  ctx.fillRect(zx - 18, zy - 5, 6, 4);
-  ctx.fillRect(zx + 8,  zy - 5, 6, 4);
-  // Jaw biting down — mouth open with bloody teeth, oriented toward victim's shoulder
-  ctx.save();
-  ctx.translate(zx - 30, zy + 24);
-  ctx.rotate(-0.45);
-  ctx.fillStyle = '#1a0606';
-  ctx.beginPath();
-  ctx.ellipse(0, 0, 30, 22, 0, 0, Math.PI * 2); ctx.fill();
-  // Teeth (jagged)
-  ctx.fillStyle = '#dcc8a0';
-  for (let i = 0; i < 6; i++) {
-    const tx2 = -22 + i * 8;
-    ctx.beginPath();
-    ctx.moveTo(tx2, -8); ctx.lineTo(tx2 + 4, 2); ctx.lineTo(tx2 + 8, -8);
-    ctx.closePath(); ctx.fill();
-  }
-  for (let i = 0; i < 6; i++) {
-    const tx2 = -22 + i * 8;
-    ctx.beginPath();
-    ctx.moveTo(tx2, 8); ctx.lineTo(tx2 + 4, -2); ctx.lineTo(tx2 + 8, 8);
-    ctx.closePath(); ctx.fill();
-  }
-  // Blood on teeth
-  ctx.fillStyle = '#7a0606';
-  ctx.fillRect(-20, -2, 36, 4);
-  ctx.restore();
+  // The zombie — real in-game dZombie sprite scaled up, in the
+  // 'attack' state so its arms are out and it's leaning into the bite.
+  // Tug animation moves it slightly toward the victim each frame.
+  const zx = CW * 0.65 - tug;
+  const ZSCALE = 4.5;
+  const biteZ = mkIntroZombie({
+    type: 'walker', facing: -1, state: 'attack',
+    walkPhase: now / 240,
+  });
+  dSpriteAt(dZombie, ctx, biteZ, zx, CH - 50, ZSCALE, now);
 
   // Blood spray exploding from the bite point on her shoulder
   const bpX = vx + 30, bpY = vy - 90;
@@ -757,121 +760,35 @@ function dShotCopFiring(ctx, t, now) {
     ctx.fillRect(cx2, CH - 80 + (i % 3), 6, 3);
   }
 
-  // The officer — large mid-shot, ¾ view, firing to the right
-  const ox = CW / 2 - 80, oy = CH - 90;
-  // Legs in shooter's wide stance
-  ctx.fillStyle = '#0e1622';
-  // Back leg (left)
-  ctx.beginPath();
-  ctx.moveTo(ox - 40, oy);
-  ctx.lineTo(ox - 30, oy - 130);
-  ctx.lineTo(ox - 10, oy - 130);
-  ctx.lineTo(ox - 18, oy);
-  ctx.closePath(); ctx.fill();
-  // Front leg (right, bent)
-  ctx.beginPath();
-  ctx.moveTo(ox + 40, oy);
-  ctx.lineTo(ox + 12, oy - 130);
-  ctx.lineTo(ox + 32, oy - 130);
-  ctx.lineTo(ox + 70, oy);
-  ctx.closePath(); ctx.fill();
-  // Boots
-  ctx.fillStyle = '#0a0a0a';
-  ctx.fillRect(ox - 44, oy - 8, 28, 12);
-  ctx.fillRect(ox + 44, oy - 8, 30, 12);
-  // Torso — leaning forward in stance
-  ctx.fillStyle = '#0e1622';
-  ctx.beginPath();
-  ctx.moveTo(ox - 30, oy - 130);
-  ctx.lineTo(ox - 50, oy - 240);
-  ctx.lineTo(ox + 60, oy - 250);
-  ctx.lineTo(ox + 40, oy - 130);
-  ctx.closePath(); ctx.fill();
-  // Yellow tactical vest
-  ctx.fillStyle = '#c4a838';
-  ctx.beginPath();
-  ctx.moveTo(ox - 38, oy - 200);
-  ctx.lineTo(ox - 48, oy - 240);
-  ctx.lineTo(ox + 58, oy - 250);
-  ctx.lineTo(ox + 48, oy - 200);
-  ctx.closePath(); ctx.fill();
-  // Badge on vest
-  ctx.fillStyle = '#dfb84a';
-  ctx.beginPath();
-  for (let i = 0; i < 10; i++) {
-    const ang = -Math.PI / 2 + i * Math.PI / 5;
-    const rr = (i % 2 === 0) ? 9 : 4;
-    const bx = ox + 10 + Math.cos(ang) * rr;
-    const by = oy - 220 + Math.sin(ang) * rr;
-    if (i === 0) ctx.moveTo(bx, by); else ctx.lineTo(bx, by);
-  }
-  ctx.closePath(); ctx.fill();
-  // Reflective stripe across vest
-  ctx.fillStyle = '#fff5c4';
-  ctx.fillRect(ox - 40, oy - 192, 90, 4);
-  // Both arms forward, hands clasped on pistol
-  ctx.fillStyle = '#0e1622';
-  // Left arm (away from camera)
-  ctx.beginPath();
-  ctx.moveTo(ox + 40, oy - 230);
-  ctx.lineTo(ox + 110, oy - 200);
-  ctx.lineTo(ox + 116, oy - 184);
-  ctx.lineTo(ox + 38, oy - 214);
-  ctx.closePath(); ctx.fill();
-  // Right arm (closer)
-  ctx.beginPath();
-  ctx.moveTo(ox + 30, oy - 218);
-  ctx.lineTo(ox + 120, oy - 188);
-  ctx.lineTo(ox + 126, oy - 172);
-  ctx.lineTo(ox + 28, oy - 200);
-  ctx.closePath(); ctx.fill();
-  // Hands (skin-tone) gripping
-  ctx.fillStyle = '#bf8a6a';
-  ctx.fillRect(ox + 110, oy - 200, 22, 22);
-  // Pistol pointed right (sideways)
-  ctx.fillStyle = '#181818';
-  ctx.fillRect(ox + 130, oy - 198, 46, 14);
-  ctx.fillStyle = '#0a0a0a';
-  ctx.fillRect(ox + 130, oy - 204, 46, 8);
-  // Trigger guard
-  ctx.fillStyle = '#0a0a0a';
-  ctx.fillRect(ox + 120, oy - 184, 14, 8);
-  // Head — turned to look down the sights (right facing)
-  ctx.fillStyle = '#bf8a6a';
-  ctx.beginPath();
-  ctx.arc(ox + 22, oy - 270, 22, 0, Math.PI * 2); ctx.fill();
-  // Police cap
-  ctx.fillStyle = '#0e1622';
-  ctx.beginPath();
-  ctx.moveTo(ox + 4, oy - 282);
-  ctx.lineTo(ox + 48, oy - 286);
-  ctx.lineTo(ox + 50, oy - 274);
-  ctx.lineTo(ox + 2, oy - 270);
-  ctx.closePath(); ctx.fill();
-  ctx.fillStyle = '#dfb84a';
-  ctx.beginPath();
-  for (let i = 0; i < 10; i++) {
-    const ang = -Math.PI / 2 + i * Math.PI / 5;
-    const rr = (i % 2 === 0) ? 4 : 2;
-    const bx = ox + 28 + Math.cos(ang) * rr;
-    const by = oy - 280 + Math.sin(ang) * rr;
-    if (i === 0) ctx.moveTo(bx, by); else ctx.lineTo(bx, by);
-  }
-  ctx.closePath(); ctx.fill();
-  // Cap brim
-  ctx.fillStyle = '#0a0e12';
-  ctx.fillRect(ox + 26, oy - 268, 22, 4);
-  // Eye (looking right, focused)
-  ctx.fillStyle = '#1a1a1a';
-  ctx.fillRect(ox + 32, oy - 270, 4, 2.5);
-  // Set jaw
-  ctx.fillStyle = '#9a6a4e';
-  ctx.fillRect(ox + 30, oy - 258, 12, 2);
-
-  // MUZZLE FLASH — bright explosion at the muzzle (timed pulses)
+  // The officer — drawn via the real in-game dSoldier sprite with the
+  // police palette, scaled up to fill the close-up. State 'shoot'
+  // animates the recoil pose; a muzzle-flash overlay is layered on top.
+  const ox = CW / 2 - 60, oy = CH - 60;
+  const SCALE = 5.0;
   const flashOn = Math.floor(now / 140) % 2 === 0;
+  const officer = mkIntroSoldier({
+    name: 'NHPD-0451', weapon: 'pistol', police: true,
+    state: flashOn ? 'shoot' : 'idle',
+    facing: 1, lastShot: now - 40,
+  });
+  dSpriteAt(dSoldier, ctx, officer, ox, oy, SCALE, now);
+  // Reflective yellow vest stripe + badge overlay on top of the sprite
+  ctx.fillStyle = '#c4a838';
+  ctx.fillRect(ox - 38, oy - 230, 92, 5);
+  ctx.fillStyle = '#dfb84a';
+  ctx.beginPath();
+  for (let i = 0; i < 10; i++) {
+    const ang = -Math.PI / 2 + i * Math.PI / 5;
+    const rr = (i % 2 === 0) ? 8 : 3.6;
+    const bx = ox + 6 + Math.cos(ang) * rr;
+    const by = oy - 252 + Math.sin(ang) * rr;
+    if (i === 0) ctx.moveTo(bx, by); else ctx.lineTo(bx, by);
+  }
+  ctx.closePath(); ctx.fill();
+
+  // MUZZLE FLASH overlay at the pistol barrel (timed pulses)
   if (flashOn) {
-    const fx = ox + 178, fy = oy - 191;
+    const fx = ox + 90, fy = oy - 215;
     const fgr = ctx.createRadialGradient(fx, fy, 4, fx, fy, 110);
     fgr.addColorStop(0, 'rgba(255,255,220,1)');
     fgr.addColorStop(0.35, 'rgba(255,180,60,0.75)');
@@ -1053,61 +970,38 @@ function dShotPoliceLine(ctx, t, now) {
     ctx.fillStyle = '#22222a'; ctx.font = 'bold 6px monospace'; ctx.textAlign = 'center';
     ctx.fillText('POLICE', cx, cy + 19); ctx.textAlign = 'left';
   });
-  // Officers in firing stances behind the cars
+  // Officers in firing stances behind the cars — real dSoldier sprites
+  // with the police palette + a tiny muzzle flash overlay when firing.
   const officers = [120, 240, 340, 460, 530];
   officers.forEach((ox, oi) => {
-    const oy = GY - 6;
     const firing = Math.floor(now / 200 + oi) % 2 === 0;
-    // Body
-    ctx.fillStyle = '#1a2840';
-    ctx.fillRect(ox - 5, oy - 36, 10, 22);
-    // Yellow vest line
-    ctx.fillStyle = '#c4a838';
-    ctx.fillRect(ox - 5, oy - 28, 10, 2);
-    // Legs
-    ctx.fillStyle = '#1a2840';
-    ctx.fillRect(ox - 5, oy - 14, 4, 14);
-    ctx.fillRect(ox + 1, oy - 14, 4, 14);
-    // Head + cap
-    ctx.fillStyle = '#bf8a6a';
-    ctx.beginPath(); ctx.arc(ox, oy - 42, 4, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = '#1a2840';
-    ctx.fillRect(ox - 4, oy - 46, 8, 3);
-    // Pistol + arm extended
-    ctx.fillStyle = '#0a0a0a';
-    ctx.fillRect(ox + 5, oy - 30, 14, 2.5);
+    const cop = mkIntroSoldier({
+      name: 'NHPD-' + (oi + 1), weapon: 'pistol', police: true,
+      facing: 1, state: firing ? 'shoot' : 'idle',
+      lastShot: now - 40, walkPhase: oi * 0.7,
+    });
+    dSpriteAt(dSoldier, ctx, cop, ox, GY, 1.6, now);
     if (firing) {
-      // Muzzle flash
+      // Pistol muzzle flash + bullet streak heading right
+      const fx = ox + 24, fy = GY - 42;
       ctx.fillStyle = 'rgba(255,210,80,0.95)';
       ctx.beginPath();
-      ctx.moveTo(ox + 19, oy - 29);
-      ctx.lineTo(ox + 28, oy - 32);
-      ctx.lineTo(ox + 28, oy - 26);
-      ctx.closePath(); ctx.fill();
-      // Bullet streak
+      ctx.moveTo(fx, fy); ctx.lineTo(fx + 14, fy - 4);
+      ctx.lineTo(fx + 14, fy + 4); ctx.closePath(); ctx.fill();
       ctx.fillStyle = 'rgba(255,230,140,0.85)';
-      ctx.fillRect(ox + 29, oy - 30, 30 + (oi * 17) % 60, 1.4);
+      ctx.fillRect(fx + 16, fy - 0.5, 40 + (oi * 17) % 60, 1.4);
     }
   });
 
-  // Zombies advancing from the right
+  // Zombies advancing from the right — real dZombie sprites.
   for (let i = 0; i < 10; i++) {
     const zx = CW + 20 - (t * 320 + i * 40);
-    if (zx > CW + 10) continue;
-    if (zx < 540) continue;
-    const wob = Math.sin(now / 220 + i) * 1.4;
-    ctx.fillStyle = '#3d5a30';
-    ctx.fillRect(zx - 4, GY - 32 + wob, 8, 24);
-    ctx.beginPath(); ctx.arc(zx + wob * 0.3, GY - 38, 4, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = '#cc1818';
-    ctx.fillRect(zx - 1.5 + wob * 0.3, GY - 38, 1, 1);
-    ctx.fillRect(zx + 0.7 + wob * 0.3, GY - 38, 1, 1);
-    ctx.fillStyle = '#1a2014';
-    ctx.fillRect(zx - 3, GY - 8 + wob * 0.4, 3, 8);
-    ctx.fillRect(zx, GY - 8 - wob * 0.4, 3, 8);
-    ctx.fillStyle = '#3d5a30';
-    ctx.fillRect(zx - 8, GY - 22, 4, 2);
-    ctx.fillRect(zx + 4, GY - 22, 4, 2);
+    if (zx > CW + 10 || zx < 540) continue;
+    const z = mkIntroZombie({
+      type: i % 4 === 0 ? 'runner' : 'walker',
+      facing: -1, state: 'walk', walkPhase: i * 0.5,
+    });
+    dSpriteAt(dZombie, ctx, z, zx, GY, 1.4, now);
   }
 }
 
@@ -1446,104 +1340,22 @@ function dShotLastDefender(ctx, t, now) {
     ctx.fillRect(ecx % CW, GY - 4 + (i % 3), 5, 2.5);
   }
 
-  // The SOLDIER — mid-shot, ¾ side view, firing right
-  const sx = CW * 0.62, sy = CH - 60;
-  // Boots wide stance
-  ctx.fillStyle = '#0a0a0a';
-  ctx.fillRect(sx - 36, sy, 26, 12);
-  ctx.fillRect(sx + 18, sy, 28, 12);
-  // Legs (OD tactical pants)
-  ctx.fillStyle = '#3a4a30';
-  ctx.beginPath();
-  ctx.moveTo(sx - 32, sy);
-  ctx.lineTo(sx - 28, sy - 110);
-  ctx.lineTo(sx - 10, sy - 110);
-  ctx.lineTo(sx - 14, sy);
-  ctx.closePath(); ctx.fill();
-  ctx.beginPath();
-  ctx.moveTo(sx + 30, sy);
-  ctx.lineTo(sx + 12, sy - 110);
-  ctx.lineTo(sx + 32, sy - 110);
-  ctx.lineTo(sx + 46, sy);
-  ctx.closePath(); ctx.fill();
-  // Knee pads
-  ctx.fillStyle = '#1a2418';
-  ctx.fillRect(sx - 26, sy - 56, 16, 8);
-  ctx.fillRect(sx + 14, sy - 56, 16, 8);
-  // Torso + tactical vest
-  ctx.fillStyle = '#2a3826';
-  ctx.beginPath();
-  ctx.moveTo(sx - 42, sy - 200);
-  ctx.lineTo(sx + 50, sy - 210);
-  ctx.lineTo(sx + 40, sy - 110);
-  ctx.lineTo(sx - 32, sy - 110);
-  ctx.closePath(); ctx.fill();
-  // Tactical vest pouches
-  ctx.fillStyle = '#1a2418';
-  ctx.fillRect(sx - 30, sy - 180, 24, 28);
-  ctx.fillRect(sx + 4, sy - 180, 24, 28);
-  ctx.fillRect(sx - 14, sy - 144, 28, 22);
-  // Buckles
-  ctx.fillStyle = '#3a4a30';
-  ctx.fillRect(sx - 28, sy - 170, 4, 4);
-  ctx.fillRect(sx + 24, sy - 170, 4, 4);
-  // Arms forward holding rifle
-  ctx.fillStyle = '#2a3826';
-  // Back arm (extended forward)
-  ctx.beginPath();
-  ctx.moveTo(sx + 36, sy - 196);
-  ctx.lineTo(sx + 110, sy - 178);
-  ctx.lineTo(sx + 116, sy - 162);
-  ctx.lineTo(sx + 36, sy - 184);
-  ctx.closePath(); ctx.fill();
-  // Front arm (closer, on grip)
-  ctx.beginPath();
-  ctx.moveTo(sx + 14, sy - 180);
-  ctx.lineTo(sx + 88, sy - 168);
-  ctx.lineTo(sx + 96, sy - 154);
-  ctx.lineTo(sx + 12, sy - 166);
-  ctx.closePath(); ctx.fill();
-  // Gloves
-  ctx.fillStyle = '#1a2418';
-  ctx.fillRect(sx + 98, sy - 178, 18, 18);
-  ctx.fillRect(sx + 80, sy - 168, 16, 18);
-  // RIFLE — long, held level
-  ctx.fillStyle = '#1a1410';
-  ctx.fillRect(sx + 60, sy - 178, 30, 16); // stock
-  ctx.fillStyle = '#181818';
-  ctx.fillRect(sx + 90, sy - 180, 50, 14); // receiver + grip
-  ctx.fillStyle = '#0e0e0e';
-  ctx.fillRect(sx + 140, sy - 174, 80, 8); // barrel
-  ctx.fillRect(sx + 218, sy - 178, 8, 6); // front sight
-  // Magazine
-  ctx.fillStyle = '#0a0a0a';
-  ctx.fillRect(sx + 110, sy - 162, 14, 22);
-  // Helmet + face
-  ctx.fillStyle = '#1a2418';
-  ctx.beginPath();
-  ctx.moveTo(sx - 26, sy - 240);
-  ctx.quadraticCurveTo(sx + 4, sy - 256, sx + 34, sy - 240);
-  ctx.lineTo(sx + 34, sy - 220);
-  ctx.lineTo(sx - 26, sy - 220);
-  ctx.closePath(); ctx.fill();
-  // Strap line under helmet
-  ctx.fillStyle = '#0a0a0a';
-  ctx.fillRect(sx - 26, sy - 222, 60, 2);
-  // Face (under helmet brim)
-  ctx.fillStyle = '#bf8a6a';
-  ctx.beginPath();
-  ctx.arc(sx + 8, sy - 218, 18, 0, Math.PI * 2); ctx.fill();
-  // Eye looking down sights (right)
-  ctx.fillStyle = '#1a1a1a';
-  ctx.fillRect(sx + 18, sy - 220, 4, 2.5);
-  // Stubble jaw
-  ctx.fillStyle = '#5a4030';
-  ctx.fillRect(sx + 2, sy - 208, 14, 4);
-
-  // MUZZLE FLASH — pulsing rapid-fire
+  // The SOLDIER — drawn via the real in-game dSoldier sprite, scaled
+  // up. The 'shoot' state synchronises the recoil pose with the
+  // muzzle-flash overlay (drawn below).
+  const sx = CW * 0.62, sy = CH - 50;
+  const SCALE_SOL = 4.6;
   const flashOn = Math.floor(now / 110) % 2 === 0;
+  const def = mkIntroSoldier({
+    name: 'Alpha', weapon: 'rifle', facing: 1,
+    state: flashOn ? 'shoot' : 'idle', lastShot: now - 50,
+  });
+  dSpriteAt(dSoldier, ctx, def, sx, sy, SCALE_SOL, now);
+
+  // MUZZLE FLASH overlay — anchored near the rifle barrel tip of the
+  // scaled sprite.
   if (flashOn) {
-    const fx = sx + 228, fy = sy - 171;
+    const fx = sx + 130, fy = sy - 210;
     const fg = ctx.createRadialGradient(fx, fy, 4, fx, fy, 130);
     fg.addColorStop(0, 'rgba(255,255,210,1)');
     fg.addColorStop(0.35, 'rgba(255,180,60,0.75)');
@@ -1575,12 +1387,16 @@ function dShotLastDefender(ctx, t, now) {
   }
 
   // Zombie silhouettes JUST visible at the right edge — what he's shooting at
+  // Zombie horde at the right edge — real dZombie sprites at small scale
   for (let i = 0; i < 3; i++) {
-    const zx = CW - 30 + i * 15;
-    if (zx > CW) continue;
-    ctx.fillStyle = '#1a261a';
-    ctx.fillRect(zx, GY - 30, 4, 30);
-    ctx.beginPath(); ctx.arc(zx + 2, GY - 34, 4, 0, Math.PI * 2); ctx.fill();
+    const zx = CW - 60 + i * 22;
+    if (zx > CW + 20) continue;
+    const z = mkIntroZombie({
+      type: i === 1 ? 'runner' : 'walker',
+      facing: -1, state: 'walk',
+      walkPhase: i * 0.7,
+    });
+    dSpriteAt(dZombie, ctx, z, zx, sy + 6, 1.4, now);
   }
 }
 
@@ -1801,124 +1617,32 @@ function dShotSoldierAiming(ctx, t, now) {
     ctx.fillRect(bx - 50, CH - 90, 100, 3);
   }
 
-  // The soldier — centered, slightly to the left, ¾ profile right
-  const sx = CW * 0.42, sy = CH - 90;
-  // Legs (planted)
-  ctx.fillStyle = '#3a4a30';
-  ctx.fillRect(sx - 30, sy - 100, 28, 100);
-  ctx.fillRect(sx + 4,  sy - 100, 28, 100);
-  // Boots (just toes peeking)
-  ctx.fillStyle = '#0a0a0a';
-  ctx.fillRect(sx - 32, sy - 6, 32, 8);
-  ctx.fillRect(sx + 4, sy - 6, 32, 8);
-  // Knee pads
-  ctx.fillStyle = '#1a2418';
-  ctx.fillRect(sx - 28, sy - 56, 22, 8);
-  ctx.fillRect(sx + 6, sy - 56, 22, 8);
-  // Torso + vest
-  ctx.fillStyle = '#2a3826';
-  ctx.beginPath();
-  ctx.moveTo(sx - 40, sy - 200);
-  ctx.lineTo(sx + 50, sy - 210);
-  ctx.lineTo(sx + 38, sy - 100);
-  ctx.lineTo(sx - 32, sy - 100);
-  ctx.closePath(); ctx.fill();
-  // Tactical vest pouches
-  ctx.fillStyle = '#1a2418';
-  ctx.fillRect(sx - 30, sy - 180, 22, 26);
-  ctx.fillRect(sx + 6,  sy - 180, 22, 26);
-  ctx.fillRect(sx - 12, sy - 144, 26, 20);
-  // Reflective strips
-  ctx.fillStyle = '#a4a230';
-  ctx.fillRect(sx - 30, sy - 152, 70, 2);
-  // Both arms forward, holding rifle to face
-  ctx.fillStyle = '#2a3826';
-  // Back arm (extended)
-  ctx.beginPath();
-  ctx.moveTo(sx + 34, sy - 196);
-  ctx.lineTo(sx + 132, sy - 178);
-  ctx.lineTo(sx + 138, sy - 162);
-  ctx.lineTo(sx + 32, sy - 184);
-  ctx.closePath(); ctx.fill();
-  // Front arm (closer, bent up to shoulder the stock)
-  ctx.beginPath();
-  ctx.moveTo(sx + 10, sy - 198);
-  ctx.lineTo(sx + 60, sy - 220);
-  ctx.lineTo(sx + 60, sy - 206);
-  ctx.lineTo(sx + 14, sy - 184);
-  ctx.closePath(); ctx.fill();
-  // Gloves
-  ctx.fillStyle = '#1a2418';
-  ctx.fillRect(sx + 56, sy - 226, 18, 18);
-  ctx.fillRect(sx + 118, sy - 180, 22, 16);
-  // RIFLE — held up at face level, stock pressed to shoulder
-  // Stock
-  ctx.fillStyle = '#1a1410';
-  ctx.fillRect(sx + 48, sy - 226, 28, 14);
-  // Receiver
-  ctx.fillStyle = '#181818';
-  ctx.fillRect(sx + 76, sy - 222, 60, 12);
-  // Barrel reaching right
-  ctx.fillStyle = '#0e0e0e';
-  ctx.fillRect(sx + 136, sy - 218, 100, 6);
-  // Front sight
-  ctx.fillRect(sx + 230, sy - 222, 6, 4);
-  // Scope rail on top
-  ctx.fillStyle = '#1a1a1a';
-  ctx.fillRect(sx + 78, sy - 230, 50, 8);
-  // Scope (cylinder)
-  ctx.fillStyle = '#0a0a0a';
-  ctx.fillRect(sx + 88, sy - 240, 38, 10);
-  ctx.fillStyle = '#1a1a1a';
-  ctx.fillRect(sx + 122, sy - 240, 8, 10);
-  // Magazine
-  ctx.fillStyle = '#0a0a0a';
-  ctx.fillRect(sx + 100, sy - 208, 14, 24);
-  // Helmet — turned, looking down the scope
-  ctx.fillStyle = '#1a2418';
-  ctx.beginPath();
-  ctx.moveTo(sx - 30, sy - 256);
-  ctx.quadraticCurveTo(sx + 10, sy - 272, sx + 48, sy - 254);
-  ctx.lineTo(sx + 48, sy - 232);
-  ctx.lineTo(sx - 30, sy - 232);
-  ctx.closePath(); ctx.fill();
-  // NVG mount on top
-  ctx.fillStyle = '#0a0a0a';
-  ctx.fillRect(sx, sy - 268, 18, 6);
-  // Helmet strap
-  ctx.fillStyle = '#0a0a0a';
-  ctx.fillRect(sx - 30, sy - 234, 78, 2);
-  // Face under brim
-  ctx.fillStyle = '#bf8a6a';
-  ctx.beginPath();
-  ctx.arc(sx + 12, sy - 232, 18, 0, Math.PI * 2); ctx.fill();
-  // Eye sighting through scope (right)
-  ctx.fillStyle = '#1a1a1a';
-  ctx.fillRect(sx + 24, sy - 232, 4, 3);
-  ctx.fillStyle = '#9a6a4e';
-  ctx.fillRect(sx + 22, sy - 236, 8, 1.5); // brow
-  // Stubble jaw
-  ctx.fillStyle = '#5a4030';
-  ctx.fillRect(sx + 6, sy - 222, 14, 4);
-  // Breath cloud (cold air visible)
+  // The soldier — real in-game sprite scaled up. The sandbag wall is
+  // his "ground"; feet land on top of it. Slight wob from rifle recoil
+  // is provided by the sprite's own walkPhase. 'shoot' state every
+  // other beat gives a subtle muzzle hint paired with the laser dot.
+  const sx = CW * 0.45;
+  const SCALE_SOL = 4.0;
+  const flashOn = Math.floor(now / 220) % 2 === 0;
+  const aim = mkIntroSoldier({
+    name: 'Delta', weapon: 'sniper', facing: 1,
+    state: flashOn ? 'shoot' : 'idle', lastShot: now - 50,
+  });
+  dSpriteAt(dSoldier, ctx, aim, sx, CH - 90, SCALE_SOL, now);
+
+  // Breath cloud + moonlight rim accent
   const bz = (now / 800) % 1;
   ctx.fillStyle = `rgba(220,225,230,${0.32 * (1 - bz)})`;
   ctx.beginPath();
-  ctx.ellipse(sx + 38, sy - 224 - bz * 14, 18 + bz * 14, 8 + bz * 6, 0, 0, Math.PI * 2);
+  ctx.ellipse(sx + 80, CH - 310 - bz * 16, 22 + bz * 14, 10 + bz * 6, 0, 0, Math.PI * 2);
   ctx.fill();
 
-  // Subtle moonlight rim on helmet + shoulder
-  ctx.fillStyle = 'rgba(150,180,210,0.22)';
-  ctx.beginPath();
-  ctx.ellipse(sx + 4, sy - 270, 36, 6, -0.2, 0, Math.PI * 2); ctx.fill();
-  ctx.fillRect(sx - 38, sy - 198, 4, 60);
-
-  // A laser sight dot off in the distance (where his rifle's pointing)
+  // Red laser sight dot off in the distance
   if (Math.floor(now / 600) % 2 === 0) {
     ctx.fillStyle = 'rgba(255,40,40,0.85)';
-    ctx.beginPath(); ctx.arc(CW - 30, sy - 200, 2, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(CW - 30, CH - 280, 2, 0, Math.PI * 2); ctx.fill();
     ctx.fillStyle = 'rgba(255,40,40,0.2)';
-    ctx.beginPath(); ctx.arc(CW - 30, sy - 200, 6, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(CW - 30, CH - 280, 6, 0, Math.PI * 2); ctx.fill();
   }
 }
 
@@ -2383,19 +2107,17 @@ function dShotFortWide(ctx, t, now) {
   // The actual game wall
   dBase(ctx, 200, 200);
 
-  // Soldier silhouettes on the rampart, evenly spaced
-  const positions = [WX - 70, WX - 50, WX - 30, WX - 12, WX + 8];
+  // Soldiers on the rampart — real dSoldier sprites at slight scale.
+  // They stand on top of the wall (which dBase draws up to GY-80).
+  const positions = [WX - 80, WX - 56, WX - 32, WX - 8, WX + 16];
+  const weaps = ['rifle', 'rifle', 'shotgun', 'rifle', 'sniper'];
   positions.forEach((sx, i) => {
-    const wob = Math.sin(now / 380 + i) * 0.6;
-    // Body
-    ctx.fillStyle = '#0a0a0a';
-    ctx.fillRect(sx - 3, GY - 92 + wob, 6, 18);
-    // Helmet
-    ctx.fillStyle = '#1a2418';
-    ctx.fillRect(sx - 4, GY - 95 + wob, 8, 4);
-    // Rifle slung across the chest
-    ctx.fillStyle = '#0a0a0a';
-    ctx.fillRect(sx - 7, GY - 86 + wob, 14, 1.4);
+    const wob = Math.sin(now / 380 + i) * 0.8;
+    const sol = mkIntroSoldier({
+      name: 'R' + i, weapon: weaps[i], facing: 1,
+      state: 'idle', walkPhase: i * 0.5 + wob,
+    });
+    dSpriteAt(dSoldier, ctx, sol, sx, GY - 80 + wob, 1.0, now);
   });
 
   // Search light sweeping the field beyond
@@ -2412,13 +2134,16 @@ function dShotFortWide(ctx, t, now) {
   ctx.closePath(); ctx.fill();
   ctx.restore();
 
-  // Distant zombie horde silhouettes
-  for (let i = 0; i < 18; i++) {
-    const zx = WX + 60 + i * 36 + Math.sin(now / 600 + i) * 4;
+  // Distant zombie horde — real dZombie sprites at tiny scale (0.55x)
+  // so 14 of them read as a wall of pressing dead.
+  for (let i = 0; i < 14; i++) {
+    const zx = WX + 80 + i * 44 + Math.sin(now / 600 + i) * 4;
     if (zx > CW + 10) continue;
-    ctx.fillStyle = '#1a261a';
-    ctx.fillRect(zx, GY - 12, 4, 9);
-    ctx.fillRect(zx - 1, GY - 16, 6, 3);
+    const z = mkIntroZombie({
+      type: i % 5 === 0 ? 'tank' : i % 3 === 0 ? 'runner' : 'walker',
+      facing: -1, state: 'walk', walkPhase: i * 0.4,
+    });
+    dSpriteAt(dZombie, ctx, z, zx, GY, 0.55, now);
   }
 }
 
