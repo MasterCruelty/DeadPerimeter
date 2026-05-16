@@ -30,6 +30,31 @@ function missionKillChatter(m, sol) {
   if (Math.random() < 0.08) pushRadio(m, 'kill', { speaker: sol });
 }
 
+// Called whenever the lead's hp drops to 0. If a follower is still
+// alive, promote them to the new lead so the player keeps an avatar
+// and the mission continues. The mission only fails when EVERY party
+// member is dead (handled separately in the zombie-AI tick).
+function promoteLeadOnDeath(m, now) {
+  const s = m.soldier;
+  if (!s || s.hp > 0) return false;
+  if (s.state !== 'dead') s.state = 'dead';
+  const heir = (m.followers || []).find(f => f.hp > 0 && f.state !== 'dead');
+  if (!heir) return false;
+  // Move the dead lead into the followers list so finishMission still
+  // sees them in origSoldiers mapping; pull the heir out of followers.
+  const oldLead = s;
+  m.followers = (m.followers || []).filter(f => f.id !== heir.id);
+  m.followers.unshift(oldLead);
+  // Copy facing so the new lead doesn't snap.
+  heir.facing = oldLead.facing;
+  heir.forkLane = oldLead.forkLane || 0;
+  heir._laneY   = oldLead._laneY   || 0;
+  m.soldier = heir;
+  m.effects.push({ type: 'txt', x: heir.x, y: MGY - 90, v: `LEAD DOWN — ${heir.name.toUpperCase()} TAKING POINT`, col: '#ff8844', at: now, dur: 2600 });
+  pushRadio(m, 'advance', { line: "I've got point!", urgent: true, speaker: heir });
+  return true;
+}
+
 export function mkMission(soldier, dest, wave = 1) {
   const zombies = [], pickups = [], obstacles = [];
 
@@ -263,7 +288,7 @@ export function mkMission(soldier, dest, wave = 1) {
     if (encounter) {
       encounter.x = MISSION_W * (0.32 + Math.random() * 0.10);
       encounter.resolved = false;
-      encounter.clearRadius = 170;
+      encounter.clearRadius = 220;
       encounter._proxCleared = false;
       // Remove every zombie spawned inside the buffer so the camp
       // starts off visually intact.
@@ -274,7 +299,12 @@ export function mkMission(soldier, dest, wave = 1) {
       }
       const bandit = encounter.type === 'hostile';
       const count = bandit ? rng(3, 4) : rng(2, 3);
-      const weapons = ['pistol', 'pistol', 'shotgun', 'rifle'];
+      // Survivors carry scavenged civilian weapons — mostly pistols.
+      // Bandits are slightly better armed (shotguns more common); no
+      // military rifles since the only intact army is Fort Omega.
+      const weapons = bandit
+        ? ['pistol', 'pistol', 'pistol', 'shotgun', 'shotgun']
+        : ['pistol', 'pistol', 'pistol', 'shotgun'];
       for (let i = 0; i < count; i++) {
         const w = weapons[Math.floor(Math.random() * weapons.length)];
         const meta = WPN[w];
@@ -361,10 +391,16 @@ function aliveParty(m) {
 // Returns every "thing" zombies are willing to chase / hit: party
 // members + alive rescuables. Used for activation distance + zombie
 // target selection. Rescuables can take dmg and die but their death
-// does not end the mission.
+// does not end the mission. Activated humans (bandits + refused
+// traders) are also fair game for zombies — they're alive, they're
+// not allies of the dead. Peaceful traders (not activated) stay
+// off the list so they're not chewed up during the trade dialog.
 function aliveTargets(m) {
   const out = aliveParty(m).slice();
   (m.rescuables || []).forEach(r => { if (r.hp > 0 && r.state !== 'dead') out.push(r); });
+  (m.humans || []).forEach(h => {
+    if (h.hp > 0 && h.state !== 'dead' && h.activated) out.push(h);
+  });
   return out;
 }
 
@@ -441,6 +477,15 @@ export function updateMission(m, now, dt) {
   if (m.state !== 'active') return;
   if (m.dialog) return; // Pause world simulation while a survivor dialog is open
   if (!m.startedAt) m.startedAt = now;
+  // Top-of-frame guard: if the lead died (any cause), promote a
+  // follower so the player keeps an avatar. Only fail when nobody
+  // is left standing.
+  if (m.soldier.hp <= 0 || m.soldier.state === 'dead') {
+    if (!promoteLeadOnDeath(m, now)) {
+      m.state = 'lost'; m.endedAt = now;
+      return;
+    }
+  }
   const s = m.soldier;
   s.hurtTimer = Math.max(0, s.hurtTimer - dt);
   (m.followers || []).forEach(f => { f.hurtTimer = Math.max(0, f.hurtTimer - dt); });
@@ -614,8 +659,9 @@ export function updateMission(m, now, dt) {
         m.soundQ.push({ t: 'zatk' });
         if (tgt.hp <= 0) {
           tgt.hp = 0; tgt.state = 'dead';
-          // Lead death = mission failure. Follower / rescuable death = continues.
-          if (tgt.id === s.id) { m.state = 'lost'; m.endedAt = now; }
+          // Lead death tries to promote a follower; only fails the
+          // mission if no one else is alive.
+          if (tgt.id === s.id) promoteLeadOnDeath(m, now);
         }
       }
     }
@@ -734,18 +780,24 @@ export function updateMission(m, now, dt) {
     } else {
       h.state = 'idle';
       if (h.ammo <= 0) { h.state = 'reload'; h.reloadStart = now; }
-      else if (now - h.lastShot > wMeta.rate) {
+      // Bandits are panicked civilians, not trained marksmen: their
+      // fire rate is 1.6x slower than the gun's spec and their per-
+      // shot damage is multiplied by 0.55 to keep multi-bandit
+      // firefights from one-shotting the player's squad.
+      else if (now - h.lastShot > wMeta.rate * 1.6) {
         h.lastShot = now; h.state = 'shoot'; h.ammo--;
         const pellets = wMeta.pel || 1;
+        const baseDmg = (wMeta.pel ? wMeta.dmg / wMeta.pel : wMeta.dmg) * 0.55;
         for (let p = 0; p < pellets; p++) {
-          const spread = (Math.random() - 0.5) * (wMeta.spread || 0.04);
+          // Wider aim cone — they're not pros.
+          const spread = (Math.random() - 0.5) * ((wMeta.spread || 0.04) * 2.2);
           const ang = spread;
           m.bullets.push({
             id: uid(),
             x: h.x + h.facing * 10, y: MGY - 26,
             dx: h.facing * wMeta.spd * Math.cos(ang),
             dy: wMeta.spd * Math.sin(ang),
-            dmg: wMeta.pel ? wMeta.dmg / wMeta.pel : wMeta.dmg,
+            dmg: baseDmg,
             life: Math.ceil(wMeta.range / wMeta.spd * 1.15),
             hostile: true,
           });
@@ -778,7 +830,7 @@ export function updateMission(m, now, dt) {
       m.effects.push({ type: 'txt', x: p.x, y: MGY - 70, v: `MINE -${h.dmg}`, col: '#ff4400', at: now, dur: 1200 });
       if (p.hp <= 0) {
         p.hp = 0; p.state = 'dead';
-        if (p.id === s.id) { m.state = 'lost'; m.endedAt = now; }
+        if (p.id === s.id) promoteLeadOnDeath(m, now);
       } else missionHurtCallout(m, p);
     });
     m.effects.push({ type: 'hit', x: h.x, y: MGY - 12, at: now, dur: 480 });
@@ -804,7 +856,7 @@ export function updateMission(m, now, dt) {
           m.effects.push({ type: 'txt', x: p.x, y: MGY - 60, v: `-${h.dmg}`, col: '#88cc44', at: now, dur: 600 });
           if (p.hp <= 0) {
             p.hp = 0; p.state = 'dead';
-            if (p.id === s.id) { m.state = 'lost'; m.endedAt = now; }
+            if (p.id === s.id) promoteLeadOnDeath(m, now);
           } else missionHurtCallout(m, p);
         });
       }
@@ -824,7 +876,7 @@ export function updateMission(m, now, dt) {
         m.effects.push({ type: 'hit', x: b.x, y: b.y, at: now, dur: 220 });
         if (hit.hp <= 0) {
           hit.hp = 0; hit.state = 'dead';
-          if (hit.id === s.id) { m.state = 'lost'; m.endedAt = now; }
+          if (hit.id === s.id) promoteLeadOnDeath(m, now);
         } else missionHurtCallout(m, hit);
         return false;
       }
@@ -845,7 +897,7 @@ export function updateMission(m, now, dt) {
         m.effects.push({ type: 'hit', x: b.x, y: b.y, at: now, dur: 200 });
         if (hit.hp <= 0) {
           hit.hp = 0; hit.state = 'dead';
-          if (hit.id === s.id) { m.state = 'lost'; m.endedAt = now; }
+          if (hit.id === s.id) promoteLeadOnDeath(m, now);
         } else missionHurtCallout(m, hit);
         return false;
       }
@@ -1261,12 +1313,15 @@ export function dMissionWorld(ctx, m, now) {
   });
 
   // Survivor humans (bandits when hostile, neutral traders before they
-  // turn). Rendered between rescuables and the party so they read as
-  // "out in the world" rather than part of the squad.
+  // turn). Visual cue: peaceful traders use the civilian palette (the
+  // only surviving organised military force is Fort Omega + lost
+  // soldiers), bandits use the dark bandit palette.
   (m.humans || []).forEach(h => {
     const hc = {
       ...h, lane: 0, onExpedition: false,
-      civilian: false, bandit: h.bandit, maxHp: h.maxHp, hp: h.hp,
+      civilian: !h.bandit,                // peaceful = civilian look
+      bandit: !!h.bandit,                 // hostile  = bandit look
+      maxHp: h.maxHp, hp: h.hp,
     };
     dSoldier(ctx, hc, now);
     // Tiny status pip above their head: red for hostile, green for trader
