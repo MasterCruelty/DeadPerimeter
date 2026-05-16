@@ -1,6 +1,19 @@
 import { C, CW, CH, GY, WX } from '../constants.js';
 import { dBase } from './base.js';
 
+// Per-phase cinematic camera. Each phase frames a different focal
+// point + zoom level so the cinematic feels handheld rather than
+// fixed-wide. Focal x stays at CW/2 for every phase so the screen-
+// space title overlays stay centered. The world drawing is wrapped
+// in this transform; titles draw back in screen space.
+const PHASE_CAMERA = {
+  normal:    { zoom: 1.55, fx: CW / 2, fy: GY - 18 },
+  panic:     { zoom: 1.75, fx: CW / 2, fy: GY - 20 },
+  police:    { zoom: 1.70, fx: CW / 2, fy: GY - 14 },
+  collapse:  { zoom: 1.55, fx: CW / 2, fy: GY - 28 },
+  fortOmega: { zoom: 1.90, fx: CW / 2, fy: GY - 56 },
+};
+
 // Pre-mission opening cinematic. ~28 seconds, 5 chained scenes that
 // take the player from "city before the outbreak" through "police
 // containment fails" to "Fort Omega is all that's left". Skippable.
@@ -206,12 +219,13 @@ function dNormal(ctx, ph, now) {
     const x = ((i * 200 + offs) % (CW + 80)) - 40;
     dPedestrian(ctx, x, GY - 4, now + i * 200);
   }
-  // Title card fades in/out
+  // Title card fades in/out — drawn in screen space (unscaled).
+  ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0);
   const a = fade(ph.t, 0.10, 0.15);
   ctx.globalAlpha = a;
   centerText(ctx, 'NEW HAVEN — POPULATION 2.4M', 60, { size: 16, shadow: 0.6 });
   centerText(ctx, '03:17 LOCAL · MARCH 14',       80, { size: 11, color: '#88ccff' });
-  ctx.globalAlpha = 1;
+  ctx.globalAlpha = 1; ctx.restore();
 }
 
 // ── Scene 2: panic — outbreak begins ───────────────────────────
@@ -236,11 +250,12 @@ function dPanic(ctx, ph, now) {
     const x = startX - (ph.local - i * 1200) / 80;
     dIntroZombie(ctx, x, GY - 4, now + i * 300);
   }
+  ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0);
   const a = fade(ph.t, 0.18, 0.18);
   ctx.globalAlpha = a;
   centerText(ctx, '⚠ OUTBREAK CONFIRMED', 60, { size: 18, color: '#ff5544', shadow: 0.7 });
   centerText(ctx, 'CITY POLICE DISPATCHED · ALL UNITS', 80, { size: 11, color: '#ffaa88' });
-  ctx.globalAlpha = 1;
+  ctx.globalAlpha = 1; ctx.restore();
 }
 
 // ── Scene 3: police containment line ───────────────────────────
@@ -285,11 +300,12 @@ function dPolice(ctx, ph, now) {
     dIntroZombie(ctx, zx, GY - 4, now + i * 200);
   }
 
+  ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0);
   const a = fade(ph.t, 0.10, 0.18);
   ctx.globalAlpha = a;
   centerText(ctx, 'NHPD — CONTAINMENT LINE', 60, { size: 16, color: '#88aaff', shadow: 0.7 });
   centerText(ctx, '"Hold the perimeter. Civilians evacuate west."', 80, { size: 11, color: '#cce' });
-  ctx.globalAlpha = 1;
+  ctx.globalAlpha = 1; ctx.restore();
 }
 
 // ── Scene 4: collapse ──────────────────────────────────────────
@@ -320,11 +336,12 @@ function dCollapse(ctx, ph, now) {
   ctx.beginPath(); ctx.arc(388, GY - 1, 3, 0, Math.PI * 2); ctx.fill();
   ctx.beginPath(); ctx.arc(404, GY - 1, 3, 0, Math.PI * 2); ctx.fill();
 
+  ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0);
   const a = fade(ph.t, 0.12, 0.18);
   ctx.globalAlpha = a;
   centerText(ctx, 'CITY LOST — EVACUATION FAILED', 60, { size: 16, color: '#ff6644', shadow: 0.7 });
   centerText(ctx, '0.3% OF CIVILIANS EXTRACTED · MILITARY FALLS BACK', 80, { size: 11, color: '#ffaa88' });
-  ctx.globalAlpha = 1;
+  ctx.globalAlpha = 1; ctx.restore();
 }
 
 // ── Scene 5: Fort Omega — the last bulwark ─────────────────────
@@ -379,7 +396,9 @@ function dFortOmegaScene(ctx, ph, now) {
     ctx.fillRect(zx - 1, GY - 17, 6, 3);
   }
 
-  // Title card and tagline
+  // Title card and tagline — drawn in screen space so the big title
+  // doesn't get amplified by the camera zoom into illegibility.
+  ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0);
   const titleA = Math.min(1, Math.max(0, (ph.local - 800) / 1200));
   const taglineA = Math.min(1, Math.max(0, (ph.local - 2400) / 1400));
   const subA    = Math.min(1, Math.max(0, (ph.local - 4200) / 1600));
@@ -400,7 +419,7 @@ function dFortOmegaScene(ctx, ph, now) {
   ctx.globalAlpha = subA;
   centerText(ctx, 'DAY 1 · 23:47',                       210, { size: 11, color: '#88ccff' });
   centerText(ctx, '— hold what you can —',               228, { size: 10, color: '#cce', weight: 'normal' });
-  ctx.globalAlpha = 1;
+  ctx.globalAlpha = 1; ctx.restore();
 }
 
 // Fire-once helper: queues an audio event the first time the
@@ -469,11 +488,23 @@ export function dIntroScene(ctx, intro, now) {
   scheduleIntroAudio(intro, elapsed);
   const ph = phaseAt(Math.min(elapsed, INTRO_DURATION));
   ctx.save(); ctx.clearRect(0, 0, CW, CH);
+
+  // Apply the cinematic camera for the active phase. The phase
+  // renderer draws the world in this zoomed frame; titles step back
+  // out to screen space via ctx.setTransform.
+  const cam = PHASE_CAMERA[ph.name] || PHASE_CAMERA.normal;
+  ctx.save();
+  ctx.translate(CW / 2, CH / 2);
+  ctx.scale(cam.zoom, cam.zoom);
+  ctx.translate(-cam.fx, -cam.fy);
+
   if      (ph.name === 'normal')    dNormal(ctx, ph, now);
   else if (ph.name === 'panic')     dPanic(ctx, ph, now);
   else if (ph.name === 'police')    dPolice(ctx, ph, now);
   else if (ph.name === 'collapse')  dCollapse(ctx, ph, now);
   else                              dFortOmegaScene(ctx, ph, now);
+
+  ctx.restore();
 
   // Letterboxing for that "cinematic" feel
   ctx.fillStyle = '#000';

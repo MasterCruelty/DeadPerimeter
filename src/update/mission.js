@@ -18,10 +18,16 @@ function missionHurtCallout(m, p) {
   const pct = p.hp / (p.maxHp || 100);
   if (pct < 0.35 && !p._hurtCallout) {
     p._hurtCallout = true;
-    pushRadio(m, 'hurt', { urgent: true });
+    pushRadio(m, 'hurt', { urgent: true, speaker: p });
   } else if (pct > 0.60) {
     p._hurtCallout = false;
   }
+}
+
+// Random kill chatter in missions (8% chance, throttled by pushRadio).
+function missionKillChatter(m, sol) {
+  if (!sol || sol.civilian) return;
+  if (Math.random() < 0.08) pushRadio(m, 'kill', { speaker: sol });
 }
 
 export function mkMission(soldier, dest, wave = 1) {
@@ -632,7 +638,7 @@ export function updateMission(m, now, dt) {
         });
       }
       m.effects.push({ type: 'shell', x: s.x - s.facing * 8, y: MGY - 26, vx: -s.facing * (1.4 + Math.random()), at: now, dur: 780 });
-      if (s.ammo === 0) { s.state = 'reload'; s.reloadStart = now; s.ammo = s.maxAmmo; m.soundQ.push({ t: 'reload', w: s.weapon, dur: w.rl }); pushRadio(m, 'reload'); }
+      if (s.ammo === 0) { s.state = 'reload'; s.reloadStart = now; s.ammo = s.maxAmmo; m.soundQ.push({ t: 'reload', w: s.weapon, dur: w.rl }); pushRadio(m, 'reload', { speaker: s }); }
     } else if (now - s.lastShot > w.rate * 0.5) s.state = 'walk';
   }
   if (s.state === 'shoot' && now - s.shootAt > 200) s.state = m.inputLeft || m.inputRight ? 'walk' : 'idle';
@@ -872,6 +878,7 @@ export function updateMission(m, now, dt) {
       if (humanHit.hp <= 0) {
         humanHit.hp = 0; humanHit.state = 'dead'; humanHit.deadAt = now;
         m.killedCount++;
+        missionKillChatter(m, m.soldier);
       }
       return false;
     }
@@ -882,7 +889,12 @@ export function updateMission(m, now, dt) {
       m.effects.push({ type: 'blood', x: b.x, y: b.y, drops: Array.from({ length: 6 }, () => ({ x: 0, y: 0, vx: (Math.random() - 0.5) * 3.5, vy: -Math.random() * 2.5 - 0.5, r: 1.5 + Math.random() * 3 })), at: now, dur: 600 });
       m.effects.push({ type: 'hit', x: b.x, y: b.y, at: now, dur: 200 });
       m.effects.push({ type: 'txt', x: hit.x, y: MGY - 60, v: `-${Math.round(b.dmg)}`, col: C.bld, at: now, dur: 680 });
-      if (hit.hp <= 0) { hit.hp = 0; hit.state = 'dead'; hit.deadAt = now; m.soundQ.push({ t: 'zdie', zt: hit.type }); m.killedCount++; }
+      if (hit.hp <= 0) {
+        hit.hp = 0; hit.state = 'dead'; hit.deadAt = now;
+        m.soundQ.push({ t: 'zdie', zt: hit.type });
+        m.killedCount++;
+        missionKillChatter(m, m.soldier);
+      }
       return false;
     }
     return true;

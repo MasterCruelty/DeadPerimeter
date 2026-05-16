@@ -292,7 +292,11 @@ export class AudioEngine {
   //   urgent:   bool                       (louder + faster)
   radioChatter({ syllables = 4, pitch = 'mid', urgent = false } = {}) {
     const t0 = this.ctx.currentTime;
-    const baseF = pitch === 'low' ? 130 : pitch === 'high' ? 220 : 175;
+    // pitch can be a preset string or an explicit Hz number (used for
+    // per-soldier voice differentiation).
+    const baseF = typeof pitch === 'number'
+      ? pitch
+      : pitch === 'low' ? 130 : pitch === 'high' ? 220 : 175;
     const vol   = urgent ? 0.32 : 0.26;
     const pace  = urgent ? 0.85 : 1.0;
     this._radioClick(t0, 0.05);
