@@ -1,37 +1,35 @@
 import { C, CW, CH, GY, WX } from '../constants.js';
 import { dBase } from './base.js';
 
-// Opening cinematic — storyboarded as 12 distinct shots over 45 s,
-// not five static wide compositions. Each shot is its own framed
-// composition (close-ups for objects + hands, mid-shot silhouettes
-// for action, wides only when the scene needs to breathe). Cuts are
-// near-instant; a few brief crossfades smooth scene boundaries.
-//
-// Audio scheduling is timestamp-driven and aligned to the new
-// 45 s timeline (see scheduleIntroAudio).
-export const INTRO_DURATION = 45000;
+// Opening cinematic — storyboarded as 14 distinct shots over 50 s.
+// Player feedback v2: every close-up shot should feature a character
+// actively *doing* something (firing, fleeing, dying, marching) rather
+// than just framing an object. New military-convoy scene bridges the
+// collapse and Fort Omega.
+export const INTRO_DURATION = 50000;
 
 // ── Timeline ───────────────────────────────────────────────────
-// Each shot owns a draw fn + a window in ms. The renderer picks
-// the active shot from `now - intro.startedAt` and dispatches.
 const SHOTS = [
   // ── Scene 1: pre-outbreak ─────────────────────────────────
-  { from: 0,     to: 3500,  draw: 'coffeeMug',      banner: 'normal' },
-  { from: 3500,  to: 7000,  draw: 'quietStreet',    banner: 'normal' },
+  { from: 0,     to: 3500,  draw: 'cafeDrinker',     banner: 'normal' },
+  { from: 3500,  to: 7000,  draw: 'quietStreet',     banner: 'normal' },
   // ── Scene 2: outbreak ─────────────────────────────────────
-  { from: 7000,  to: 10500, draw: 'clawingHand',    banner: 'panic'  },
-  { from: 10500, to: 13500, draw: 'familyFleeing',  banner: 'panic'  },
-  { from: 13500, to: 16000, draw: 'streetChaos',    banner: 'panic'  },
+  { from: 7000,  to: 10500, draw: 'zombieBite',      banner: 'panic'  },
+  { from: 10500, to: 13500, draw: 'familyFleeing',   banner: 'panic'  },
+  { from: 13500, to: 16000, draw: 'streetChaos',     banner: 'panic'  },
   // ── Scene 3: police containment ───────────────────────────
-  { from: 16000, to: 19500, draw: 'badgeFlash',     banner: 'police' },
-  { from: 19500, to: 23500, draw: 'policeLine',     banner: 'police' },
-  { from: 23500, to: 26500, draw: 'wounded',        banner: 'police' },
+  { from: 16000, to: 19500, draw: 'copFiring',       banner: 'police' },
+  { from: 19500, to: 23500, draw: 'policeLine',      banner: 'police' },
+  { from: 23500, to: 26500, draw: 'copDragged',      banner: 'police' },
   // ── Scene 4: collapse ─────────────────────────────────────
-  { from: 26500, to: 30000, draw: 'burningCar',     banner: 'collapse' },
-  { from: 30000, to: 34000, draw: 'streetDead',     banner: 'collapse' },
+  { from: 26500, to: 29500, draw: 'lastDefender',    banner: 'collapse' },
+  { from: 29500, to: 32000, draw: 'streetDead',      banner: 'collapse' },
+  // ── NEW Scene C: military convoy marching to Fort Omega ────
+  { from: 32000, to: 35500, draw: 'convoyWide',      banner: 'convoy' },
+  { from: 35500, to: 38500, draw: 'convoyClose',     banner: 'convoy' },
   // ── Scene 5: Fort Omega — the last bulwark ────────────────
-  { from: 34000, to: 38000, draw: 'rifleGrip',      banner: 'fortOmega' },
-  { from: 38000, to: 45000, draw: 'fortWide',       banner: 'fortOmega' },
+  { from: 38500, to: 42500, draw: 'soldierAiming',   banner: 'fortOmega' },
+  { from: 42500, to: 50000, draw: 'fortWide',        banner: 'fortOmega' },
 ];
 
 function findShot(t) {
@@ -95,72 +93,138 @@ function centerText(ctx, text, y, opts = {}) {
 
 // ── Shot drawers ───────────────────────────────────────────────
 
-// 1.1 — Close-up of a coffee mug on a café table with a newspaper.
-// Steam rises gently. The newspaper carries a small but ominous
-// headline. Background is bokeh / warm street lamps out of focus.
-function dShotCoffeeMug(ctx, t, now) {
-  dBackgroundBokeh(ctx, '#0e1018', '#2a1e16', 18);
-  // Table surface
-  ctx.fillStyle = '#3a2818';
-  ctx.fillRect(0, CH - 160, CW, 160);
-  ctx.fillStyle = '#1f1410';
-  ctx.fillRect(0, CH - 160, CW, 5);
-
-  // Newspaper at the bottom-left
-  const nx = 80, ny = CH - 140;
-  ctx.fillStyle = '#dcd5bc';
-  ctx.fillRect(nx, ny, 280, 130);
-  ctx.fillStyle = '#1a1a1a'; ctx.font = 'bold 10px monospace';
-  ctx.fillText('NEW HAVEN HERALD', nx + 8, ny + 16);
-  ctx.fillStyle = '#3a3328'; ctx.font = 'bold 14px monospace';
-  ctx.fillText('QUARANTINE EXTENDED', nx + 8, ny + 38);
-  ctx.fillText('HOSPITAL WARDS SEALED', nx + 8, ny + 56);
-  // Body text lines
-  ctx.fillStyle = '#5a5040';
-  for (let i = 0; i < 6; i++) ctx.fillRect(nx + 8, ny + 70 + i * 10, 200 + (i * 23) % 50, 1.5);
-
-  // Coffee mug — ceramic, centred
-  const mx = 570, my = CH - 80;
-  // Saucer
-  ctx.fillStyle = '#2a1a12';
-  ctx.beginPath(); ctx.ellipse(mx, my + 38, 70, 7, 0, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = '#1a0e08';
-  ctx.beginPath(); ctx.ellipse(mx, my + 36, 70, 5, 0, 0, Math.PI * 2); ctx.fill();
-  // Mug body
-  ctx.fillStyle = '#eeeae0';
-  ctx.fillRect(mx - 45, my - 50, 90, 88);
-  // Bottom ellipse
-  ctx.beginPath(); ctx.ellipse(mx, my + 38, 45, 7, 0, 0, Math.PI * 2); ctx.fill();
-  // Top rim
-  ctx.fillStyle = '#1a0e08';
-  ctx.beginPath(); ctx.ellipse(mx, my - 50, 45, 9, 0, 0, Math.PI * 2); ctx.fill();
-  // Coffee surface
-  ctx.fillStyle = '#3a1f12';
-  ctx.beginPath(); ctx.ellipse(mx, my - 47, 41, 6, 0, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = '#5a2f1e';
-  ctx.beginPath(); ctx.ellipse(mx, my - 49, 41, 5, 0, 0, Math.PI * 2); ctx.fill();
-  // Handle
-  ctx.strokeStyle = '#eeeae0'; ctx.lineWidth = 9;
-  ctx.beginPath(); ctx.arc(mx + 50, my - 12, 20, -Math.PI / 2.2, Math.PI / 2.2); ctx.stroke();
-  ctx.strokeStyle = '#cfc8b4'; ctx.lineWidth = 1.5;
-  ctx.beginPath(); ctx.arc(mx + 50, my - 12, 24, -Math.PI / 2.2, Math.PI / 2.2); ctx.stroke();
-  // Mug shadow on the side
-  ctx.fillStyle = 'rgba(0,0,0,0.18)';
-  ctx.fillRect(mx + 30, my - 48, 14, 80);
-
-  // Steam — three wavy strands rising and dissipating
-  for (let s = 0; s < 3; s++) {
-    ctx.beginPath();
-    const sx = mx - 20 + s * 18;
-    ctx.moveTo(sx, my - 50);
-    for (let i = 0; i < 12; i++) {
-      const py = my - 50 - i * 8;
-      const px = sx + Math.sin(now / 220 + i * 0.6 + s) * 10;
-      ctx.lineTo(px, py);
-    }
-    ctx.strokeStyle = `rgba(220,220,210,${0.18 - s * 0.04})`;
-    ctx.lineWidth = 3 + s; ctx.stroke();
+// 1.1 — Café patron checking a phone, the emergency-alert text lighting
+// his face. He sets down a coffee cup and starts to rise from his seat
+// (worry-into-alarm body language). Café interior bokeh behind.
+function dShotCafeDrinker(ctx, t, now) {
+  dBackgroundBokeh(ctx, '#0e1018', '#2a1e16', 22);
+  // Café back wall + window glow
+  ctx.fillStyle = '#1f1814'; ctx.fillRect(0, 0, CW, CH - 180);
+  // Faint pendant lamps
+  for (let lp = 80; lp < CW; lp += 180) {
+    const grd = ctx.createRadialGradient(lp, 90, 4, lp, 90, 110);
+    grd.addColorStop(0, 'rgba(255,210,140,0.55)');
+    grd.addColorStop(1, 'rgba(255,210,140,0)');
+    ctx.fillStyle = grd; ctx.fillRect(lp - 110, 0, 220, 200);
+    ctx.fillStyle = '#1a1a1a'; ctx.fillRect(lp - 1, 0, 2, 60);
+    ctx.fillStyle = '#3a2814'; ctx.fillRect(lp - 7, 60, 14, 12);
   }
+  // Table — wood plank, in the foreground
+  ctx.fillStyle = '#3a2818';
+  ctx.fillRect(0, CH - 180, CW, 180);
+  ctx.fillStyle = '#1f1410';
+  ctx.fillRect(0, CH - 180, CW, 5);
+  ctx.strokeStyle = '#2a1a12'; ctx.lineWidth = 1;
+  for (let g = 0; g < 6; g++) {
+    ctx.beginPath(); ctx.moveTo(0, CH - 160 + g * 24); ctx.lineTo(CW, CH - 162 + g * 24); ctx.stroke();
+  }
+
+  // The patron — seen from the side, leaning forward, looking at phone
+  const px = 290, py = CH - 160;
+  // Chair back peek behind
+  ctx.fillStyle = '#1a1410'; ctx.fillRect(px - 80, py - 70, 30, 130);
+  // Torso (sweater, dark navy)
+  ctx.fillStyle = '#2a2a3a';
+  ctx.beginPath();
+  ctx.moveTo(px - 60, py - 30);
+  ctx.lineTo(px - 30, py - 130);
+  ctx.lineTo(px + 30, py - 130);
+  ctx.lineTo(px + 60, py - 20);
+  ctx.lineTo(px + 50, py + 60);
+  ctx.lineTo(px - 50, py + 60);
+  ctx.closePath(); ctx.fill();
+  // Shoulder seam
+  ctx.fillStyle = '#1a1a26'; ctx.fillRect(px - 38, py - 126, 70, 3);
+  // Arm holding the phone (close to face)
+  ctx.fillStyle = '#2a2a3a';
+  // Forearm
+  ctx.fillRect(px - 10, py - 120, 20, 60);
+  // Wrist+hand
+  ctx.fillStyle = '#bf8a6a';
+  ctx.fillRect(px - 10, py - 130, 22, 14);
+  // The phone — slight tilt, glowing screen
+  ctx.save();
+  ctx.translate(px + 2, py - 145);
+  ctx.rotate(-0.15);
+  ctx.fillStyle = '#0a0a0a';
+  ctx.fillRect(-22, -38, 44, 76);
+  ctx.fillStyle = '#1a4ccc';
+  ctx.fillRect(-20, -36, 40, 72);
+  // Pulsing red alert banner on phone
+  const pulse = (Math.sin(now / 220) * 0.5 + 0.5);
+  ctx.fillStyle = `rgba(220,30,30,${0.55 + pulse * 0.4})`;
+  ctx.fillRect(-20, -36, 40, 14);
+  ctx.fillStyle = '#fff'; ctx.font = 'bold 4px monospace'; ctx.textAlign = 'center';
+  ctx.fillText('CITY ALERT', 0, -27);
+  ctx.font = '3.5px monospace';
+  ctx.fillText('SHELTER IN', 0, -17);
+  ctx.fillText('PLACE NOW', 0, -10);
+  ctx.textAlign = 'left';
+  ctx.restore();
+  // Face — partial profile, lit by the phone glow
+  ctx.fillStyle = '#bf8a6a';
+  ctx.beginPath();
+  ctx.arc(px + 14, py - 152, 22, 0, Math.PI * 2);
+  ctx.fill();
+  // Hair (short, dark)
+  ctx.fillStyle = '#2a1a14';
+  ctx.beginPath();
+  ctx.moveTo(px - 6, py - 168);
+  ctx.lineTo(px + 24, py - 174);
+  ctx.lineTo(px + 36, py - 162);
+  ctx.lineTo(px + 32, py - 152);
+  ctx.lineTo(px - 6, py - 156);
+  ctx.closePath(); ctx.fill();
+  // Eye looking at phone (worried)
+  ctx.fillStyle = '#1a1a1a';
+  ctx.fillRect(px + 10, py - 154, 4, 2);
+  // Eyebrow furrowed
+  ctx.fillRect(px + 8, py - 158, 8, 1.5);
+  // Mouth slightly open (apprehensive)
+  ctx.fillStyle = '#3a1a1a';
+  ctx.fillRect(px + 16, py - 144, 6, 2);
+  // Cool blue light spill on face from phone
+  ctx.fillStyle = `rgba(40,80,200,${0.18 + pulse * 0.12})`;
+  ctx.beginPath();
+  ctx.arc(px + 18, py - 150, 26, 0, Math.PI * 2); ctx.fill();
+
+  // The half-finished coffee mug + newspaper on the table beside him
+  const mx = 700, my = CH - 110;
+  // Saucer
+  ctx.fillStyle = '#1a0e08';
+  ctx.beginPath(); ctx.ellipse(mx, my + 28, 38, 5, 0, 0, Math.PI * 2); ctx.fill();
+  // Mug
+  ctx.fillStyle = '#eeeae0'; ctx.fillRect(mx - 24, my - 30, 48, 56);
+  ctx.beginPath(); ctx.ellipse(mx, my + 26, 24, 5, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#3a1f12';
+  ctx.beginPath(); ctx.ellipse(mx, my - 30, 24, 5, 0, 0, Math.PI * 2); ctx.fill();
+  // Handle
+  ctx.strokeStyle = '#eeeae0'; ctx.lineWidth = 6;
+  ctx.beginPath(); ctx.arc(mx + 27, my - 4, 12, -Math.PI / 2.2, Math.PI / 2.2); ctx.stroke();
+  // Steam
+  for (let s = 0; s < 2; s++) {
+    ctx.beginPath();
+    const sx = mx - 6 + s * 12;
+    ctx.moveTo(sx, my - 30);
+    for (let i = 0; i < 8; i++) {
+      const sy = my - 30 - i * 6;
+      const wsx = sx + Math.sin(now / 250 + i * 0.7 + s) * 7;
+      ctx.lineTo(wsx, sy);
+    }
+    ctx.strokeStyle = `rgba(220,220,210,${0.16 - s * 0.04})`;
+    ctx.lineWidth = 2.5; ctx.stroke();
+  }
+  // Newspaper folded — partially visible
+  const nx = 780, ny = CH - 80;
+  ctx.fillStyle = '#dcd5bc';
+  ctx.fillRect(nx, ny, 110, 70);
+  ctx.fillStyle = '#1a1a1a'; ctx.font = 'bold 6px monospace';
+  ctx.fillText('NEW HAVEN HERALD', nx + 4, ny + 9);
+  ctx.fillStyle = '#3a3328'; ctx.font = 'bold 9px monospace';
+  ctx.fillText('QUARANTINE', nx + 4, ny + 24);
+  ctx.fillText('EXTENDED', nx + 4, ny + 36);
+  ctx.fillStyle = '#5a5040';
+  for (let i = 0; i < 3; i++) ctx.fillRect(nx + 4, ny + 44 + i * 6, 100 - (i * 18) % 30, 1);
 }
 
 // 1.2 — Quiet street wide shot. Silhouettes of pedestrians and a
@@ -243,8 +307,186 @@ function dShotQuietStreet(ctx, t, now) {
   ctx.fillRect(catX - 4, GY - 4, 3, 2);
 }
 
-// 2.1 — Cracked glass with a bloody zombie hand reaching through.
-function dShotClawingHand(ctx, t, now) {
+// 2.1 — A civilian being attacked: a zombie lunging at and biting the
+// shoulder/neck of a screaming woman in foreground. She pushes back at
+// its face with one hand. Blood spray. Dramatic close-up.
+function dShotZombieBite(ctx, t, now) {
+  // Apocalyptic red sky with smoke
+  const sg = ctx.createLinearGradient(0, 0, 0, CH);
+  sg.addColorStop(0, '#3a0606'); sg.addColorStop(0.6, '#5a1810'); sg.addColorStop(1, '#1a0608');
+  ctx.fillStyle = sg; ctx.fillRect(0, 0, CW, CH);
+  // Drifting smoke
+  for (let i = 0; i < 8; i++) {
+    const sx = (i * 137 + 30) % CW;
+    const sy = 40 + (i * 31) % 140;
+    ctx.fillStyle = `rgba(30,18,14,${0.4 + (i % 3) * 0.1})`;
+    ctx.beginPath(); ctx.arc(sx, sy, 50 + (i % 3) * 14, 0, Math.PI * 2); ctx.fill();
+  }
+  // Burning building silhouette behind
+  ctx.fillStyle = '#0a0604';
+  ctx.fillRect(0, GY - 200, CW, 200);
+  ctx.fillStyle = 'rgba(255,90,30,0.5)';
+  for (let i = 0; i < 4; i++) {
+    const fx = i * 250 + 100;
+    ctx.beginPath();
+    ctx.moveTo(fx - 14, GY - 200);
+    ctx.lineTo(fx, GY - 220 + Math.sin(now / 80 + i) * 4);
+    ctx.lineTo(fx + 14, GY - 200);
+    ctx.closePath(); ctx.fill();
+  }
+  // Street
+  ctx.fillStyle = '#1a0e08'; ctx.fillRect(0, CH - 40, CW, 40);
+
+  // Push-struggle animation — small back-and-forth tug
+  const tug = Math.sin(now / 140) * 4;
+
+  // The victim — woman facing right, head thrown back screaming, hair
+  // flying, one arm pushing at the zombie's face.
+  const vx = CW * 0.30 + tug, vy = CH * 0.55;
+  // Coat / civilian clothes
+  ctx.fillStyle = '#8a5a3a';
+  ctx.beginPath();
+  ctx.moveTo(vx - 50, vy + 130);
+  ctx.lineTo(vx - 60, vy - 20);
+  ctx.lineTo(vx - 40, vy - 80);
+  ctx.lineTo(vx + 30, vy - 70);
+  ctx.lineTo(vx + 60, vy + 20);
+  ctx.lineTo(vx + 50, vy + 130);
+  ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#6a3a22';
+  ctx.fillRect(vx - 56, vy - 22, 100, 4); // belt line
+  // Head tilted back in scream
+  ctx.fillStyle = '#bf8a6a';
+  ctx.beginPath();
+  ctx.arc(vx + 8, vy - 110, 32, 0, Math.PI * 2);
+  ctx.fill();
+  // Hair flying (long)
+  ctx.fillStyle = '#2a1810';
+  ctx.beginPath();
+  ctx.moveTo(vx - 28, vy - 130);
+  ctx.lineTo(vx - 60, vy - 110);
+  ctx.lineTo(vx - 70, vy - 70);
+  ctx.lineTo(vx - 50, vy - 60);
+  ctx.lineTo(vx - 24, vy - 96);
+  ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#2a1810';
+  ctx.beginPath();
+  ctx.moveTo(vx - 8, vy - 138); ctx.lineTo(vx + 30, vy - 134);
+  ctx.lineTo(vx + 26, vy - 100); ctx.lineTo(vx, vy - 110);
+  ctx.closePath(); ctx.fill();
+  // Eyes wide (white slivers)
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(vx + 2, vy - 118, 6, 3);
+  ctx.fillRect(vx + 14, vy - 118, 6, 3);
+  ctx.fillStyle = '#1a1a1a';
+  ctx.fillRect(vx + 4, vy - 117, 2, 2);
+  ctx.fillRect(vx + 16, vy - 117, 2, 2);
+  // Mouth wide open (screaming)
+  ctx.fillStyle = '#3a0a0a';
+  ctx.beginPath();
+  ctx.ellipse(vx + 10, vy - 92, 9, 12, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(vx + 5, vy - 94, 10, 2); // teeth
+  // Pushing arm extended toward zombie's face
+  ctx.strokeStyle = '#bf8a6a'; ctx.lineWidth = 22;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(vx + 36, vy - 60);
+  ctx.lineTo(vx + 110, vy - 100);
+  ctx.stroke();
+  ctx.lineCap = 'butt';
+  // Sleeve
+  ctx.fillStyle = '#8a5a3a';
+  ctx.fillRect(vx + 30, vy - 70, 30, 24);
+
+  // The zombie — head + shoulders biting into her left shoulder area
+  const zx = CW * 0.65 - tug, zy = CH * 0.40;
+  // Zombie body / shoulders
+  ctx.fillStyle = '#2a3826';
+  ctx.beginPath();
+  ctx.moveTo(zx + 100, zy + 240);
+  ctx.lineTo(zx + 120, zy + 80);
+  ctx.lineTo(zx + 80, zy + 20);
+  ctx.lineTo(zx - 30, zy + 30);
+  ctx.lineTo(zx - 60, zy + 100);
+  ctx.lineTo(zx - 40, zy + 240);
+  ctx.closePath(); ctx.fill();
+  // Torn fabric details
+  ctx.fillStyle = '#1a2418';
+  for (let i = 0; i < 6; i++) {
+    ctx.fillRect(zx - 30 + i * 24, zy + 70 + (i % 2) * 30, 12, 8);
+  }
+  // Head — leaning forward, mouth gaping
+  ctx.fillStyle = '#5a7042';
+  ctx.beginPath();
+  ctx.arc(zx, zy, 50, 0, Math.PI * 2); ctx.fill();
+  // Bald patch + skin gash
+  ctx.fillStyle = '#3a4a30';
+  ctx.beginPath();
+  ctx.ellipse(zx - 4, zy - 24, 32, 16, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = '#1a1a08'; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.moveTo(zx + 6, zy - 36); ctx.lineTo(zx + 18, zy - 18); ctx.stroke();
+  // Hollow red eyes
+  ctx.fillStyle = '#1a0a0a';
+  ctx.fillRect(zx - 22, zy - 8, 14, 9);
+  ctx.fillRect(zx + 4,  zy - 8, 14, 9);
+  ctx.fillStyle = '#cc1818';
+  ctx.fillRect(zx - 18, zy - 5, 6, 4);
+  ctx.fillRect(zx + 8,  zy - 5, 6, 4);
+  // Jaw biting down — mouth open with bloody teeth, oriented toward victim's shoulder
+  ctx.save();
+  ctx.translate(zx - 30, zy + 24);
+  ctx.rotate(-0.45);
+  ctx.fillStyle = '#1a0606';
+  ctx.beginPath();
+  ctx.ellipse(0, 0, 30, 22, 0, 0, Math.PI * 2); ctx.fill();
+  // Teeth (jagged)
+  ctx.fillStyle = '#dcc8a0';
+  for (let i = 0; i < 6; i++) {
+    const tx2 = -22 + i * 8;
+    ctx.beginPath();
+    ctx.moveTo(tx2, -8); ctx.lineTo(tx2 + 4, 2); ctx.lineTo(tx2 + 8, -8);
+    ctx.closePath(); ctx.fill();
+  }
+  for (let i = 0; i < 6; i++) {
+    const tx2 = -22 + i * 8;
+    ctx.beginPath();
+    ctx.moveTo(tx2, 8); ctx.lineTo(tx2 + 4, -2); ctx.lineTo(tx2 + 8, 8);
+    ctx.closePath(); ctx.fill();
+  }
+  // Blood on teeth
+  ctx.fillStyle = '#7a0606';
+  ctx.fillRect(-20, -2, 36, 4);
+  ctx.restore();
+
+  // Blood spray exploding from the bite point on her shoulder
+  const bpX = vx + 30, bpY = vy - 90;
+  // Pool on her coat
+  ctx.fillStyle = 'rgba(120,4,4,0.85)';
+  ctx.beginPath();
+  ctx.ellipse(bpX, bpY, 22, 14, 0, 0, Math.PI * 2); ctx.fill();
+  // Spray droplets in all directions
+  for (let i = 0; i < 18; i++) {
+    const a = (i / 18) * Math.PI * 2 + Math.sin(now / 100) * 0.1;
+    const dist = 40 + Math.abs(Math.sin(now / 60 + i)) * 30;
+    const dx = bpX + Math.cos(a) * dist;
+    const dy = bpY + Math.sin(a) * dist;
+    const r = 2 + (i % 3);
+    ctx.fillStyle = `rgba(140,5,5,${0.7 - (i % 4) * 0.1})`;
+    ctx.beginPath(); ctx.arc(dx, dy, r, 0, Math.PI * 2); ctx.fill();
+  }
+  // Drip lines down her coat
+  ctx.strokeStyle = 'rgba(120,4,4,0.78)'; ctx.lineWidth = 3;
+  for (let i = 0; i < 5; i++) {
+    const lx = bpX - 14 + i * 7;
+    ctx.beginPath();
+    ctx.moveTo(lx, bpY + 6); ctx.lineTo(lx, bpY + 60 + (i * 7) % 30); ctx.stroke();
+  }
+}
+
+// Old reach-through-glass shot, kept as a fallback if SHOTS still
+// references it during dev. Unused in the current SHOTS list.
+function _dShotClawingHand_unused(ctx, t, now) {
   // Dark interior
   ctx.fillStyle = '#0a0608'; ctx.fillRect(0, 0, CW, CH);
   // Outside light bleeding through the broken window
@@ -483,8 +725,189 @@ function dShotStreetChaos(ctx, t, now) {
   ctx.fillRect(0, 0, CW, CH);
 }
 
-// 3.1 — Police officer's badge with a muzzle flash exploding over it.
-function dShotBadgeFlash(ctx, t, now) {
+// 3.1 — Police officer in tactical stance, both hands on pistol,
+// FIRING at off-screen zombies on the right. Bright muzzle flash,
+// brass casings ejecting. Backlit by the strobing light bar of his
+// cruiser. Full mid-shot, ¾ side view.
+function dShotCopFiring(ctx, t, now) {
+  // Dark backdrop with cool/warm rim contrast
+  ctx.fillStyle = '#06080c'; ctx.fillRect(0, 0, CW, CH);
+  // Police cruiser silhouette behind, with red/blue light bar pulsing
+  const lbPhase = Math.floor(now / 200) % 2;
+  ctx.fillStyle = '#11141a'; ctx.fillRect(0, CH - 220, CW, 130);
+  ctx.fillStyle = '#0a1418'; ctx.fillRect(60, CH - 280, CW - 120, 60); // car body
+  ctx.fillStyle = '#f4f4f4'; ctx.fillRect(60, CH - 240, CW - 120, 12); // white stripe
+  // Light bar
+  ctx.fillStyle = lbPhase ? '#cc1818' : '#1a4ccc';
+  ctx.fillRect(CW / 2 - 100, CH - 296, 90, 14);
+  ctx.fillStyle = lbPhase ? '#1a4ccc' : '#cc1818';
+  ctx.fillRect(CW / 2 + 10,  CH - 296, 90, 14);
+  // Light halo on the sky
+  const halo = ctx.createRadialGradient(CW / 2, CH - 280, 20, CW / 2, CH - 280, 360);
+  halo.addColorStop(0, lbPhase ? 'rgba(220,30,30,0.28)' : 'rgba(40,80,220,0.32)');
+  halo.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = halo; ctx.fillRect(0, 0, CW, CH);
+
+  // Ground in foreground
+  ctx.fillStyle = '#1a1a1a'; ctx.fillRect(0, CH - 90, CW, 90);
+  // Brass casings on the ground (clinking)
+  for (let i = 0; i < 5; i++) {
+    const cx2 = 240 + i * 60 + Math.sin(now / 200 + i) * 6;
+    ctx.fillStyle = '#c4a850';
+    ctx.fillRect(cx2, CH - 80 + (i % 3), 6, 3);
+  }
+
+  // The officer — large mid-shot, ¾ view, firing to the right
+  const ox = CW / 2 - 80, oy = CH - 90;
+  // Legs in shooter's wide stance
+  ctx.fillStyle = '#0e1622';
+  // Back leg (left)
+  ctx.beginPath();
+  ctx.moveTo(ox - 40, oy);
+  ctx.lineTo(ox - 30, oy - 130);
+  ctx.lineTo(ox - 10, oy - 130);
+  ctx.lineTo(ox - 18, oy);
+  ctx.closePath(); ctx.fill();
+  // Front leg (right, bent)
+  ctx.beginPath();
+  ctx.moveTo(ox + 40, oy);
+  ctx.lineTo(ox + 12, oy - 130);
+  ctx.lineTo(ox + 32, oy - 130);
+  ctx.lineTo(ox + 70, oy);
+  ctx.closePath(); ctx.fill();
+  // Boots
+  ctx.fillStyle = '#0a0a0a';
+  ctx.fillRect(ox - 44, oy - 8, 28, 12);
+  ctx.fillRect(ox + 44, oy - 8, 30, 12);
+  // Torso — leaning forward in stance
+  ctx.fillStyle = '#0e1622';
+  ctx.beginPath();
+  ctx.moveTo(ox - 30, oy - 130);
+  ctx.lineTo(ox - 50, oy - 240);
+  ctx.lineTo(ox + 60, oy - 250);
+  ctx.lineTo(ox + 40, oy - 130);
+  ctx.closePath(); ctx.fill();
+  // Yellow tactical vest
+  ctx.fillStyle = '#c4a838';
+  ctx.beginPath();
+  ctx.moveTo(ox - 38, oy - 200);
+  ctx.lineTo(ox - 48, oy - 240);
+  ctx.lineTo(ox + 58, oy - 250);
+  ctx.lineTo(ox + 48, oy - 200);
+  ctx.closePath(); ctx.fill();
+  // Badge on vest
+  ctx.fillStyle = '#dfb84a';
+  ctx.beginPath();
+  for (let i = 0; i < 10; i++) {
+    const ang = -Math.PI / 2 + i * Math.PI / 5;
+    const rr = (i % 2 === 0) ? 9 : 4;
+    const bx = ox + 10 + Math.cos(ang) * rr;
+    const by = oy - 220 + Math.sin(ang) * rr;
+    if (i === 0) ctx.moveTo(bx, by); else ctx.lineTo(bx, by);
+  }
+  ctx.closePath(); ctx.fill();
+  // Reflective stripe across vest
+  ctx.fillStyle = '#fff5c4';
+  ctx.fillRect(ox - 40, oy - 192, 90, 4);
+  // Both arms forward, hands clasped on pistol
+  ctx.fillStyle = '#0e1622';
+  // Left arm (away from camera)
+  ctx.beginPath();
+  ctx.moveTo(ox + 40, oy - 230);
+  ctx.lineTo(ox + 110, oy - 200);
+  ctx.lineTo(ox + 116, oy - 184);
+  ctx.lineTo(ox + 38, oy - 214);
+  ctx.closePath(); ctx.fill();
+  // Right arm (closer)
+  ctx.beginPath();
+  ctx.moveTo(ox + 30, oy - 218);
+  ctx.lineTo(ox + 120, oy - 188);
+  ctx.lineTo(ox + 126, oy - 172);
+  ctx.lineTo(ox + 28, oy - 200);
+  ctx.closePath(); ctx.fill();
+  // Hands (skin-tone) gripping
+  ctx.fillStyle = '#bf8a6a';
+  ctx.fillRect(ox + 110, oy - 200, 22, 22);
+  // Pistol pointed right (sideways)
+  ctx.fillStyle = '#181818';
+  ctx.fillRect(ox + 130, oy - 198, 46, 14);
+  ctx.fillStyle = '#0a0a0a';
+  ctx.fillRect(ox + 130, oy - 204, 46, 8);
+  // Trigger guard
+  ctx.fillStyle = '#0a0a0a';
+  ctx.fillRect(ox + 120, oy - 184, 14, 8);
+  // Head — turned to look down the sights (right facing)
+  ctx.fillStyle = '#bf8a6a';
+  ctx.beginPath();
+  ctx.arc(ox + 22, oy - 270, 22, 0, Math.PI * 2); ctx.fill();
+  // Police cap
+  ctx.fillStyle = '#0e1622';
+  ctx.beginPath();
+  ctx.moveTo(ox + 4, oy - 282);
+  ctx.lineTo(ox + 48, oy - 286);
+  ctx.lineTo(ox + 50, oy - 274);
+  ctx.lineTo(ox + 2, oy - 270);
+  ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#dfb84a';
+  ctx.beginPath();
+  for (let i = 0; i < 10; i++) {
+    const ang = -Math.PI / 2 + i * Math.PI / 5;
+    const rr = (i % 2 === 0) ? 4 : 2;
+    const bx = ox + 28 + Math.cos(ang) * rr;
+    const by = oy - 280 + Math.sin(ang) * rr;
+    if (i === 0) ctx.moveTo(bx, by); else ctx.lineTo(bx, by);
+  }
+  ctx.closePath(); ctx.fill();
+  // Cap brim
+  ctx.fillStyle = '#0a0e12';
+  ctx.fillRect(ox + 26, oy - 268, 22, 4);
+  // Eye (looking right, focused)
+  ctx.fillStyle = '#1a1a1a';
+  ctx.fillRect(ox + 32, oy - 270, 4, 2.5);
+  // Set jaw
+  ctx.fillStyle = '#9a6a4e';
+  ctx.fillRect(ox + 30, oy - 258, 12, 2);
+
+  // MUZZLE FLASH — bright explosion at the muzzle (timed pulses)
+  const flashOn = Math.floor(now / 140) % 2 === 0;
+  if (flashOn) {
+    const fx = ox + 178, fy = oy - 191;
+    const fgr = ctx.createRadialGradient(fx, fy, 4, fx, fy, 110);
+    fgr.addColorStop(0, 'rgba(255,255,220,1)');
+    fgr.addColorStop(0.35, 'rgba(255,180,60,0.75)');
+    fgr.addColorStop(1, 'rgba(180,40,10,0)');
+    ctx.fillStyle = fgr; ctx.fillRect(fx - 110, fy - 110, 220, 220);
+    // Bright triangular core
+    ctx.fillStyle = 'rgba(255,255,210,0.95)';
+    ctx.beginPath();
+    ctx.moveTo(fx, fy - 18);
+    ctx.lineTo(fx + 60, fy);
+    ctx.lineTo(fx + 90, fy - 6);
+    ctx.lineTo(fx + 60, fy + 12);
+    ctx.lineTo(fx, fy + 18);
+    ctx.closePath(); ctx.fill();
+    // Light spill on officer's face + chest
+    ctx.fillStyle = 'rgba(255,200,120,0.30)';
+    ctx.beginPath(); ctx.ellipse(ox + 24, oy - 248, 60, 50, 0, 0, Math.PI * 2); ctx.fill();
+    // Ejecting brass casing
+    const ejT = ((now / 140) % 1);
+    const ecx = fx - 32 + ejT * 40;
+    const ecy = fy - 30 - ejT * 30 + ejT * ejT * 60;
+    ctx.fillStyle = '#c4a850';
+    ctx.fillRect(ecx, ecy, 6, 3);
+  }
+
+  // Bullet streaks heading off-frame right (showing the bullets in air)
+  for (let i = 0; i < 4; i++) {
+    const bx = ox + 200 + i * 80 + ((now * 1.2) % 80);
+    if (bx > CW) continue;
+    ctx.fillStyle = 'rgba(255,230,140,0.85)';
+    ctx.fillRect(bx, oy - 192, 36, 1.4);
+  }
+}
+
+// Old badge-flash close-up, kept as a fallback (unused).
+function _dShotBadgeFlash_unused(ctx, t, now) {
   // Pitch-black background with deep blue rim light
   ctx.fillStyle = '#040608'; ctx.fillRect(0, 0, CW, CH);
   // Cool rim light from above
@@ -688,8 +1111,194 @@ function dShotPoliceLine(ctx, t, now) {
   }
 }
 
-// 3.3 — Wounded officer slumped against a car door, radio in hand.
-function dShotWounded(ctx, t, now) {
+// 3.3 — Officer being grabbed and pulled down by zombies. He fires
+// wildly into the air as he goes down. Two zombies on him; his
+// pistol's muzzle flash lights the scene briefly.
+function dShotCopDragged(ctx, t, now) {
+  // Dark street with flickering lamp + distant fires
+  ctx.fillStyle = '#06080a'; ctx.fillRect(0, 0, CW, CH);
+  const flick = (Math.sin(now / 90) > 0.4) ? 1 : 0.45;
+  const halo = ctx.createRadialGradient(CW * 0.3, 60, 10, CW * 0.3, 60, 520);
+  halo.addColorStop(0, `rgba(255,200,120,${0.30 * flick})`);
+  halo.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = halo; ctx.fillRect(0, 0, CW, CH);
+  // Burning skyline
+  for (let i = 0; i < 6; i++) {
+    const bx = i * 160;
+    const bh = 70 + (i * 31) % 90;
+    ctx.fillStyle = '#0a0604';
+    ctx.fillRect(bx, GY - 50 - bh, 140, bh);
+  }
+  ctx.fillStyle = 'rgba(255,80,20,0.18)';
+  ctx.fillRect(0, GY - 50, CW, 20);
+  // Ground
+  ctx.fillStyle = '#1a1a1a'; ctx.fillRect(0, GY, CW, CH - GY);
+
+  // Background police car (out of focus)
+  ctx.fillStyle = '#181820';
+  ctx.fillRect(50, GY - 60, 220, 50);
+  ctx.fillStyle = '#0a1418';
+  ctx.fillRect(80, GY - 86, 160, 26);
+  ctx.fillStyle = '#cc1818';
+  ctx.fillRect(140, GY - 96, 40, 5);
+  // Bullet holes in the car
+  ctx.fillStyle = '#000';
+  for (let i = 0; i < 5; i++) {
+    ctx.beginPath(); ctx.arc(100 + i * 28, GY - 30, 2, 0, Math.PI * 2); ctx.fill();
+  }
+
+  // Tug animation
+  const tug = Math.sin(now / 150) * 5;
+
+  // The officer — pulled to the ground, on his back, propped on one
+  // arm, the other firing the pistol up into the air.
+  const ox = CW * 0.50, oy = CH - 60;
+  // Legs flailing
+  ctx.fillStyle = '#0e1622';
+  ctx.beginPath();
+  ctx.moveTo(ox - 30, oy);
+  ctx.lineTo(ox - 80 + tug, oy - 18);
+  ctx.lineTo(ox - 70 + tug, oy - 8);
+  ctx.lineTo(ox - 20, oy + 12);
+  ctx.closePath(); ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(ox + 10, oy);
+  ctx.lineTo(ox + 70 - tug, oy - 14);
+  ctx.lineTo(ox + 80 - tug, oy - 4);
+  ctx.lineTo(ox + 20, oy + 12);
+  ctx.closePath(); ctx.fill();
+  // Boots flailing
+  ctx.fillStyle = '#0a0a0a';
+  ctx.fillRect(ox - 92 + tug, oy - 22, 18, 10);
+  ctx.fillRect(ox + 76 - tug, oy - 18, 18, 10);
+  // Torso (on his back, slanted)
+  ctx.save();
+  ctx.translate(ox, oy - 20);
+  ctx.rotate(-0.18);
+  ctx.fillStyle = '#0e1622';
+  ctx.fillRect(-44, -80, 88, 90);
+  ctx.fillStyle = '#c4a838';
+  ctx.fillRect(-44, -60, 88, 8);
+  // Badge on chest
+  ctx.fillStyle = '#dfb84a';
+  ctx.beginPath();
+  for (let i = 0; i < 10; i++) {
+    const ang = -Math.PI / 2 + i * Math.PI / 5;
+    const rr = (i % 2 === 0) ? 7 : 3;
+    const bx = 8 + Math.cos(ang) * rr;
+    const by = -38 + Math.sin(ang) * rr;
+    if (i === 0) ctx.moveTo(bx, by); else ctx.lineTo(bx, by);
+  }
+  ctx.closePath(); ctx.fill();
+  // Blood on uniform from the bite
+  ctx.fillStyle = 'rgba(120,4,4,0.78)';
+  ctx.beginPath();
+  ctx.moveTo(-30, -78); ctx.lineTo(20, -76); ctx.lineTo(34, -40); ctx.lineTo(-26, -34);
+  ctx.closePath(); ctx.fill();
+  // Head turned back (mouth open in scream)
+  ctx.fillStyle = '#bf8a6a';
+  ctx.beginPath(); ctx.arc(0, -100, 20, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#3a0a0a';
+  ctx.beginPath(); ctx.ellipse(2, -94, 7, 9, 0, 0, Math.PI * 2); ctx.fill();
+  // Eyes wide
+  ctx.fillStyle = '#fff'; ctx.fillRect(-8, -110, 6, 3); ctx.fillRect(4, -110, 6, 3);
+  ctx.fillStyle = '#1a1a1a'; ctx.fillRect(-6, -109, 2, 2); ctx.fillRect(6, -109, 2, 2);
+  // Police cap thrown back (sliding off)
+  ctx.fillStyle = '#0e1622';
+  ctx.fillRect(-22, -118, 26, 6);
+  // One arm bracing the ground
+  ctx.fillStyle = '#0e1622';
+  ctx.fillRect(-58, -10, 36, 12);
+  ctx.fillStyle = '#bf8a6a';
+  ctx.fillRect(-66, -10, 12, 12);
+  // Other arm shooting straight up
+  ctx.fillStyle = '#0e1622';
+  ctx.fillRect(38, -120, 16, 80);
+  ctx.fillStyle = '#bf8a6a';
+  ctx.fillRect(36, -138, 20, 22);
+  // Pistol pointing up
+  ctx.fillStyle = '#181818';
+  ctx.fillRect(40, -160, 12, 24);
+  ctx.fillStyle = '#0a0a0a';
+  ctx.fillRect(36, -160, 20, 8);
+  // Muzzle flash going up (every other beat)
+  const fflash = Math.floor(now / 180) % 2 === 0;
+  if (fflash) {
+    const fx = 46, fy = -168;
+    const fg = ctx.createRadialGradient(fx, fy, 3, fx, fy, 80);
+    fg.addColorStop(0, 'rgba(255,255,220,1)');
+    fg.addColorStop(0.4, 'rgba(255,160,40,0.6)');
+    fg.addColorStop(1, 'rgba(180,40,10,0)');
+    ctx.fillStyle = fg; ctx.fillRect(fx - 80, fy - 80, 160, 160);
+    ctx.fillStyle = 'rgba(255,255,210,0.95)';
+    ctx.beginPath();
+    ctx.moveTo(fx - 14, fy + 10);
+    ctx.lineTo(fx, fy - 30);
+    ctx.lineTo(fx + 14, fy + 10);
+    ctx.closePath(); ctx.fill();
+  }
+  ctx.restore();
+
+  // Zombie #1 — biting the officer's shoulder/neck on his right
+  ctx.fillStyle = '#2a3826';
+  ctx.beginPath();
+  ctx.moveTo(ox + 40, oy);
+  ctx.lineTo(ox + 60, oy - 80);
+  ctx.lineTo(ox + 90, oy - 110);
+  ctx.lineTo(ox + 130, oy - 100);
+  ctx.lineTo(ox + 140, oy - 50);
+  ctx.lineTo(ox + 110, oy);
+  ctx.closePath(); ctx.fill();
+  // Head leaning into the bite
+  ctx.fillStyle = '#5a7042';
+  ctx.beginPath(); ctx.arc(ox + 70, oy - 96, 18, 0, Math.PI * 2); ctx.fill();
+  // Red eye
+  ctx.fillStyle = '#cc1818';
+  ctx.fillRect(ox + 64, oy - 100, 4, 3);
+  // Open jaw biting
+  ctx.fillStyle = '#1a0606';
+  ctx.beginPath(); ctx.ellipse(ox + 56, oy - 88, 8, 6, 0, 0, Math.PI * 2); ctx.fill();
+  // Blood on the jaw
+  ctx.fillStyle = '#7a0606';
+  ctx.fillRect(ox + 50, oy - 84, 10, 3);
+  // Arms grabbing officer's torso
+  ctx.fillStyle = '#2a3826';
+  ctx.fillRect(ox + 30, oy - 70, 24, 8);
+  ctx.fillRect(ox + 28, oy - 50, 22, 8);
+
+  // Zombie #2 — pulling the officer's legs from below
+  ctx.fillStyle = '#2a3826';
+  ctx.beginPath();
+  ctx.moveTo(ox - 110, oy);
+  ctx.lineTo(ox - 130, oy - 40);
+  ctx.lineTo(ox - 170, oy - 30);
+  ctx.lineTo(ox - 180, oy + 10);
+  ctx.lineTo(ox - 120, oy + 20);
+  ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#5a7042';
+  ctx.beginPath(); ctx.arc(ox - 156, oy - 36, 14, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#cc1818';
+  ctx.fillRect(ox - 162, oy - 38, 3, 2);
+  ctx.fillRect(ox - 152, oy - 38, 3, 2);
+  // Arms grabbing officer's ankle
+  ctx.fillStyle = '#2a3826';
+  ctx.fillRect(ox - 130, oy - 14, 30, 6);
+  ctx.fillRect(ox - 130, oy - 4, 30, 6);
+
+  // Blood pool growing under the officer
+  ctx.fillStyle = 'rgba(110,5,5,0.55)';
+  ctx.beginPath();
+  ctx.ellipse(ox, oy + 8, 90 + tug * 0.5, 7, 0, 0, Math.PI * 2); ctx.fill();
+
+  // Streetlamp flicker overlay
+  if (flick < 0.6) {
+    ctx.fillStyle = 'rgba(0,0,0,0.15)';
+    ctx.fillRect(0, 0, CW, CH);
+  }
+}
+
+// Old wounded-officer shot (unused).
+function _dShotWounded_unused(ctx, t, now) {
   // Dark, smokey street; rim light from a flickering streetlamp
   ctx.fillStyle = '#040606'; ctx.fillRect(0, 0, CW, CH);
   // Lamp flicker
@@ -781,8 +1390,202 @@ function dShotWounded(ctx, t, now) {
   }
 }
 
-// 4.1 — Big burning car in foreground, smoke filling the sky.
-function dShotBurningCar(ctx, t, now) {
+// 4.1 — A lone soldier holding the line as the city burns behind him.
+// He fires a rifle at off-screen zombies; the burning wreck of a car
+// behind him lights his silhouette. Shell casings on the ground.
+function dShotLastDefender(ctx, t, now) {
+  // Sky on fire
+  const sg = ctx.createLinearGradient(0, 0, 0, GY);
+  sg.addColorStop(0, '#0a0604'); sg.addColorStop(0.6, '#3a1410'); sg.addColorStop(1, '#5a2210');
+  ctx.fillStyle = sg; ctx.fillRect(0, 0, CW, GY);
+  // Heavy smoke
+  for (let i = 0; i < 12; i++) {
+    const sx = (i * 79 + now * 0.04) % (CW + 100) - 50;
+    const sy = 20 + (i * 23) % 200;
+    ctx.fillStyle = `rgba(20,15,12,${0.32 + (i % 3) * 0.1})`;
+    ctx.beginPath(); ctx.arc(sx, sy, 50 + (i % 4) * 12, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.fillStyle = '#1a0e08'; ctx.fillRect(0, GY, CW, CH - GY);
+
+  // Burning wreck of a car BEHIND the soldier (slightly left + back)
+  const cx = CW * 0.30, cy = GY - 30;
+  ctx.fillStyle = '#181818';
+  ctx.fillRect(cx - 110, cy, 220, 32);
+  ctx.fillStyle = '#0a0a0a';
+  ctx.fillRect(cx - 70, cy - 30, 140, 30);
+  ctx.fillStyle = '#1a1a1a';
+  ctx.beginPath(); ctx.arc(cx - 80, cy + 36, 14, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(cx + 80, cy + 36, 14, 0, Math.PI * 2); ctx.fill();
+  // Flames + light pulse
+  for (let f = 0; f < 5; f++) {
+    const fx = cx - 60 + f * 30;
+    const flick = Math.sin(now / 80 + f) * 4;
+    const fh = 65 + (f % 3) * 18 + flick;
+    ctx.fillStyle = 'rgba(220,80,20,0.85)';
+    ctx.beginPath();
+    ctx.moveTo(fx - 10, cy - 12);
+    ctx.lineTo(fx - 4, cy - fh);
+    ctx.lineTo(fx + 4, cy - fh);
+    ctx.lineTo(fx + 10, cy - 12);
+    ctx.closePath(); ctx.fill();
+    ctx.fillStyle = 'rgba(255,200,60,0.7)';
+    ctx.beginPath();
+    ctx.moveTo(fx - 4, cy - 14);
+    ctx.lineTo(fx, cy - fh * 0.85);
+    ctx.lineTo(fx + 4, cy - 14);
+    ctx.closePath(); ctx.fill();
+  }
+  // Fire light spill on the ground
+  ctx.fillStyle = 'rgba(255,140,40,0.18)';
+  ctx.fillRect(0, cy + 32, CW, 30);
+
+  // SHELL CASINGS ejected and lying on the ground
+  for (let i = 0; i < 8; i++) {
+    const ecx = 540 + i * 22 + ((now / 18 + i) % 50);
+    ctx.fillStyle = '#c4a850';
+    ctx.fillRect(ecx % CW, GY - 4 + (i % 3), 5, 2.5);
+  }
+
+  // The SOLDIER — mid-shot, ¾ side view, firing right
+  const sx = CW * 0.62, sy = CH - 60;
+  // Boots wide stance
+  ctx.fillStyle = '#0a0a0a';
+  ctx.fillRect(sx - 36, sy, 26, 12);
+  ctx.fillRect(sx + 18, sy, 28, 12);
+  // Legs (OD tactical pants)
+  ctx.fillStyle = '#3a4a30';
+  ctx.beginPath();
+  ctx.moveTo(sx - 32, sy);
+  ctx.lineTo(sx - 28, sy - 110);
+  ctx.lineTo(sx - 10, sy - 110);
+  ctx.lineTo(sx - 14, sy);
+  ctx.closePath(); ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(sx + 30, sy);
+  ctx.lineTo(sx + 12, sy - 110);
+  ctx.lineTo(sx + 32, sy - 110);
+  ctx.lineTo(sx + 46, sy);
+  ctx.closePath(); ctx.fill();
+  // Knee pads
+  ctx.fillStyle = '#1a2418';
+  ctx.fillRect(sx - 26, sy - 56, 16, 8);
+  ctx.fillRect(sx + 14, sy - 56, 16, 8);
+  // Torso + tactical vest
+  ctx.fillStyle = '#2a3826';
+  ctx.beginPath();
+  ctx.moveTo(sx - 42, sy - 200);
+  ctx.lineTo(sx + 50, sy - 210);
+  ctx.lineTo(sx + 40, sy - 110);
+  ctx.lineTo(sx - 32, sy - 110);
+  ctx.closePath(); ctx.fill();
+  // Tactical vest pouches
+  ctx.fillStyle = '#1a2418';
+  ctx.fillRect(sx - 30, sy - 180, 24, 28);
+  ctx.fillRect(sx + 4, sy - 180, 24, 28);
+  ctx.fillRect(sx - 14, sy - 144, 28, 22);
+  // Buckles
+  ctx.fillStyle = '#3a4a30';
+  ctx.fillRect(sx - 28, sy - 170, 4, 4);
+  ctx.fillRect(sx + 24, sy - 170, 4, 4);
+  // Arms forward holding rifle
+  ctx.fillStyle = '#2a3826';
+  // Back arm (extended forward)
+  ctx.beginPath();
+  ctx.moveTo(sx + 36, sy - 196);
+  ctx.lineTo(sx + 110, sy - 178);
+  ctx.lineTo(sx + 116, sy - 162);
+  ctx.lineTo(sx + 36, sy - 184);
+  ctx.closePath(); ctx.fill();
+  // Front arm (closer, on grip)
+  ctx.beginPath();
+  ctx.moveTo(sx + 14, sy - 180);
+  ctx.lineTo(sx + 88, sy - 168);
+  ctx.lineTo(sx + 96, sy - 154);
+  ctx.lineTo(sx + 12, sy - 166);
+  ctx.closePath(); ctx.fill();
+  // Gloves
+  ctx.fillStyle = '#1a2418';
+  ctx.fillRect(sx + 98, sy - 178, 18, 18);
+  ctx.fillRect(sx + 80, sy - 168, 16, 18);
+  // RIFLE — long, held level
+  ctx.fillStyle = '#1a1410';
+  ctx.fillRect(sx + 60, sy - 178, 30, 16); // stock
+  ctx.fillStyle = '#181818';
+  ctx.fillRect(sx + 90, sy - 180, 50, 14); // receiver + grip
+  ctx.fillStyle = '#0e0e0e';
+  ctx.fillRect(sx + 140, sy - 174, 80, 8); // barrel
+  ctx.fillRect(sx + 218, sy - 178, 8, 6); // front sight
+  // Magazine
+  ctx.fillStyle = '#0a0a0a';
+  ctx.fillRect(sx + 110, sy - 162, 14, 22);
+  // Helmet + face
+  ctx.fillStyle = '#1a2418';
+  ctx.beginPath();
+  ctx.moveTo(sx - 26, sy - 240);
+  ctx.quadraticCurveTo(sx + 4, sy - 256, sx + 34, sy - 240);
+  ctx.lineTo(sx + 34, sy - 220);
+  ctx.lineTo(sx - 26, sy - 220);
+  ctx.closePath(); ctx.fill();
+  // Strap line under helmet
+  ctx.fillStyle = '#0a0a0a';
+  ctx.fillRect(sx - 26, sy - 222, 60, 2);
+  // Face (under helmet brim)
+  ctx.fillStyle = '#bf8a6a';
+  ctx.beginPath();
+  ctx.arc(sx + 8, sy - 218, 18, 0, Math.PI * 2); ctx.fill();
+  // Eye looking down sights (right)
+  ctx.fillStyle = '#1a1a1a';
+  ctx.fillRect(sx + 18, sy - 220, 4, 2.5);
+  // Stubble jaw
+  ctx.fillStyle = '#5a4030';
+  ctx.fillRect(sx + 2, sy - 208, 14, 4);
+
+  // MUZZLE FLASH — pulsing rapid-fire
+  const flashOn = Math.floor(now / 110) % 2 === 0;
+  if (flashOn) {
+    const fx = sx + 228, fy = sy - 171;
+    const fg = ctx.createRadialGradient(fx, fy, 4, fx, fy, 130);
+    fg.addColorStop(0, 'rgba(255,255,210,1)');
+    fg.addColorStop(0.35, 'rgba(255,180,60,0.75)');
+    fg.addColorStop(1, 'rgba(180,40,10,0)');
+    ctx.fillStyle = fg; ctx.fillRect(fx - 130, fy - 130, 260, 260);
+    // Triangular flash core
+    ctx.fillStyle = 'rgba(255,255,210,0.95)';
+    ctx.beginPath();
+    ctx.moveTo(fx, fy - 14);
+    ctx.lineTo(fx + 60, fy);
+    ctx.lineTo(fx + 90, fy - 4);
+    ctx.lineTo(fx + 60, fy + 12);
+    ctx.lineTo(fx, fy + 14);
+    ctx.closePath(); ctx.fill();
+    // Brass casing flying upward-right
+    const ejT = ((now / 110) % 1);
+    const ecx = sx + 100 + ejT * 30;
+    const ecy = sy - 200 - ejT * 26 + ejT * ejT * 50;
+    ctx.fillStyle = '#c4a850';
+    ctx.fillRect(ecx, ecy, 6, 3);
+  }
+
+  // Bullet streaks heading right
+  for (let i = 0; i < 4; i++) {
+    const bx = sx + 250 + i * 70 + ((now * 1.4 + i * 30) % 70);
+    if (bx > CW) continue;
+    ctx.fillStyle = 'rgba(255,230,140,0.85)';
+    ctx.fillRect(bx, sy - 167, 32, 1.5);
+  }
+
+  // Zombie silhouettes JUST visible at the right edge — what he's shooting at
+  for (let i = 0; i < 3; i++) {
+    const zx = CW - 30 + i * 15;
+    if (zx > CW) continue;
+    ctx.fillStyle = '#1a261a';
+    ctx.fillRect(zx, GY - 30, 4, 30);
+    ctx.beginPath(); ctx.arc(zx + 2, GY - 34, 4, 0, Math.PI * 2); ctx.fill();
+  }
+}
+
+// Old burning-car still life (unused).
+function _dShotBurningCar_unused(ctx, t, now) {
   // Smoky orange-black sky
   const sg = ctx.createLinearGradient(0, 0, 0, GY);
   sg.addColorStop(0, '#0a0604'); sg.addColorStop(0.6, '#3a1410'); sg.addColorStop(1, '#5a2210');
@@ -954,8 +1757,173 @@ function dShotStreetDead(ctx, t, now) {
   }
 }
 
-// 5.1 — Close-up of a soldier's gloved hand gripping a rifle.
-function dShotRifleGrip(ctx, t, now) {
+// 5.1 — Soldier on the Fort Omega wall, mid-shot ¾ view, raising his
+// rifle to take aim down-range at the encroaching horde. Helmet, vest,
+// breath cloud in the cold. Resolute pose.
+function dShotSoldierAiming(ctx, t, now) {
+  // Deep night sky
+  ctx.fillStyle = '#080a18'; ctx.fillRect(0, 0, CW, CH);
+  // Stars
+  for (let i = 0; i < 50; i++) {
+    const sx = (i * 173) % CW;
+    const sy = (i * 97) % (GY - 80);
+    ctx.fillStyle = `rgba(255,255,255,${0.25 + (i % 5) * 0.12})`;
+    ctx.fillRect(sx, sy, 1.4, 1.4);
+  }
+  // Crescent moon
+  ctx.fillStyle = '#dde2d0';
+  ctx.beginPath(); ctx.arc(740, 70, 24, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#080a18';
+  ctx.beginPath(); ctx.arc(748, 66, 24, 0, Math.PI * 2); ctx.fill();
+  // Distant burning city horizon (low) — provides warm rim light
+  const horizon = ctx.createLinearGradient(0, CH - 200, 0, CH - 90);
+  horizon.addColorStop(0, 'rgba(120,40,15,0)');
+  horizon.addColorStop(1, 'rgba(220,80,30,0.55)');
+  ctx.fillStyle = horizon; ctx.fillRect(0, CH - 200, CW, 110);
+  ctx.fillStyle = '#0a0a08';
+  for (let i = 0; i < 8; i++) {
+    const bx = i * 120;
+    const bh = 30 + (i * 23) % 60;
+    ctx.fillRect(bx, CH - 110 - bh, 110, bh);
+  }
+  // Rampart top (wall under the soldier)
+  ctx.fillStyle = '#1a1814';
+  ctx.fillRect(0, CH - 80, CW, 80);
+  ctx.fillStyle = '#0e0c08';
+  ctx.fillRect(0, CH - 86, CW, 6);
+  // Sandbag detail in front
+  for (let i = 0; i < 7; i++) {
+    const bx = i * 140;
+    ctx.fillStyle = '#7a5a32';
+    ctx.beginPath();
+    ctx.ellipse(bx, CH - 86, 80, 14, 0, Math.PI, 0); ctx.fill();
+    ctx.fillStyle = '#a07b48';
+    ctx.fillRect(bx - 50, CH - 90, 100, 3);
+  }
+
+  // The soldier — centered, slightly to the left, ¾ profile right
+  const sx = CW * 0.42, sy = CH - 90;
+  // Legs (planted)
+  ctx.fillStyle = '#3a4a30';
+  ctx.fillRect(sx - 30, sy - 100, 28, 100);
+  ctx.fillRect(sx + 4,  sy - 100, 28, 100);
+  // Boots (just toes peeking)
+  ctx.fillStyle = '#0a0a0a';
+  ctx.fillRect(sx - 32, sy - 6, 32, 8);
+  ctx.fillRect(sx + 4, sy - 6, 32, 8);
+  // Knee pads
+  ctx.fillStyle = '#1a2418';
+  ctx.fillRect(sx - 28, sy - 56, 22, 8);
+  ctx.fillRect(sx + 6, sy - 56, 22, 8);
+  // Torso + vest
+  ctx.fillStyle = '#2a3826';
+  ctx.beginPath();
+  ctx.moveTo(sx - 40, sy - 200);
+  ctx.lineTo(sx + 50, sy - 210);
+  ctx.lineTo(sx + 38, sy - 100);
+  ctx.lineTo(sx - 32, sy - 100);
+  ctx.closePath(); ctx.fill();
+  // Tactical vest pouches
+  ctx.fillStyle = '#1a2418';
+  ctx.fillRect(sx - 30, sy - 180, 22, 26);
+  ctx.fillRect(sx + 6,  sy - 180, 22, 26);
+  ctx.fillRect(sx - 12, sy - 144, 26, 20);
+  // Reflective strips
+  ctx.fillStyle = '#a4a230';
+  ctx.fillRect(sx - 30, sy - 152, 70, 2);
+  // Both arms forward, holding rifle to face
+  ctx.fillStyle = '#2a3826';
+  // Back arm (extended)
+  ctx.beginPath();
+  ctx.moveTo(sx + 34, sy - 196);
+  ctx.lineTo(sx + 132, sy - 178);
+  ctx.lineTo(sx + 138, sy - 162);
+  ctx.lineTo(sx + 32, sy - 184);
+  ctx.closePath(); ctx.fill();
+  // Front arm (closer, bent up to shoulder the stock)
+  ctx.beginPath();
+  ctx.moveTo(sx + 10, sy - 198);
+  ctx.lineTo(sx + 60, sy - 220);
+  ctx.lineTo(sx + 60, sy - 206);
+  ctx.lineTo(sx + 14, sy - 184);
+  ctx.closePath(); ctx.fill();
+  // Gloves
+  ctx.fillStyle = '#1a2418';
+  ctx.fillRect(sx + 56, sy - 226, 18, 18);
+  ctx.fillRect(sx + 118, sy - 180, 22, 16);
+  // RIFLE — held up at face level, stock pressed to shoulder
+  // Stock
+  ctx.fillStyle = '#1a1410';
+  ctx.fillRect(sx + 48, sy - 226, 28, 14);
+  // Receiver
+  ctx.fillStyle = '#181818';
+  ctx.fillRect(sx + 76, sy - 222, 60, 12);
+  // Barrel reaching right
+  ctx.fillStyle = '#0e0e0e';
+  ctx.fillRect(sx + 136, sy - 218, 100, 6);
+  // Front sight
+  ctx.fillRect(sx + 230, sy - 222, 6, 4);
+  // Scope rail on top
+  ctx.fillStyle = '#1a1a1a';
+  ctx.fillRect(sx + 78, sy - 230, 50, 8);
+  // Scope (cylinder)
+  ctx.fillStyle = '#0a0a0a';
+  ctx.fillRect(sx + 88, sy - 240, 38, 10);
+  ctx.fillStyle = '#1a1a1a';
+  ctx.fillRect(sx + 122, sy - 240, 8, 10);
+  // Magazine
+  ctx.fillStyle = '#0a0a0a';
+  ctx.fillRect(sx + 100, sy - 208, 14, 24);
+  // Helmet — turned, looking down the scope
+  ctx.fillStyle = '#1a2418';
+  ctx.beginPath();
+  ctx.moveTo(sx - 30, sy - 256);
+  ctx.quadraticCurveTo(sx + 10, sy - 272, sx + 48, sy - 254);
+  ctx.lineTo(sx + 48, sy - 232);
+  ctx.lineTo(sx - 30, sy - 232);
+  ctx.closePath(); ctx.fill();
+  // NVG mount on top
+  ctx.fillStyle = '#0a0a0a';
+  ctx.fillRect(sx, sy - 268, 18, 6);
+  // Helmet strap
+  ctx.fillStyle = '#0a0a0a';
+  ctx.fillRect(sx - 30, sy - 234, 78, 2);
+  // Face under brim
+  ctx.fillStyle = '#bf8a6a';
+  ctx.beginPath();
+  ctx.arc(sx + 12, sy - 232, 18, 0, Math.PI * 2); ctx.fill();
+  // Eye sighting through scope (right)
+  ctx.fillStyle = '#1a1a1a';
+  ctx.fillRect(sx + 24, sy - 232, 4, 3);
+  ctx.fillStyle = '#9a6a4e';
+  ctx.fillRect(sx + 22, sy - 236, 8, 1.5); // brow
+  // Stubble jaw
+  ctx.fillStyle = '#5a4030';
+  ctx.fillRect(sx + 6, sy - 222, 14, 4);
+  // Breath cloud (cold air visible)
+  const bz = (now / 800) % 1;
+  ctx.fillStyle = `rgba(220,225,230,${0.32 * (1 - bz)})`;
+  ctx.beginPath();
+  ctx.ellipse(sx + 38, sy - 224 - bz * 14, 18 + bz * 14, 8 + bz * 6, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Subtle moonlight rim on helmet + shoulder
+  ctx.fillStyle = 'rgba(150,180,210,0.22)';
+  ctx.beginPath();
+  ctx.ellipse(sx + 4, sy - 270, 36, 6, -0.2, 0, Math.PI * 2); ctx.fill();
+  ctx.fillRect(sx - 38, sy - 198, 4, 60);
+
+  // A laser sight dot off in the distance (where his rifle's pointing)
+  if (Math.floor(now / 600) % 2 === 0) {
+    ctx.fillStyle = 'rgba(255,40,40,0.85)';
+    ctx.beginPath(); ctx.arc(CW - 30, sy - 200, 2, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = 'rgba(255,40,40,0.2)';
+    ctx.beginPath(); ctx.arc(CW - 30, sy - 200, 6, 0, Math.PI * 2); ctx.fill();
+  }
+}
+
+// Old rifle-grip-only close-up (unused).
+function _dShotRifleGrip_unused(ctx, t, now) {
   // Dark cool background with a soft orange glow from distant fires
   ctx.fillStyle = '#06070a'; ctx.fillRect(0, 0, CW, CH);
   const grd = ctx.createRadialGradient(CW * 0.7, CH * 0.7, 30, CW * 0.7, CH * 0.7, 500);
@@ -1029,6 +1997,354 @@ function dShotRifleGrip(ctx, t, now) {
   // Faint cold breath visible near the top (cold-night detail)
   ctx.fillStyle = 'rgba(220,225,230,0.10)';
   ctx.beginPath(); ctx.ellipse(CW / 2 - 80, 80, 26, 10, 0, 0, Math.PI * 2); ctx.fill();
+}
+
+// C.1 — Wide of a military convoy rolling across the dark ruined
+// highway toward Fort Omega. Two Humvees + a troop truck, headlights
+// cutting through dust + smoke. Soldiers visible in roof turrets.
+function dShotConvoyWide(ctx, t, now) {
+  // Night sky, very dark with smoke
+  const sg = ctx.createLinearGradient(0, 0, 0, GY);
+  sg.addColorStop(0, '#080608'); sg.addColorStop(0.7, '#181410'); sg.addColorStop(1, '#2a1a14');
+  ctx.fillStyle = sg; ctx.fillRect(0, 0, CW, GY);
+  // Faint distant smoke plumes
+  for (let i = 0; i < 10; i++) {
+    const sx = (i * 117 + 30) % CW;
+    const sy = 30 + (i * 19) % 160;
+    ctx.fillStyle = `rgba(28,18,14,${0.30 + (i % 3) * 0.08})`;
+    ctx.beginPath(); ctx.arc(sx, sy, 50 + (i % 4) * 12, 0, Math.PI * 2); ctx.fill();
+  }
+  // Distant skyline silhouette
+  for (let i = 0; i < 7; i++) {
+    const bx = i * 140;
+    const bh = 50 + (i * 31) % 80;
+    ctx.fillStyle = '#0a0808';
+    ctx.fillRect(bx, GY - 60 - bh, 120, bh);
+  }
+  // Faint orange horizon glow
+  const horizon = ctx.createLinearGradient(0, GY - 40, 0, GY);
+  horizon.addColorStop(0, 'rgba(120,40,15,0)');
+  horizon.addColorStop(1, 'rgba(180,60,25,0.45)');
+  ctx.fillStyle = horizon; ctx.fillRect(0, GY - 40, CW, 40);
+
+  // Highway road
+  ctx.fillStyle = '#181818';
+  ctx.fillRect(0, GY, CW, CH - GY);
+  // Lane markings sliding leftward (we're tracking the convoy moving right)
+  ctx.strokeStyle = '#a09a40'; ctx.lineWidth = 2;
+  const dash = (now * 0.18) % 80;
+  ctx.setLineDash([26, 30]); ctx.lineDashOffset = -dash;
+  ctx.beginPath(); ctx.moveTo(0, GY + 50); ctx.lineTo(CW, GY + 50); ctx.stroke();
+  ctx.setLineDash([]);
+  // Roadside debris on the right shoulder
+  ctx.fillStyle = '#0a0a0a';
+  for (let d = 0; d < 4; d++) {
+    const dx = ((d * 220 + now * 0.18) % (CW + 100)) - 50;
+    ctx.fillRect(dx, GY + 6, 18, 5);
+  }
+
+  // The convoy — three vehicles moving across. They drift slightly
+  // right-to-left within frame (camera tracks slower than truck so
+  // they enter from right and exit left over the shot).
+  const drift = -t * 240;
+  const vehicles = [
+    { type: 'humvee', x: 720 + drift },
+    { type: 'truck',  x: 480 + drift },
+    { type: 'humvee', x: 210 + drift },
+  ];
+  vehicles.forEach(v => drawConvoyVehicle(ctx, v.x, GY - 4, v.type, now));
+
+  // Headlight cones in front of the lead vehicle
+  const leadX = vehicles[0].x + 70;
+  const lg = ctx.createLinearGradient(leadX, GY - 30, leadX + 180, GY + 20);
+  lg.addColorStop(0, 'rgba(255,230,180,0.55)');
+  lg.addColorStop(1, 'rgba(255,230,180,0)');
+  ctx.fillStyle = lg;
+  ctx.beginPath();
+  ctx.moveTo(leadX, GY - 24); ctx.lineTo(leadX, GY - 12);
+  ctx.lineTo(leadX + 220, GY + 6); ctx.lineTo(leadX + 220, GY - 40);
+  ctx.closePath(); ctx.fill();
+  // Tail-light glow on the rear vehicle
+  const rearX = vehicles[2].x - 24;
+  ctx.fillStyle = 'rgba(220,40,30,0.6)';
+  ctx.fillRect(rearX, GY - 22, 5, 6);
+
+  // Dust trail behind the convoy
+  for (let i = 0; i < 10; i++) {
+    const dx = vehicles[2].x - 40 - i * 24 + Math.sin(now / 200 + i) * 3;
+    if (dx < -20) continue;
+    ctx.fillStyle = `rgba(80,60,40,${0.32 - i * 0.025})`;
+    ctx.beginPath(); ctx.arc(dx, GY - 8, 14 + i * 3, 0, Math.PI * 2); ctx.fill();
+  }
+
+  // Distant FORT OMEGA visible on the horizon to the right —
+  // tiny silhouette of wall + searchlight beam
+  const fx = CW - 50;
+  ctx.fillStyle = '#0e0e0e';
+  ctx.fillRect(fx, GY - 50, 50, 50);
+  ctx.fillRect(fx + 14, GY - 60, 6, 14);
+  // Searchlight beam from Fort Omega
+  const sweep = Math.sin(now / 1200) * 0.4;
+  ctx.save();
+  ctx.translate(fx + 16, GY - 60); ctx.rotate(sweep + Math.PI);
+  const lg2 = ctx.createLinearGradient(0, 0, 200, 80);
+  lg2.addColorStop(0, 'rgba(255,250,200,0.18)');
+  lg2.addColorStop(1, 'rgba(255,250,200,0)');
+  ctx.fillStyle = lg2;
+  ctx.beginPath();
+  ctx.moveTo(0, 0); ctx.lineTo(220, 30); ctx.lineTo(220, 60); ctx.lineTo(0, 6);
+  ctx.closePath(); ctx.fill();
+  ctx.restore();
+}
+
+function drawConvoyVehicle(ctx, x, y, type, now) {
+  if (type === 'humvee') {
+    // Boxy military 4x4 in olive drab
+    ctx.fillStyle = '#3a4a30';
+    ctx.fillRect(x - 60, y - 30, 120, 30);
+    ctx.fillStyle = '#2a3826';
+    ctx.fillRect(x - 50, y - 50, 90, 20);
+    // Windshield
+    ctx.fillStyle = '#0a1418';
+    ctx.fillRect(x - 30, y - 47, 50, 14);
+    // Side door details
+    ctx.fillStyle = '#1f2818'; ctx.fillRect(x - 40, y - 24, 30, 18);
+    ctx.fillRect(x - 6, y - 24, 30, 18);
+    // White ARMY star on door
+    ctx.fillStyle = '#dde2d0';
+    ctx.beginPath();
+    for (let i = 0; i < 10; i++) {
+      const ang = -Math.PI / 2 + i * Math.PI / 5;
+      const rr = (i % 2 === 0) ? 5 : 2.4;
+      const px = x - 25 + Math.cos(ang) * rr;
+      const py = y - 14 + Math.sin(ang) * rr;
+      if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    ctx.closePath(); ctx.fill();
+    // Roof-mounted turret with a gunner
+    ctx.fillStyle = '#1a1a14';
+    ctx.fillRect(x - 12, y - 60, 24, 12);
+    // Gunner — head + shoulders + .50 cal
+    ctx.fillStyle = '#0a0a0a';
+    ctx.fillRect(x - 4, y - 76, 8, 18);
+    ctx.fillStyle = '#1a2418';
+    ctx.fillRect(x - 5, y - 78, 10, 4); // helmet
+    ctx.fillStyle = '#0a0a0a';
+    ctx.fillRect(x + 4, y - 70, 24, 4); // turret barrel
+    // Wheels
+    ctx.fillStyle = '#0a0a0a';
+    ctx.beginPath(); ctx.arc(x - 40, y + 4, 12, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(x + 40, y + 4, 12, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#1a1a1a';
+    ctx.beginPath(); ctx.arc(x - 40, y + 4, 6, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(x + 40, y + 4, 6, 0, Math.PI * 2); ctx.fill();
+  } else if (type === 'truck') {
+    // Larger 6-wheel troop truck with covered bed
+    // Cab
+    ctx.fillStyle = '#3a4a30';
+    ctx.fillRect(x + 30, y - 50, 50, 50);
+    ctx.fillStyle = '#0a1418';
+    ctx.fillRect(x + 38, y - 46, 36, 18); // windshield
+    // Side window
+    ctx.fillStyle = '#1f2818'; ctx.fillRect(x + 36, y - 24, 18, 14);
+    // Headlights
+    ctx.fillStyle = '#fff5c4';
+    ctx.fillRect(x + 78, y - 28, 4, 5);
+    ctx.fillRect(x + 78, y - 18, 4, 5);
+    // Cargo box with canvas cover
+    ctx.fillStyle = '#2a3826';
+    ctx.fillRect(x - 80, y - 56, 110, 56);
+    // Canvas cover (arched ribs)
+    ctx.fillStyle = '#3a4a30';
+    for (let i = 0; i < 5; i++) ctx.fillRect(x - 80 + i * 22, y - 56, 2, 56);
+    ctx.fillStyle = '#1f2818';
+    ctx.fillRect(x - 80, y - 60, 110, 6); // top edge
+    // Soldiers in the back, just heads visible
+    for (let i = 0; i < 3; i++) {
+      ctx.fillStyle = '#bf8a6a';
+      ctx.beginPath(); ctx.arc(x - 60 + i * 30, y - 56, 4, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#1a2418';
+      ctx.fillRect(x - 64 + i * 30, y - 60, 9, 4);
+    }
+    // White ARMY star on cargo side
+    ctx.fillStyle = '#dde2d0';
+    ctx.beginPath();
+    for (let i = 0; i < 10; i++) {
+      const ang = -Math.PI / 2 + i * Math.PI / 5;
+      const rr = (i % 2 === 0) ? 7 : 3.4;
+      const px = x - 30 + Math.cos(ang) * rr;
+      const py = y - 24 + Math.sin(ang) * rr;
+      if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    ctx.closePath(); ctx.fill();
+    // 6 wheels (3 axles)
+    ctx.fillStyle = '#0a0a0a';
+    [-60, 0, 50].forEach(wx => {
+      ctx.beginPath(); ctx.arc(x + wx, y + 4, 12, 0, Math.PI * 2); ctx.fill();
+    });
+    ctx.fillStyle = '#1a1a1a';
+    [-60, 0, 50].forEach(wx => {
+      ctx.beginPath(); ctx.arc(x + wx, y + 4, 6, 0, Math.PI * 2); ctx.fill();
+    });
+  }
+}
+
+// C.2 — Close-up of a soldier on top of one of the trucks, rifle in
+// hand, looking ahead grimly. Wind blowing his hair. The Fort Omega
+// wall visible in the background, growing as they approach.
+function dShotConvoyClose(ctx, t, now) {
+  // Night sky with smoke
+  ctx.fillStyle = '#0a0c14'; ctx.fillRect(0, 0, CW, CH);
+  for (let i = 0; i < 8; i++) {
+    const sx = (i * 137 + now * 0.05) % (CW + 100) - 50;
+    const sy = 40 + (i * 23) % 140;
+    ctx.fillStyle = `rgba(30,20,16,${0.35 + (i % 3) * 0.08})`;
+    ctx.beginPath(); ctx.arc(sx, sy, 50 + (i % 3) * 10, 0, Math.PI * 2); ctx.fill();
+  }
+  // Distant Fort Omega wall on the horizon (growing — eased)
+  const grow = 1 + t * 0.3;
+  const wallY = GY - 60;
+  ctx.fillStyle = '#1a1814';
+  ctx.fillRect(CW * 0.55, wallY, 360 * grow, 90);
+  ctx.fillStyle = '#0e0c08';
+  ctx.fillRect(CW * 0.55, wallY - 6, 360 * grow, 6);
+  // Crenellations
+  for (let i = 0; i < 6; i++) {
+    ctx.fillRect(CW * 0.55 + i * 60 * grow, wallY - 16, 12, 10);
+  }
+  // Watchtower
+  ctx.fillStyle = '#181814';
+  ctx.fillRect(CW * 0.92, wallY - 50, 30, 50);
+  ctx.fillRect(CW * 0.91, wallY - 60, 32, 10);
+  // Searchlight from tower
+  const lgr = ctx.createLinearGradient(CW * 0.93, wallY - 50, CW * 0.93 - 300, wallY + 100);
+  lgr.addColorStop(0, 'rgba(255,250,200,0.4)');
+  lgr.addColorStop(1, 'rgba(255,250,200,0)');
+  ctx.fillStyle = lgr;
+  ctx.beginPath();
+  ctx.moveTo(CW * 0.93, wallY - 48); ctx.lineTo(CW * 0.93 - 8, wallY - 38);
+  ctx.lineTo(CW * 0.93 - 280, wallY + 60); ctx.lineTo(CW * 0.93 - 260, wallY + 80);
+  ctx.closePath(); ctx.fill();
+  // Horizon glow
+  const horizon = ctx.createLinearGradient(0, GY - 30, 0, GY);
+  horizon.addColorStop(0, 'rgba(120,40,15,0)');
+  horizon.addColorStop(1, 'rgba(180,60,25,0.4)');
+  ctx.fillStyle = horizon; ctx.fillRect(0, GY - 30, CW, 30);
+  // Road blurring past below (motion lines)
+  ctx.fillStyle = '#181818';
+  ctx.fillRect(0, GY, CW, CH - GY);
+  ctx.strokeStyle = 'rgba(120,120,100,0.5)'; ctx.lineWidth = 2;
+  for (let i = 0; i < 10; i++) {
+    const yy = GY + 8 + i * 14;
+    const off = ((now * 0.6 + i * 30) % CW);
+    ctx.beginPath();
+    ctx.moveTo(CW - off, yy); ctx.lineTo(CW - off + 50, yy + 2); ctx.stroke();
+  }
+
+  // Truck cargo bed framing (foreground edges)
+  ctx.fillStyle = '#1a2418';
+  ctx.fillRect(0, CH - 130, CW, 130);
+  ctx.fillStyle = '#0e1408';
+  ctx.fillRect(0, CH - 130, CW, 6);
+  // Canvas cover top edge framing the top
+  ctx.fillStyle = '#1a2418';
+  ctx.fillRect(0, 0, CW, 60);
+  ctx.fillStyle = '#0e1408';
+  ctx.fillRect(0, 56, CW, 6);
+  // Canvas rib silhouettes
+  ctx.fillStyle = '#0e1408';
+  for (let i = 0; i < 8; i++) ctx.fillRect(i * 120, 0, 4, 60);
+
+  // The SOLDIER — large mid-shot, looking forward (right) toward Fort Omega
+  const sx = CW * 0.36, sy = CH - 130;
+  // Torso visible above the bed edge
+  ctx.fillStyle = '#3a4a30';
+  ctx.beginPath();
+  ctx.moveTo(sx - 80, sy);
+  ctx.lineTo(sx - 70, sy - 80);
+  ctx.lineTo(sx + 70, sy - 80);
+  ctx.lineTo(sx + 80, sy);
+  ctx.closePath(); ctx.fill();
+  // Tactical vest pouches
+  ctx.fillStyle = '#1a2418';
+  ctx.fillRect(sx - 60, sy - 60, 40, 50);
+  ctx.fillRect(sx + 20, sy - 60, 40, 50);
+  ctx.fillStyle = '#a4a230';
+  ctx.fillRect(sx - 60, sy - 35, 120, 3); // refl stripe
+  // Shoulder patch (american flag-ish)
+  ctx.fillStyle = '#0a2855';
+  ctx.fillRect(sx + 50, sy - 76, 18, 8);
+  ctx.fillStyle = '#dcdcdc';
+  for (let i = 0; i < 4; i++) ctx.fillRect(sx + 50, sy - 76 + i * 2, 18, 1);
+  ctx.fillStyle = '#cc1818';
+  ctx.fillRect(sx + 50, sy - 70, 18, 2);
+  // Arms forward + rifle held diagonally across the chest
+  ctx.fillStyle = '#3a4a30';
+  ctx.fillRect(sx - 80, sy - 70, 30, 70); // left arm
+  ctx.fillRect(sx + 50, sy - 70, 30, 70); // right arm
+  ctx.fillStyle = '#1a2418';
+  ctx.fillRect(sx - 80, sy - 14, 32, 16); // glove
+  ctx.fillRect(sx + 48, sy - 14, 32, 16); // glove
+  // Rifle held diagonally
+  ctx.save();
+  ctx.translate(sx, sy - 30);
+  ctx.rotate(-0.3);
+  ctx.fillStyle = '#1a1410';
+  ctx.fillRect(-100, -6, 50, 14); // stock
+  ctx.fillStyle = '#181818';
+  ctx.fillRect(-50, -8, 60, 16); // receiver
+  ctx.fillStyle = '#0e0e0e';
+  ctx.fillRect(10, -5, 80, 10); // barrel
+  ctx.fillStyle = '#0a0a0a';
+  ctx.fillRect(-30, 8, 14, 22); // magazine
+  ctx.restore();
+  // Head — looking forward (right), wind hitting from the front
+  ctx.fillStyle = '#bf8a6a';
+  ctx.beginPath(); ctx.arc(sx, sy - 130, 30, 0, Math.PI * 2); ctx.fill();
+  // Helmet
+  ctx.fillStyle = '#1a2418';
+  ctx.beginPath();
+  ctx.moveTo(sx - 32, sy - 140);
+  ctx.quadraticCurveTo(sx, sy - 168, sx + 36, sy - 138);
+  ctx.lineTo(sx + 36, sy - 116);
+  ctx.lineTo(sx - 32, sy - 116);
+  ctx.closePath(); ctx.fill();
+  // Strap
+  ctx.fillStyle = '#0a0a0a';
+  ctx.fillRect(sx - 28, sy - 118, 64, 2);
+  // NVG mount up top
+  ctx.fillStyle = '#0a0a0a';
+  ctx.fillRect(sx - 4, sy - 162, 14, 6);
+  // Eye looking forward (right), squinting against wind
+  ctx.fillStyle = '#1a1a1a';
+  ctx.fillRect(sx + 8, sy - 132, 6, 3);
+  ctx.fillStyle = '#9a6a4e';
+  ctx.fillRect(sx + 6, sy - 138, 12, 2); // brow
+  // Stubble jaw
+  ctx.fillStyle = '#5a4030';
+  ctx.fillRect(sx - 12, sy - 116, 18, 4);
+  // Wind streaks across his face/scarf
+  ctx.strokeStyle = 'rgba(180,170,150,0.45)'; ctx.lineWidth = 1.2;
+  for (let i = 0; i < 5; i++) {
+    const yy = sy - 150 + i * 10 + ((now / 12) % 8);
+    ctx.beginPath(); ctx.moveTo(sx + 40, yy); ctx.lineTo(sx + 80, yy + 2); ctx.stroke();
+  }
+  // Breath cloud
+  const bz = (now / 700) % 1;
+  ctx.fillStyle = `rgba(220,225,230,${0.32 * (1 - bz)})`;
+  ctx.beginPath();
+  ctx.ellipse(sx + 32, sy - 122 + bz * 4, 14 + bz * 10, 6 + bz * 4, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Second soldier silhouette in the background (back-to-camera, also
+  // looking forward — sells "we're not alone in this truck")
+  const sx2 = CW * 0.72, sy2 = CH - 100;
+  ctx.fillStyle = '#1a2418';
+  ctx.fillRect(sx2 - 16, sy2 - 76, 32, 76);
+  ctx.beginPath(); ctx.arc(sx2, sy2 - 86, 12, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#0a0a0a';
+  ctx.fillRect(sx2 - 14, sy2 - 96, 28, 8); // helmet
+  ctx.fillRect(sx2 + 12, sy2 - 60, 30, 4); // rifle slung
 }
 
 // 5.2 — Fort Omega wide: the wall + soldiers + title card.
@@ -1120,7 +2436,7 @@ function dBannerText(ctx, shot, elapsed, now) {
   ctx.globalAlpha = alpha;
   switch (shot.banner) {
     case 'normal':
-      if (shot.draw === 'coffeeMug') {
+      if (shot.draw === 'cafeDrinker') {
         centerText(ctx, 'NEW HAVEN — POPULATION 2.4M', 56, { size: 16, shadow: 0.6 });
         centerText(ctx, '03:17 LOCAL · MARCH 14',        76, { size: 11, color: '#88ccff' });
       }
@@ -1135,7 +2451,7 @@ function dBannerText(ctx, shot, elapsed, now) {
       if (shot.draw === 'policeLine') {
         centerText(ctx, 'NHPD — CONTAINMENT LINE',                                       56, { size: 16, color: '#88aaff', shadow: 0.7 });
         centerText(ctx, '"Hold the perimeter. Civilians evacuate west."',                76, { size: 11, color: '#cce' });
-      } else if (shot.draw === 'wounded') {
+      } else if (shot.draw === 'copDragged') {
         centerText(ctx, '"…command, this is 0451. We can\'t hold."', 56, { size: 13, color: '#cce', shadow: 0.5 });
         centerText(ctx, '— containment line collapsing —',           76, { size: 11, color: '#ffaa88' });
       }
@@ -1144,6 +2460,15 @@ function dBannerText(ctx, shot, elapsed, now) {
       if (shot.draw === 'streetDead') {
         centerText(ctx, 'CITY LOST — EVACUATION FAILED',                  56, { size: 16, color: '#ff6644', shadow: 0.7 });
         centerText(ctx, '0.3% OF CIVILIANS EXTRACTED · MILITARY FALLS BACK', 76, { size: 11, color: '#ffaa88' });
+      }
+      break;
+    case 'convoy':
+      if (shot.draw === 'convoyWide') {
+        centerText(ctx, 'ARMY RESERVE — CONVOY OMEGA-7',           56, { size: 16, color: '#cce6cc', shadow: 0.6 });
+        centerText(ctx, 'EN ROUTE TO FORT OMEGA · ETA 02:14',      76, { size: 11, color: '#88cc88' });
+      } else if (shot.draw === 'convoyClose') {
+        centerText(ctx, '"All we have left, this is it."', 56, { size: 13, color: '#cce6cc', shadow: 0.5 });
+        centerText(ctx, '— last reinforcements inbound —',  76, { size: 11, color: '#88cc88' });
       }
       break;
     case 'fortOmega':
@@ -1187,43 +2512,56 @@ function scheduleIntroAudio(intro, elapsed) {
   // Scene 1 (0-7s): quiet city hum.
   fireOnce(intro, 'hum', elapsed > 200, { t: 'cityHum' });
 
-  // Scene 2 (7-16s): panic — screams + glass break on the clawing hand.
-  fireOnce(intro, 'glass', elapsed > 7200, { t: 'crackle' });
-  fireOnce(intro, 'scream1', elapsed > 7600, { t: 'scream' });
-  fireOnce(intro, 'scream2', elapsed > 9000, { t: 'scream' });
-  fireOnce(intro, 'scream3', elapsed > 11400, { t: 'scream' });
-  fireOnce(intro, 'scream4', elapsed > 13200, { t: 'scream' });
-  fireOnce(intro, 'scream5', elapsed > 14600, { t: 'scream' });
+  // Scene 2 (7-16s): panic — zombie bite hit + sustained screams.
+  fireOnce(intro, 'biteHit',  elapsed > 7400, { t: 'zatk' });
+  fireOnce(intro, 'scream1',  elapsed > 7100, { t: 'scream' });
+  fireOnce(intro, 'scream2',  elapsed > 8400, { t: 'scream' });
+  fireOnce(intro, 'scream3',  elapsed > 10600, { t: 'scream' });
+  fireOnce(intro, 'scream4',  elapsed > 12100, { t: 'scream' });
+  fireOnce(intro, 'scream5',  elapsed > 13800, { t: 'scream' });
+  fireOnce(intro, 'scream6',  elapsed > 15200, { t: 'scream' });
 
   // Scene 3 (16-26.5s): police containment — sirens + sustained fire.
   fireOnce(intro, 'siren1', elapsed > 16100, { t: 'siren' });
   fireOnce(intro, 'siren2', elapsed > 17800, { t: 'siren' });
   fireOnce(intro, 'siren3', elapsed > 20200, { t: 'siren' });
   fireOnce(intro, 'siren4', elapsed > 22500, { t: 'siren' });
-  // Gunfire across shots 3.1, 3.2
-  const shotTimes = [16400, 16900, 17400, 18200, 18900, 19600, 20300, 21000,
-                     21700, 22300, 22900, 23500, 24100, 24700];
-  shotTimes.forEach((tm, i) => {
-    fireOnce(intro, 'gun' + i, elapsed > tm,
-      { t: 'shot', w: (i % 4 === 0) ? 'shotgun' : (i % 3 === 0) ? 'rifle' : 'pistol' });
+  // Cop firing close-up: 4 quick pistol shots up front
+  [16200, 16500, 16800, 17100, 17400, 17700, 18000, 18400].forEach((tm, i) => {
+    fireOnce(intro, 'gunNear' + i, elapsed > tm, { t: 'shot', w: 'pistol' });
   });
-  // Officer falling — a final scream + radio sting
-  fireOnce(intro, 'screamP1', elapsed > 23800, { t: 'scream' });
-  fireOnce(intro, 'screamP2', elapsed > 25100, { t: 'scream' });
+  // Police line wider: mixed fire
+  [19700, 20100, 20500, 20900, 21300, 21700, 22100, 22500, 22900, 23300].forEach((tm, i) => {
+    fireOnce(intro, 'gunWide' + i, elapsed > tm,
+      { t: 'shot', w: (i % 3 === 0) ? 'shotgun' : (i % 2 === 0) ? 'rifle' : 'pistol' });
+  });
+  // Cop dragged — his pistol firing wildly + final scream
+  [23700, 24100, 24500, 24900, 25300, 25700, 26100].forEach((tm, i) => {
+    fireOnce(intro, 'gunDrag' + i, elapsed > tm, { t: 'shot', w: 'pistol' });
+  });
+  fireOnce(intro, 'screamP1', elapsed > 24200, { t: 'scream' });
+  fireOnce(intro, 'screamP2', elapsed > 25800, { t: 'scream' });
 
-  // Scene 4 (26.5-34s): collapse — drop the hum, start wind, fires.
+  // Scene 4 (26.5-32s): collapse — drop hum, start wind, last defender fires.
   fireOnce(intro, 'humOff',   elapsed > 26400, { t: 'cityHumStop' });
   fireOnce(intro, 'windOn',   elapsed > 26500, { t: 'windStart', intensity: 0.55 });
-  [26800, 27600, 28500, 29400, 30300, 31200, 32100, 33000].forEach((tm, i) => {
+  // Last defender's rifle (rapid-fire)
+  [26700, 27000, 27300, 27600, 27900, 28200, 28500, 28800, 29100, 29400].forEach((tm, i) => {
+    fireOnce(intro, 'lastShot' + i, elapsed > tm, { t: 'shot', w: 'rifle' });
+  });
+  // Fire crackles
+  [27200, 28200, 29200, 30200, 31200].forEach((tm, i) => {
     fireOnce(intro, 'crack' + i, elapsed > tm, { t: 'crackle' });
   });
-  // Distant helicopter departing
-  fireOnce(intro, 'heliFar',    elapsed > 30200, { t: 'heliStart', intensity: 0.35 });
-  fireOnce(intro, 'heliFarOff', elapsed > 33800, { t: 'heliStop' });
 
-  // Scene 5 (34-45s): Fort Omega — title sting + soft wind out.
-  fireOnce(intro, 'sting',   elapsed > 38800, { t: 'titleSting' });
-  fireOnce(intro, 'windOff', elapsed > 43000, { t: 'windStop' });
+  // Scene C (32-38.5s): military convoy — heli (distant air support)
+  // + soft wind.
+  fireOnce(intro, 'heliFar',    elapsed > 32000, { t: 'heliStart', intensity: 0.45 });
+  fireOnce(intro, 'heliFarOff', elapsed > 38000, { t: 'heliStop' });
+
+  // Scene 5 (38.5-50s): Fort Omega — title sting + wind out for the hush.
+  fireOnce(intro, 'sting',   elapsed > 43200, { t: 'titleSting' });
+  fireOnce(intro, 'windOff', elapsed > 47500, { t: 'windStop' });
 
   // Backstop: kill any lingering loop at the very end.
   if (elapsed >= INTRO_DURATION) {
@@ -1235,18 +2573,20 @@ function scheduleIntroAudio(intro, elapsed) {
 
 // ── Public entry ───────────────────────────────────────────────
 const DRAWERS = {
-  coffeeMug:     dShotCoffeeMug,
-  quietStreet:   dShotQuietStreet,
-  clawingHand:   dShotClawingHand,
-  familyFleeing: dShotFamilyFleeing,
-  streetChaos:   dShotStreetChaos,
-  badgeFlash:    dShotBadgeFlash,
-  policeLine:    dShotPoliceLine,
-  wounded:       dShotWounded,
-  burningCar:    dShotBurningCar,
-  streetDead:    dShotStreetDead,
-  rifleGrip:     dShotRifleGrip,
-  fortWide:      dShotFortWide,
+  cafeDrinker:    dShotCafeDrinker,
+  quietStreet:    dShotQuietStreet,
+  zombieBite:     dShotZombieBite,
+  familyFleeing:  dShotFamilyFleeing,
+  streetChaos:    dShotStreetChaos,
+  copFiring:      dShotCopFiring,
+  policeLine:     dShotPoliceLine,
+  copDragged:     dShotCopDragged,
+  lastDefender:   dShotLastDefender,
+  streetDead:     dShotStreetDead,
+  convoyWide:     dShotConvoyWide,
+  convoyClose:    dShotConvoyClose,
+  soldierAiming:  dShotSoldierAiming,
+  fortWide:       dShotFortWide,
 };
 
 export function dIntroScene(ctx, intro, now) {
@@ -1262,7 +2602,7 @@ export function dIntroScene(ctx, intro, now) {
 
   // Short fade-from-black between shots that sit at scene boundaries
   // (otherwise rely on hard cuts).
-  const sceneBoundary = (s) => [7000, 16000, 26500, 34000].includes(s.from);
+  const sceneBoundary = (s) => [7000, 16000, 26500, 32000, 38500].includes(s.from);
   if (sceneBoundary(shot) && shotT < 0.10) {
     ctx.fillStyle = `rgba(0,0,0,${1 - shotT / 0.10})`;
     ctx.fillRect(0, 0, CW, CH);
