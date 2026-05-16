@@ -1,6 +1,8 @@
 import { C, CW, CH, GY, WX } from '../constants.js';
 import { dBg } from './background.js';
 import { dBase } from './base.js';
+import { pushRadio } from '../audio/radio.js';
+import { dRadioSubtitle } from './hud.js';
 
 // Animation total duration in ms. Split into three phases.
 export const EVAC_DURATION = 5400;
@@ -258,6 +260,12 @@ function scheduleEvacAudio(evac, elapsed) {
   fire('heliNear',  elapsed > 1450, { t: 'heliStart', intensity: 1.0 });
   // Stop when the helicopter is gone.
   fire('heliOff',   elapsed >= EVAC_DURATION - 200, { t: 'heliStop' });
+
+  // Pilot / ground chatter. Three callouts, one per phase. The
+  // pushRadio cooldown on evac keeps them from stomping on each other.
+  if (elapsed > 150  && !evac._fired.has('chatIn'))    { evac._fired.add('chatIn');    pushRadio(evac, 'evacIn',    { cooldown: 100, pitch: 'mid' }); }
+  if (elapsed > 1900 && !evac._fired.has('chatBoard')) { evac._fired.add('chatBoard'); pushRadio(evac, 'evacBoard', { cooldown: 100, urgent: true, pitch: 'high' }); }
+  if (elapsed > 4200 && !evac._fired.has('chatOut'))   { evac._fired.add('chatOut');   pushRadio(evac, 'evacOut',   { cooldown: 100, pitch: 'low' }); }
 }
 
 export function dEvacScene(ctx, evac, now) {
@@ -365,6 +373,9 @@ export function dEvacScene(ctx, evac, now) {
   ctx.fillStyle = '#cce6ff'; ctx.font = '11px monospace';
   const r = evac.reward || {};
   ctx.fillText(`+${r.food || 0} 🥫   +${r.medicine || 0} 💊   +${r.sniperAmmo || 0} 🎯`, CW - 240, 24);
+
+  // Radio chatter subtitle for the pilot / ground callouts.
+  dRadioSubtitle(ctx, evac, now);
 
   ctx.restore();
 }

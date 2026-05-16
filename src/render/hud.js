@@ -70,4 +70,38 @@ export function dHUD(ctx, gs, now, muted) {
       ctx.textAlign = 'left'; ctx.restore();
     }
   }
+
+  // Radio chatter subtitle. Renders state.radioMsg as a single line
+  // near the bottom of the screen for ~2.2 s with fade-out.
+  dRadioSubtitle(ctx, gs, now);
+}
+
+// Single subtitle line, rendered for any state that carries a
+// radioMsg = { text, at, dur, category? }. Used by siege + mission.
+export function dRadioSubtitle(ctx, state, now) {
+  const rm = state && state.radioMsg;
+  if (!rm) return;
+  const age = now - rm.at;
+  if (age < 0 || age >= rm.dur) return;
+  const a = age < 120 ? age / 120 : 1 - Math.max(0, (age - (rm.dur - 360)) / 360);
+  const alpha = Math.max(0, Math.min(1, a));
+  if (alpha <= 0) return;
+  const text = '📻 ' + rm.text;
+  ctx.save();
+  ctx.font = 'bold 12px monospace';
+  const w = Math.min(420, ctx.measureText(text).width + 24);
+  const x = (CW - w) / 2, y = CH - 60;
+  ctx.fillStyle = `rgba(8,12,8,${0.78 * alpha})`;
+  ctx.fillRect(x, y, w, 22);
+  ctx.strokeStyle = `rgba(120,180,100,${0.55 * alpha})`; ctx.lineWidth = 1;
+  ctx.strokeRect(x, y, w, 22);
+  ctx.textAlign = 'center';
+  // Category-based tint for quick read at a glance
+  const tint = rm.category === 'hurt' || rm.category === 'lowAmmo' || rm.category === 'baseHit' ? '#ffaa66'
+             : rm.category === 'retreat' ? '#ffd66a'
+             : rm.category === 'defeat' ? '#ff8888'
+             : '#cce6cc';
+  ctx.fillStyle = `rgba(${parseInt(tint.slice(1,3),16)},${parseInt(tint.slice(3,5),16)},${parseInt(tint.slice(5,7),16)},${alpha})`;
+  ctx.fillText(text, CW / 2, y + 15);
+  ctx.textAlign = 'left'; ctx.restore();
 }

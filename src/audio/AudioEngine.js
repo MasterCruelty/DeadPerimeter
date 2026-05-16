@@ -280,6 +280,62 @@ export class AudioEngine {
     this._cityHum = null;
   }
 
+  // Stylised radio chatter — does NOT try to articulate real words.
+  // Instead it produces the *cadence* of a soldier on a tactical
+  // radio: a click-open, 3–6 vowel-formant buzz "syllables" at slightly
+  // varying pitch (prosody), then a click-close, all sitting in the
+  // 300–3000 Hz radio band so it reads as comms rather than music.
+  // The actual line is shown as a subtitle in the HUD.
+  //
+  //   pitch:    'low' | 'mid' | 'high'    (speaker timbre)
+  //   syllables: 2–6                       (line length cue)
+  //   urgent:   bool                       (louder + faster)
+  radioChatter({ syllables = 4, pitch = 'mid', urgent = false } = {}) {
+    const t0 = this.ctx.currentTime;
+    const baseF = pitch === 'low' ? 130 : pitch === 'high' ? 220 : 175;
+    const vol   = urgent ? 0.32 : 0.26;
+    const pace  = urgent ? 0.85 : 1.0;
+    this._radioClick(t0, 0.05);
+    let cursor = t0 + 0.10;
+    const sylCount = Math.max(2, Math.min(6, syllables));
+    for (let i = 0; i < sylCount; i++) {
+      const syllLen = (0.08 + Math.random() * 0.07) * pace;
+      const f0 = baseF * (1 + (Math.random() - 0.5) * 0.22);
+      const o = this.ctx.createOscillator(); o.type = 'sawtooth';
+      o.frequency.setValueAtTime(f0, cursor);
+      o.frequency.linearRampToValueAtTime(f0 * (1 + (Math.random() - 0.5) * 0.18), cursor + syllLen);
+      // Two vowel-ish formants
+      const fm1 = this.ctx.createBiquadFilter(); fm1.type = 'bandpass';
+      fm1.frequency.value = 600 * (0.8 + Math.random() * 0.5); fm1.Q.value = 7;
+      const fm2 = this.ctx.createBiquadFilter(); fm2.type = 'bandpass';
+      fm2.frequency.value = 1750 * (0.8 + Math.random() * 0.4); fm2.Q.value = 6;
+      // Radio bandpass + light distortion via gain saturation
+      const radioBp = this.ctx.createBiquadFilter(); radioBp.type = 'bandpass';
+      radioBp.frequency.value = 1500; radioBp.Q.value = 0.55;
+      const g = this.ctx.createGain();
+      g.gain.setValueAtTime(0, cursor);
+      g.gain.linearRampToValueAtTime(vol, cursor + 0.012);
+      g.gain.setValueAtTime(vol, cursor + syllLen - 0.02);
+      g.gain.linearRampToValueAtTime(0, cursor + syllLen);
+      o.connect(fm1); o.connect(fm2);
+      fm1.connect(radioBp); fm2.connect(radioBp);
+      radioBp.connect(g); g.connect(this.fx);
+      o.start(cursor); o.stop(cursor + syllLen + 0.02);
+      cursor += syllLen + (0.025 + Math.random() * 0.035) * pace;
+    }
+    this._radioClick(cursor + 0.04, 0.04);
+  }
+  _radioClick(at, dur) {
+    const l = Math.max(1, Math.ceil(this.ctx.sampleRate * dur));
+    const b = this.ctx.createBuffer(1, l, this.ctx.sampleRate);
+    const d = b.getChannelData(0);
+    for (let i = 0; i < l; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / l, 1.6);
+    const s = this.ctx.createBufferSource(); s.buffer = b;
+    const hp = this.ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 1800;
+    const g = this.ctx.createGain(); g.gain.value = 0.22;
+    s.connect(hp); hp.connect(g); g.connect(this.fx); s.start(at);
+  }
+
   // Title-card musical sting: ascending power-chord chime, fades 1.6 s.
   titleSting() {
     const t = this.ctx.currentTime;
@@ -327,6 +383,7 @@ export function processSounds(q, am, mutedRef) {
       case 'cityHum':     am.cityHumStart();         break;
       case 'cityHumStop': am.cityHumStop();          break;
       case 'titleSting':  am.titleSting();           break;
+      case 'chatter':     am.radioChatter(e);        break;
     }
   });
   q.length = 0;

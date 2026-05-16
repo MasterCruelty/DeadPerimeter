@@ -25,6 +25,7 @@ import { dTurret } from './render/turret.js';
 import { dSquadMarker, dHUD } from './render/hud.js';
 import { dEvacScene, EVAC_DURATION } from './render/evac.js';
 import { dIntroScene, INTRO_DURATION } from './render/intro.js';
+import { pushRadio } from './audio/radio.js';
 
 import { update } from './update/siege.js';
 import { mkMission, updateMission, dMissionWorld, dMissionHUD } from './update/mission.js';
@@ -409,6 +410,9 @@ export default function DeadPerimeter() {
       s.destX = Math.max(WX + 35, Math.min(CW - 70, gs.squadTarget + (i - 1) * 22));
       s.state = 'walk';
     });
+    if (movables.length > 0) {
+      pushRadio(gs, dir === 'retreat' ? 'retreat' : 'advance', { urgent: dir === 'retreat' });
+    }
   }, []);
 
   // Poll mission state to trigger re-render of UI buttons
