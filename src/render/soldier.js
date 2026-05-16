@@ -122,11 +122,12 @@ export function dSoldier(ctx, s, now, isSelected) {
   const sc = laneSc(s.lane);
   const isCiv = s.civilian;
   const isBandit = !!s.bandit;
+  const isPolice = !!s.police;
   const v = variantFor(s);
   const SK = v.skin;
-  const COL_jac = isBandit ? '#4a2222' : isCiv ? '#5a3a28' : v.jacket;
-  const COL_pan = isBandit ? '#1f1f24' : isCiv ? '#3a4858' : C.pan;
-  const COL_hel = isBandit ? '#181614' : isCiv ? '#a04020' : v.helmet;
+  const COL_jac = isPolice ? '#1a2840' : isBandit ? '#4a2222' : isCiv ? '#5a3a28' : v.jacket;
+  const COL_pan = isPolice ? '#1f1f24' : isBandit ? '#1f1f24' : isCiv ? '#3a4858' : C.pan;
+  const COL_hel = isPolice ? '#0e1622' : isBandit ? '#181614' : isCiv ? '#a04020' : v.helmet;
   // const COL_pkt = isCiv ? '#4a2a18' : '#3b4d2e';
   ctx.save();
   ctx.translate(s.x, ly);
