@@ -16,10 +16,18 @@ function hurtCallout(state, sol) {
   const pct = sol.hp / (sol.maxHp || 100);
   if (pct < 0.35 && !sol._hurtCallout) {
     sol._hurtCallout = true;
-    pushRadio(state, 'hurt', { urgent: true });
+    pushRadio(state, 'hurt', { urgent: true, speaker: sol });
   } else if (pct > 0.60) {
     sol._hurtCallout = false;
   }
+}
+
+// 8% chance per zombie/human kill to pop a one-liner. Cooldown-gated
+// by pushRadio so a clean wave-sweep doesn't drown the player in
+// chatter.
+function maybeKillChatter(state, sol) {
+  if (!sol || sol.civilian) return;
+  if (Math.random() < 0.08) pushRadio(state, 'kill', { speaker: sol });
 }
 
 // Returns true if there is a live barricade in the same lane between
@@ -234,7 +242,7 @@ export function update(gs, now, dt) {
         if (refill > 0) {
           gs.resources.sniperAmmo -= refill;
           s.state = 'reload'; s.reloadStart = now; s.ammo = refill;
-          if (!s.reloadTriggered) { s.reloadTriggered = true; gs.soundQ.push({ t: 'reload', w: s.weapon, dur: w.rl }); pushRadio(gs, 'reload'); }
+          if (!s.reloadTriggered) { s.reloadTriggered = true; gs.soundQ.push({ t: 'reload', w: s.weapon, dur: w.rl }); pushRadio(gs, 'reload', { speaker: s }); }
           gs.effects.push({ type: 'txt', x: s.x + 30, y: GY - 160, v: 'RELOAD!', col: C.wrn, at: now, dur: 800 });
         } else {
           // Out of sniper ammo — descend
@@ -360,7 +368,7 @@ export function update(gs, now, dt) {
         const refill = Math.min(s.maxAmmo, gs.resources.ammo);
         if (refill > 0) {
           s.state = 'reload'; s.reloadStart = now; gs.resources.ammo -= refill; s.ammo = refill;
-          if (!s.reloadTriggered) { s.reloadTriggered = true; gs.soundQ.push({ t: 'reload', w: s.weapon, dur: w.rl }); pushRadio(gs, 'reload'); }
+          if (!s.reloadTriggered) { s.reloadTriggered = true; gs.soundQ.push({ t: 'reload', w: s.weapon, dur: w.rl }); pushRadio(gs, 'reload', { speaker: s }); }
           gs.effects.push({ type: 'txt', x: s.x, y: laneY(s.lane) - 80, v: 'RELOAD!', col: C.wrn, at: now, dur: 800 });
         } else {
           gs.effects.push({ type: 'txt', x: s.x, y: laneY(s.lane) - 80, v: 'DRY!', col: C.dng, at: now, dur: 900 });
@@ -477,6 +485,8 @@ export function update(gs, now, dt) {
 // Only gunmen drop ammo (knifemen have no firearm to scavenge).
 function killTarget(gs, target, now, shooter) {
   target.hp = 0; target.state = 'dead'; target.deadAt = now;
+  // Random kill chatter (8% chance, throttled by pushRadio cooldown).
+  if (shooter) maybeKillChatter(gs, shooter);
   if (target.type === 'walker' || target.type === 'runner' || target.type === 'tank') {
     gs.soundQ.push({ t: 'zdie', zt: target.type });
     gs.kills++;

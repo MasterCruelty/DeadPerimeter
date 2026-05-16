@@ -422,7 +422,8 @@ export default function DeadPerimeter() {
       s.state = 'walk';
     });
     if (movables.length > 0) {
-      pushRadio(gs, dir === 'retreat' ? 'retreat' : 'advance', { urgent: dir === 'retreat' });
+      pushRadio(gs, dir === 'retreat' ? 'retreat' : 'advance',
+        { urgent: dir === 'retreat', speaker: movables[0] });
     }
   }, []);
 
