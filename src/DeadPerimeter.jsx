@@ -25,6 +25,7 @@ import { dTurret } from './render/turret.js';
 import { dSquadMarker, dHUD } from './render/hud.js';
 import { dEvacScene, EVAC_DURATION } from './render/evac.js';
 import { dIntroScene, INTRO_DURATION } from './render/intro.js';
+import { dDefeatScene, DEFEAT_DURATION } from './render/defeat.js';
 import { pushRadio } from './audio/radio.js';
 
 import { update } from './update/siege.js';
@@ -39,6 +40,7 @@ export default function DeadPerimeter() {
   const missionRef = useRef(null);
   const evacRef = useRef(null);                // active helicopter-evac animation, if any
   const introRef = useRef(null);               // opening cinematic state, if any
+  const defeatRef = useRef(null);              // game-over cinematic state, if any
   const inputRef = useRef({ left: false, right: false, shoot: false });
   const pausedRef = useRef(false);
   const [scr, setScr] = useState('menu'), [ui, setUi] = useState(null), [muted, setMuted] = useState(false);
@@ -109,6 +111,15 @@ export default function DeadPerimeter() {
     if (am) { am.heliStop(); am.windStop(); am.cityHumStop(); }
     introRef.current = null;
     setScr('management');
+  }, []);
+
+  // Same teardown for the game-over cinematic, routes into the stats
+  // screen once the cinematic ends (or is skipped).
+  const finishDefeat = useCallback(() => {
+    const am = getAM();
+    if (am) { am.windStop(); am.heliStop(); am.cityHumStop(); }
+    defeatRef.current = null;
+    setScr('gameover');
   }, []);
 
   const newGame = useCallback(() => {
@@ -443,6 +454,16 @@ export default function DeadPerimeter() {
         return;
       }
 
+      // Game-over cinematic SKIP button.
+      const defeat = defeatRef.current;
+      if (defeat && defeat._skipBtn) {
+        const b = defeat._skipBtn;
+        if (mx >= b.x && mx <= b.x + b.w && my >= b.y && my <= b.y + b.h) {
+          finishDefeat(); return;
+        }
+        return;
+      }
+
       // Mission survivor-trade dialog: route clicks to ACCEPT / REFUSE.
       const md = missionRef.current?.dialog;
       if (md && md._buttons) {
@@ -594,6 +615,18 @@ export default function DeadPerimeter() {
         return;
       }
 
+      // Game-over cinematic — plays before the stats screen.
+      const defeat = defeatRef.current;
+      if (defeat) {
+        if (!defeat.startedAt) defeat.startedAt = now;
+        if (!defeat.soundQ) defeat.soundQ = [];
+        dDefeatScene(ctx, defeat, now);
+        processSounds(defeat.soundQ, getAM(), mutedR);
+        if (now - defeat.startedAt >= DEFEAT_DURATION) finishDefeat();
+        rafId.current = requestAnimationFrame(loop);
+        return;
+      }
+
       // Helicopter evac animation overrides everything else.
       const evac = evacRef.current;
       if (evac) {
@@ -635,7 +668,13 @@ export default function DeadPerimeter() {
           else if (gs.phase === 'gameover') clearSave();
           setHasSave(hasSavedGame());
           setUi(mkSnap(gs));
-          setScr(gs.phase);
+          // Defeat goes through a 24 s cinematic before the stats screen.
+          if (gs.phase === 'gameover' && !defeatRef.current) {
+            defeatRef.current = { startedAt: 0 };
+            setScr('defeat');
+          } else {
+            setScr(gs.phase);
+          }
         } else {
           ctx.save(); ctx.clearRect(0, 0, CW, CH);
           if (gs.shakeTimer > 0) ctx.translate((Math.random() - 0.5) * 5, (Math.random() - 0.5) * 3);
@@ -836,7 +875,7 @@ export default function DeadPerimeter() {
 
   return (
     <div style={{ background: '#030504', minHeight: '100vh', fontFamily: F, color: C.txt }}>
-      <div style={{ display: (scr === 'siege' || scr === 'mission' || scr === 'evac' || scr === 'intro') ? 'flex' : 'none', flexDirection: 'column', alignItems: 'center', padding: '10px 0' }}>
+      <div style={{ display: (scr === 'siege' || scr === 'mission' || scr === 'evac' || scr === 'intro' || scr === 'defeat') ? 'flex' : 'none', flexDirection: 'column', alignItems: 'center', padding: '10px 0' }}>
         <canvas ref={cvs} width={CW} height={CH} style={{ border: `1px solid ${C.uib}`, maxWidth: '100%', cursor: scr === 'mission' ? 'crosshair' : 'crosshair', display: 'block', outline: 'none' }} tabIndex={0} />
         {scr === 'siege' && (
           <div style={{ display: 'flex', gap: '7px', marginTop: '7px', flexWrap: 'wrap', justifyContent: 'center', alignItems: 'center', width: '100%', maxWidth: CW }}>
