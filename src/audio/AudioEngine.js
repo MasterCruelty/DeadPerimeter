@@ -151,6 +151,208 @@ export class AudioEngine {
       o.connect(g); g.connect(this.fx); o.start(t); o.stop(t + 0.38);
     });
   }
+
+  // ── Cinematic / ambient loops ─────────────────────────────────
+  // Looping helicopter rotor: low turbine drone + LFO-modulated blade
+  // slap noise. intensity 0..1 controls overall volume (close vs far).
+  heliStart(intensity = 0.8) {
+    if (this._heli) return;
+    const t = this.ctx.currentTime;
+    const drone = this.ctx.createOscillator(); drone.type = 'sawtooth'; drone.frequency.value = 96;
+    const droneFil = this.ctx.createBiquadFilter(); droneFil.type = 'lowpass'; droneFil.frequency.value = 320;
+    const droneG = this.ctx.createGain(); droneG.gain.value = 0;
+    droneG.gain.setTargetAtTime(0.22 * intensity, t, 0.6);
+    drone.connect(droneFil); droneFil.connect(droneG); droneG.connect(this.fx); drone.start(t);
+    const noise = this._ns();
+    const bp = this.ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 280; bp.Q.value = 1.6;
+    const noiseG = this.ctx.createGain(); noiseG.gain.value = 0;
+    const baseG = 0.16 * intensity;
+    noiseG.gain.setTargetAtTime(baseG, t, 0.6);
+    const lfo = this.ctx.createOscillator(); lfo.type = 'sine'; lfo.frequency.value = 18;
+    const lfoG = this.ctx.createGain(); lfoG.gain.value = baseG * 0.85;
+    lfo.connect(lfoG); lfoG.connect(noiseG.gain);
+    noise.connect(bp); bp.connect(noiseG); noiseG.connect(this.fx);
+    noise.start(t); lfo.start(t);
+    this._heli = { drone, droneG, noise, noiseG, lfo };
+  }
+  heliStop() {
+    if (!this._heli) return;
+    const h = this._heli; const t = this.ctx.currentTime;
+    h.droneG.gain.setTargetAtTime(0, t, 0.5);
+    h.noiseG.gain.setTargetAtTime(0, t, 0.5);
+    const handle = h;
+    setTimeout(() => {
+      try { handle.drone.stop(); handle.noise.stop(); handle.lfo.stop(); } catch (e) {}
+    }, 1800);
+    this._heli = null;
+  }
+
+  // Two-tone wailing police siren (one full ramp up + down cycle).
+  siren() {
+    const t = this.ctx.currentTime; const dur = 1.4;
+    const o = this.ctx.createOscillator(); o.type = 'sine';
+    o.frequency.setValueAtTime(620, t);
+    o.frequency.linearRampToValueAtTime(880, t + 0.45);
+    o.frequency.linearRampToValueAtTime(620, t + 0.90);
+    o.frequency.linearRampToValueAtTime(880, t + 1.35);
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(0.30, t + 0.08);
+    g.gain.setValueAtTime(0.30, t + dur - 0.15);
+    g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    o.connect(g); g.connect(this.fx); o.start(t); o.stop(t + dur + 0.05);
+  }
+
+  // Distressed human scream, ~0.55 s. Uses bandpass to sit in the
+  // vocal range without sounding too "synth".
+  scream() {
+    const t = this.ctx.currentTime; const dur = 0.55;
+    const o = this.ctx.createOscillator(); o.type = 'sawtooth';
+    o.frequency.setValueAtTime(420, t);
+    o.frequency.linearRampToValueAtTime(940, t + 0.18);
+    o.frequency.linearRampToValueAtTime(640, t + dur);
+    const bp = this.ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 1200; bp.Q.value = 1.8;
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(0.30, t + 0.07);
+    g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    o.connect(bp); bp.connect(g); g.connect(this.fx); o.start(t); o.stop(t + dur + 0.05);
+  }
+
+  // Short fire crackle: random pops through a high bandpass.
+  crackle() {
+    const t = this.ctx.currentTime; const l = Math.ceil(this.ctx.sampleRate * 0.22);
+    const b = this.ctx.createBuffer(1, l, this.ctx.sampleRate);
+    const d = b.getChannelData(0);
+    for (let i = 0; i < l; i++) {
+      const env = Math.pow(1 - i / l, 1.4);
+      d[i] = (Math.random() < 0.07 ? (Math.random() * 2 - 1) : 0) * env * 0.9;
+    }
+    const s = this.ctx.createBufferSource(); s.buffer = b;
+    const bp = this.ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 2400; bp.Q.value = 0.8;
+    const g = this.ctx.createGain(); g.gain.value = 0.28;
+    s.connect(bp); bp.connect(g); g.connect(this.fx); s.start(t);
+  }
+
+  // Looping wind: low-passed noise with a slow LFO sweeping the cutoff
+  // so it audibly "gusts".
+  windStart(intensity = 0.6) {
+    if (this._wind) return;
+    const t = this.ctx.currentTime;
+    const noise = this._ns();
+    const lp = this.ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 420;
+    const lp2 = this.ctx.createBiquadFilter(); lp2.type = 'lowpass'; lp2.frequency.value = 720;
+    const g = this.ctx.createGain(); g.gain.value = 0;
+    g.gain.setTargetAtTime(0.13 * intensity, t, 1.0);
+    const lfo = this.ctx.createOscillator(); lfo.type = 'sine'; lfo.frequency.value = 0.18;
+    const lfoG = this.ctx.createGain(); lfoG.gain.value = 200;
+    lfo.connect(lfoG); lfoG.connect(lp.frequency);
+    noise.connect(lp); lp.connect(lp2); lp2.connect(g); g.connect(this.fx);
+    noise.start(t); lfo.start(t);
+    this._wind = { noise, g, lfo };
+  }
+  windStop() {
+    if (!this._wind) return;
+    const w = this._wind; const t = this.ctx.currentTime;
+    w.g.gain.setTargetAtTime(0, t, 0.8);
+    setTimeout(() => { try { w.noise.stop(); w.lfo.stop(); } catch (e) {} }, 2500);
+    this._wind = null;
+  }
+
+  // Low urban hum: distant traffic + electrical buzz. Looping.
+  cityHumStart() {
+    if (this._cityHum) return;
+    const t = this.ctx.currentTime;
+    const o = this.ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.value = 58;
+    const o2 = this.ctx.createOscillator(); o2.type = 'sawtooth'; o2.frequency.value = 87;
+    const lp = this.ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 220;
+    const g = this.ctx.createGain(); g.gain.value = 0;
+    g.gain.setTargetAtTime(0.07, t, 1.4);
+    o.connect(lp); o2.connect(lp); lp.connect(g); g.connect(this.fx);
+    o.start(t); o2.start(t);
+    this._cityHum = { o, o2, g };
+  }
+  cityHumStop() {
+    if (!this._cityHum) return;
+    const h = this._cityHum; const t = this.ctx.currentTime;
+    h.g.gain.setTargetAtTime(0, t, 1.0);
+    setTimeout(() => { try { h.o.stop(); h.o2.stop(); } catch (e) {} }, 2400);
+    this._cityHum = null;
+  }
+
+  // Stylised radio chatter — does NOT try to articulate real words.
+  // Instead it produces the *cadence* of a soldier on a tactical
+  // radio: a click-open, 3–6 vowel-formant buzz "syllables" at slightly
+  // varying pitch (prosody), then a click-close, all sitting in the
+  // 300–3000 Hz radio band so it reads as comms rather than music.
+  // The actual line is shown as a subtitle in the HUD.
+  //
+  //   pitch:    'low' | 'mid' | 'high'    (speaker timbre)
+  //   syllables: 2–6                       (line length cue)
+  //   urgent:   bool                       (louder + faster)
+  radioChatter({ syllables = 4, pitch = 'mid', urgent = false } = {}) {
+    const t0 = this.ctx.currentTime;
+    // pitch can be a preset string or an explicit Hz number (used for
+    // per-soldier voice differentiation).
+    const baseF = typeof pitch === 'number'
+      ? pitch
+      : pitch === 'low' ? 130 : pitch === 'high' ? 220 : 175;
+    const vol   = urgent ? 0.32 : 0.26;
+    const pace  = urgent ? 0.85 : 1.0;
+    this._radioClick(t0, 0.05);
+    let cursor = t0 + 0.10;
+    const sylCount = Math.max(2, Math.min(6, syllables));
+    for (let i = 0; i < sylCount; i++) {
+      const syllLen = (0.08 + Math.random() * 0.07) * pace;
+      const f0 = baseF * (1 + (Math.random() - 0.5) * 0.22);
+      const o = this.ctx.createOscillator(); o.type = 'sawtooth';
+      o.frequency.setValueAtTime(f0, cursor);
+      o.frequency.linearRampToValueAtTime(f0 * (1 + (Math.random() - 0.5) * 0.18), cursor + syllLen);
+      // Two vowel-ish formants
+      const fm1 = this.ctx.createBiquadFilter(); fm1.type = 'bandpass';
+      fm1.frequency.value = 600 * (0.8 + Math.random() * 0.5); fm1.Q.value = 7;
+      const fm2 = this.ctx.createBiquadFilter(); fm2.type = 'bandpass';
+      fm2.frequency.value = 1750 * (0.8 + Math.random() * 0.4); fm2.Q.value = 6;
+      // Radio bandpass + light distortion via gain saturation
+      const radioBp = this.ctx.createBiquadFilter(); radioBp.type = 'bandpass';
+      radioBp.frequency.value = 1500; radioBp.Q.value = 0.55;
+      const g = this.ctx.createGain();
+      g.gain.setValueAtTime(0, cursor);
+      g.gain.linearRampToValueAtTime(vol, cursor + 0.012);
+      g.gain.setValueAtTime(vol, cursor + syllLen - 0.02);
+      g.gain.linearRampToValueAtTime(0, cursor + syllLen);
+      o.connect(fm1); o.connect(fm2);
+      fm1.connect(radioBp); fm2.connect(radioBp);
+      radioBp.connect(g); g.connect(this.fx);
+      o.start(cursor); o.stop(cursor + syllLen + 0.02);
+      cursor += syllLen + (0.025 + Math.random() * 0.035) * pace;
+    }
+    this._radioClick(cursor + 0.04, 0.04);
+  }
+  _radioClick(at, dur) {
+    const l = Math.max(1, Math.ceil(this.ctx.sampleRate * dur));
+    const b = this.ctx.createBuffer(1, l, this.ctx.sampleRate);
+    const d = b.getChannelData(0);
+    for (let i = 0; i < l; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / l, 1.6);
+    const s = this.ctx.createBufferSource(); s.buffer = b;
+    const hp = this.ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 1800;
+    const g = this.ctx.createGain(); g.gain.value = 0.22;
+    s.connect(hp); hp.connect(g); g.connect(this.fx); s.start(at);
+  }
+
+  // Title-card musical sting: ascending power-chord chime, fades 1.6 s.
+  titleSting() {
+    const t = this.ctx.currentTime;
+    [55, 110, 165, 220, 330].forEach((f, i) => {
+      const ts = t + i * 0.08;
+      const o = this.ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.value = f;
+      const lp = this.ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 900;
+      const g = this.ctx.createGain();
+      g.gain.setValueAtTime(0.30, ts);
+      g.gain.exponentialRampToValueAtTime(0.001, ts + 1.6);
+      o.connect(lp); lp.connect(g); g.connect(this.fx); o.start(ts); o.stop(ts + 1.65);
+    });
+  }
 }
 
 export function getAM() {
@@ -174,6 +376,18 @@ export function processSounds(q, am, mutedRef) {
       case 'zatk':   am.zombieAtk();         break;
       case 'bhit':   am.baseHit();           break;
       case 'wclr':   am.waveCleared();       break;
+      // Cinematic / ambient
+      case 'heliStart':   am.heliStart(e.intensity); break;
+      case 'heliStop':    am.heliStop();             break;
+      case 'siren':       am.siren();                break;
+      case 'scream':      am.scream();               break;
+      case 'crackle':     am.crackle();              break;
+      case 'windStart':   am.windStart(e.intensity); break;
+      case 'windStop':    am.windStop();             break;
+      case 'cityHum':     am.cityHumStart();         break;
+      case 'cityHumStop': am.cityHumStop();          break;
+      case 'titleSting':  am.titleSting();           break;
+      case 'chatter':     am.radioChatter(e);        break;
     }
   });
   q.length = 0;
