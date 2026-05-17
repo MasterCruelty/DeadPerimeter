@@ -30,7 +30,7 @@ function mkIntroSoldier(opts = {}) {
     ammo: opts.ammo ?? 30, maxAmmo: 30,
     state: opts.state || 'idle',
     facing: opts.facing ?? 1,
-    civilian: !!opts.civilian, bandit: !!opts.bandit, police: !!opts.police,
+    civilian: !!opts.civilian, bandit: !!opts.bandit, police: !!opts.police, swat: !!opts.swat,
     onRoof: false, onExpedition: false,
     walkPhase: opts.walkPhase ?? Math.random() * Math.PI * 2,
     lastShot: opts.lastShot ?? 0, reloadStart: 0, shootAt: 0, knifeTimer: 0,
@@ -970,20 +970,44 @@ function dShotPoliceLine(ctx, t, now) {
     ctx.fillStyle = '#22222a'; ctx.font = 'bold 6px monospace'; ctx.textAlign = 'center';
     ctx.fillText('POLICE', cx, cy + 19); ctx.textAlign = 'left';
   });
-  // Officers in firing stances behind the cars — real dSoldier sprites
-  // with the police palette + a tiny muzzle flash overlay when firing.
-  const officers = [120, 240, 340, 460, 530];
-  officers.forEach((ox, oi) => {
+  // Officers behind the cars — five cops, mostly with the classic
+  // peaked NHPD cap, two with SWAT helmets. Each cop has a scripted
+  // deathAt time (0..1) so the line gets eaten one cop at a time as
+  // zombies break through.
+  const officers = [
+    { x: 120, deathAt: 0.55, swat: false },
+    { x: 240, deathAt: 0.95, swat: true  },  // SWAT, dies last
+    { x: 340, deathAt: 0.75, swat: false },
+    { x: 460, deathAt: 0.99, swat: true  },  // SWAT, last to fall
+    { x: 530, deathAt: 0.65, swat: false },
+  ];
+  // Bodies of fallen officers drawn first so the standing ones layer
+  // on top.
+  officers.forEach((ofc, oi) => {
+    if (t < ofc.deathAt) return;
+    const cop = mkIntroSoldier({
+      name: 'NHPD-' + (oi + 1), weapon: 'pistol',
+      police: true, swat: ofc.swat,
+      facing: 1, state: 'dead',
+    });
+    dSpriteAt(dSoldier, ctx, cop, ofc.x, GY, 1.6, now);
+    // Blood pool
+    ctx.fillStyle = 'rgba(110,5,5,0.55)';
+    ctx.beginPath(); ctx.ellipse(ofc.x, GY + 2, 20, 4, 0, 0, Math.PI * 2); ctx.fill();
+  });
+  // Living officers — firing pistols, muzzle flash + bullet streak
+  officers.forEach((ofc, oi) => {
+    if (t >= ofc.deathAt) return;
     const firing = Math.floor(now / 200 + oi) % 2 === 0;
     const cop = mkIntroSoldier({
-      name: 'NHPD-' + (oi + 1), weapon: 'pistol', police: true,
+      name: 'NHPD-' + (oi + 1), weapon: 'pistol',
+      police: true, swat: ofc.swat,
       facing: 1, state: firing ? 'shoot' : 'idle',
       lastShot: now - 40, walkPhase: oi * 0.7,
     });
-    dSpriteAt(dSoldier, ctx, cop, ox, GY, 1.6, now);
+    dSpriteAt(dSoldier, ctx, cop, ofc.x, GY, 1.6, now);
     if (firing) {
-      // Pistol muzzle flash + bullet streak heading right
-      const fx = ox + 24, fy = GY - 42;
+      const fx = ofc.x + 24, fy = GY - 42;
       ctx.fillStyle = 'rgba(255,210,80,0.95)';
       ctx.beginPath();
       ctx.moveTo(fx, fy); ctx.lineTo(fx + 14, fy - 4);
@@ -993,16 +1017,62 @@ function dShotPoliceLine(ctx, t, now) {
     }
   });
 
-  // Zombies advancing from the right — real dZombie sprites.
-  for (let i = 0; i < 10; i++) {
-    const zx = CW + 20 - (t * 320 + i * 40);
-    if (zx > CW + 10 || zx < 540) continue;
+  // Zombies — pre-defined attackers, each with a scripted target cop
+  // and an arrival time. Before arrival they walk left; after, they
+  // stop at the cop's position in 'attack' state (mauling).
+  const attackers = [
+    { offset:   0, targetIdx: 4, arriveAt: 0.30, type: 'runner' },
+    { offset:  80, targetIdx: 0, arriveAt: 0.45, type: 'walker' },
+    { offset: 160, targetIdx: 2, arriveAt: 0.55, type: 'walker' },
+    { offset: 220, targetIdx: 4, arriveAt: 0.60, type: 'runner' },
+    { offset: 300, targetIdx: 0, arriveAt: 0.50, type: 'walker' },
+    { offset: 380, targetIdx: 2, arriveAt: 0.70, type: 'walker' },
+    { offset: 460, targetIdx: 3, arriveAt: 0.80, type: 'walker' },
+    { offset: 520, targetIdx: 1, arriveAt: 0.85, type: 'walker' },
+    { offset: 580, targetIdx: 3, arriveAt: 0.92, type: 'runner' },
+    { offset: 640, targetIdx: 1, arriveAt: 0.95, type: 'walker' },
+  ];
+  attackers.forEach((zw, zi) => {
+    const startX = CW + 40 + zw.offset;
+    const targetX = officers[zw.targetIdx].x + 26;
+    let zx;
+    let zstate;
+    if (t < zw.arriveAt) {
+      const prog = t / zw.arriveAt;
+      zx = startX + (targetX - startX) * prog;
+      zstate = 'walk';
+    } else {
+      zx = targetX + Math.sin(now / 140 + zi) * 2; // mauling jitter
+      zstate = 'attack';
+    }
     const z = mkIntroZombie({
-      type: i % 4 === 0 ? 'runner' : 'walker',
-      facing: -1, state: 'walk', walkPhase: i * 0.5,
+      type: zw.type, facing: -1, state: zstate,
+      walkPhase: zi * 0.4,
     });
-    dSpriteAt(dZombie, ctx, z, zx, GY, 1.4, now);
-  }
+    dSpriteAt(dZombie, ctx, z, zx, GY, 1.35, now);
+  });
+
+  // Dead zombies left in the foreground street (killed by cop fire
+  // before reaching the line). Pre-scripted so they appear in order.
+  const corpses = [
+    { x: 720, killedAt: 0.10 },
+    { x: 650, killedAt: 0.25 },
+    { x: 600, killedAt: 0.40 },
+    { x: 560, killedAt: 0.55 },
+  ];
+  corpses.forEach(c => {
+    if (t < c.killedAt) return;
+    // Pretend it died ~700 ms ago in the cinematic timeline (long
+    // enough for dZombie to render as fully fallen).
+    const z = mkIntroZombie({
+      type: 'walker', facing: -1, state: 'dead',
+    });
+    z.deadAt = now - 900;
+    dSpriteAt(dZombie, ctx, z, c.x, GY, 1.35, now);
+    // Blood pool
+    ctx.fillStyle = 'rgba(110,5,5,0.5)';
+    ctx.beginPath(); ctx.ellipse(c.x, GY + 2, 18, 3.5, 0, 0, Math.PI * 2); ctx.fill();
+  });
 }
 
 // 3.3 — Officer being grabbed and pulled down by zombies. He fires
@@ -2107,9 +2177,11 @@ function dShotFortWide(ctx, t, now) {
   // The actual game wall
   dBase(ctx, 200, 200);
 
-  // Soldiers on the rampart — real dSoldier sprites at slight scale.
-  // They stand on top of the wall (which dBase draws up to GY-80).
-  const positions = [WX - 80, WX - 56, WX - 32, WX - 8, WX + 16];
+  // Soldiers on the rampart — real dSoldier sprites standing on the
+  // wall TOP (dBase's wall body extends from GY-160 to GY). Feet on
+  // y = GY-160 so they read as standing on the parapet walkway, with
+  // crenellation blocks hiding their boots and legs from camera.
+  const positions = [WX - 78, WX - 56, WX - 32, WX - 8, WX + 16];
   const weaps = ['rifle', 'rifle', 'shotgun', 'rifle', 'sniper'];
   positions.forEach((sx, i) => {
     const wob = Math.sin(now / 380 + i) * 0.8;
@@ -2117,7 +2189,7 @@ function dShotFortWide(ctx, t, now) {
       name: 'R' + i, weapon: weaps[i], facing: 1,
       state: 'idle', walkPhase: i * 0.5 + wob,
     });
-    dSpriteAt(dSoldier, ctx, sol, sx, GY - 80 + wob, 1.0, now);
+    dSpriteAt(dSoldier, ctx, sol, sx, GY - 160 + wob, 0.85, now);
   });
 
   // Search light sweeping the field beyond

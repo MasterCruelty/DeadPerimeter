@@ -300,11 +300,34 @@ export function dSoldier(ctx, s, now, isSelected) {
     ctx.fillStyle = '#7a2810'; ctx.fillRect(2, hy - 18, 5, 3);
     ctx.fillStyle = '#5a2010'; ctx.beginPath(); ctx.ellipse(6, hy - 12, 10, 2, 0, 0, Math.PI * 2); ctx.fill();
     ctx.fillStyle = '#3a2818'; ctx.fillRect(-2, hy - 7, 4, 2);
+  } else if (isPolice && !s.swat) {
+    // Classic NHPD peaked cap: dark navy crown + black hat-band +
+    // shiny black peaked visor + small gold badge above the band.
+    ctx.fillStyle = COL_hel;
+    ctx.fillRect(-9, hy - 22, 18, 10);
+    ctx.beginPath(); ctx.arc(0, hy - 22, 9, Math.PI, 0); ctx.fill();
+    ctx.fillStyle = '#000';
+    ctx.fillRect(-10, hy - 14, 20, 2);            // hat band
+    ctx.fillStyle = COL_hel;
+    ctx.fillRect(-10, hy - 12, 20, 2);            // band lower edge
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, hy - 10, 14, 2);              // peaked visor (forward)
+    // Gold badge
+    ctx.fillStyle = '#dfb84a';
+    ctx.beginPath(); ctx.ellipse(0, hy - 17, 3, 4, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#a07820';
+    ctx.fillRect(-2, hy - 17, 4, 1);
   } else {
     ctx.fillStyle = COL_hel;
     ctx.beginPath(); ctx.arc(0, hy - 16, 10, Math.PI, 0); ctx.fill();
     ctx.fillRect(-10, hy - 16, 20, 6); ctx.fillRect(-12, hy - 11, 24, 4);
     ctx.fillStyle = '#1a2918'; ctx.fillRect(-6, hy - 11, 12, 4);
+    // SWAT detail: black tactical strap + small front visor
+    if (s.swat) {
+      ctx.fillStyle = '#0a0a0a';
+      ctx.fillRect(-12, hy - 8, 24, 2);
+      ctx.fillRect(-2, hy - 14, 14, 2);  // small peak
+    }
   }
   // Beard scruff — purely cosmetic variant tied to the soldier hash.
   if (v.beard) {
