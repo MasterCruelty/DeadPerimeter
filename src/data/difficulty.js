@@ -58,8 +58,18 @@ export const BALANCE = {
   // Helicopter civilian evac
   evacMinReserve: 3,                // need at least this many civs to call evac
   evacWaveCooldown: 3,              // cool-down in waves between calls
-  evacFoodPerCiv: 20,
-  evacMedicinePerCiv: 3,
-  evacSniperAmmoPerCiv: 1,
+  evacFoodPerCiv: 35,
+  evacMedicinePerCiv: 6,
+  evacSniperAmmoPerCiv: 2,
+  evacMaterialsPerCiv: 8,
+
+  // Story / endgame
+  maxWaves: 30,                     // wave 30 = mega-wave + extraction finale
+  megaWaveMultiplier: 2.5,          // wave 30 zombie counts scaled by this
+
+  // Daily food consumption (deducted at the start of each management phase
+  // after a wave clear, except after wave 1 which is the tutorial).
+  foodPerPersonPerDay: 2,
+  starveDmg: 15,                    // hp lost by anyone who didn't eat
 };
 
