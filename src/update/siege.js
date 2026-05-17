@@ -2,6 +2,7 @@ import { C, CW, GY, WX, uid, rng, laneY, laneSc } from '../constants.js';
 import { WPN } from '../data/weapons.js';
 import { HUMAN_AMMO_DROP } from '../data/humans.js';
 import { BALANCE } from '../data/difficulty.js';
+import { TRANSMISSION_WAVES } from '../data/transmissions.js';
 import { mkZombie } from '../entities/zombie.js';
 import { mkHuman } from '../entities/human.js';
 import { mkSoldier } from '../entities/soldier.js';
@@ -443,9 +444,64 @@ export function update(gs, now, dt) {
     }
   }
   if (gs.waveComplete && now - gs.waveClearAt > 3000) {
-    gs.waveComplete = false; gs.waveClearAt = null; gs.wave++; gs.day++; gs.phase = 'management';
+    gs.waveComplete = false; gs.waveClearAt = null; gs.wave++; gs.day++;
+    // Wave 30 was the final extraction battle. Surviving = mission
+    // success — flip to the victory phase instead of going back to
+    // management. The React layer will route this to the wave-30
+    // extraction cinematic.
+    if (gs.wave > BALANCE.maxWaves) {
+      gs.phase = 'extraction';
+      return;
+    }
+    gs.phase = 'management';
+    // Intermediate story-beat transmissions interleave with the wave
+    // pacing. Trigger once per wave (transmissionsDone is persisted)
+    // so reloading a save doesn't replay the cinematic.
+    if (!Array.isArray(gs.transmissionsDone)) gs.transmissionsDone = [];
+    if (TRANSMISSION_WAVES.includes(gs.wave) && !gs.transmissionsDone.includes(gs.wave)) {
+      gs.pendingTransmission = gs.wave;
+    }
     gs.resources.ammo = Math.min(999, gs.resources.ammo + 10);
     gs.resources.food = Math.min(999, gs.resources.food + 8);
+    // Daily food consumption — every soldier (active + reserve) eats
+    // foodPerPersonPerDay food. If we don't have enough, hungry people
+    // lose starveDmg HP each. Skipped after wave 1 (the tutorial wave).
+    if (gs.wave >= 2) {
+      const eaters = gs.soldiers.filter(s => s.state !== 'dead').length
+                   + (gs.reserve || []).length;
+      const need = eaters * BALANCE.foodPerPersonPerDay;
+      const have = gs.resources.food | 0;
+      if (have >= need) {
+        gs.resources.food = have - need;
+        gs.lastFoodReport = { ate: eaters, hungry: 0, dmg: 0, day: gs.day };
+      } else {
+        const fed = Math.floor(have / BALANCE.foodPerPersonPerDay);
+        gs.resources.food = have - fed * BALANCE.foodPerPersonPerDay;
+        const hungry = eaters - fed;
+        // Starvation hits active soldiers first (lower HP first so the
+        // dying are pushed under fastest). Reserve members lose HP in
+        // their stashed records — they'll re-enter the active roster
+        // weaker.
+        const actives = gs.soldiers
+          .filter(s => s.state !== 'dead')
+          .sort((a, b) => a.hp - b.hp);
+        const reserves = gs.reserve || [];
+        let toStarve = hungry;
+        for (const s of actives) {
+          if (toStarve <= 0) break;
+          s.hp = Math.max(1, s.hp - BALANCE.starveDmg);
+          toStarve--;
+        }
+        for (const r of reserves) {
+          if (toStarve <= 0) break;
+          r.hp = Math.max(1, (r.hp ?? 100) - BALANCE.starveDmg);
+          toStarve--;
+        }
+        gs.lastFoodReport = { ate: fed, hungry, dmg: BALANCE.starveDmg, day: gs.day };
+      }
+    } else {
+      gs.lastFoodReport = null;
+    }
     // Small belt-fed refill so a built turret isn't permanently dry.
     if ((gs.turrets || []).length > 0) {
       gs.resources.turretAmmo = Math.min(999, (gs.resources.turretAmmo || 0) + 5);

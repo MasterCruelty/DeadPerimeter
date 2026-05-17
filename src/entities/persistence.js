@@ -45,6 +45,8 @@ export function saveGame(gs) {
       })),
       expeditionsToday: gs.expeditionsToday || 0,
       lastEvacWave: gs.lastEvacWave ?? -10,
+      lastFoodReport: gs.lastFoodReport || null,
+      transmissionsDone: Array.isArray(gs.transmissionsDone) ? [...gs.transmissionsDone] : [],
       usedNames: Array.from(gs.usedNames || []),
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot));
@@ -88,6 +90,8 @@ export function loadGame(mkGS) {
     gs.reserve = (data.reserve || []).map(r => ({ ...r }));
     gs.expeditionsToday = data.expeditionsToday || 0;
     gs.lastEvacWave = data.lastEvacWave ?? -10;
+    gs.lastFoodReport = data.lastFoodReport || null;
+    gs.transmissionsDone = Array.isArray(data.transmissionsDone) ? [...data.transmissionsDone] : [];
     gs.usedNames = new Set(data.usedNames || []);
     gs.phase = 'management';
     return gs;

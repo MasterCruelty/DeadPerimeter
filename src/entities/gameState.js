@@ -26,6 +26,9 @@ export const mkGS = () => {
     // Day economy / cooldowns
     expeditionsToday: 0,      // increments per dispatch; resets on wave clear
     lastEvacWave: -10,        // wave number of the last helicopter evac
+    transmissionsDone: [],    // story-beat cinematic waves already shown
+    pendingTransmission: null,
+    lastFoodReport: null,
     usedNames: new Set(['Alpha', 'Bravo', 'Charlie', 'Delta']),
   };
 };

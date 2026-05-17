@@ -372,7 +372,7 @@ export function dEvacScene(ctx, evac, now) {
   // Reward tally on the right
   ctx.fillStyle = '#cce6ff'; ctx.font = '11px monospace';
   const r = evac.reward || {};
-  ctx.fillText(`+${r.food || 0} 🥫   +${r.medicine || 0} 💊   +${r.sniperAmmo || 0} 🎯`, CW - 240, 24);
+  ctx.fillText(`+${r.food || 0} 🥫  +${r.medicine || 0} 💊  +${r.sniperAmmo || 0} 🎯  +${r.materials || 0} 🔧`, CW - 320, 24);
 
   // Radio chatter subtitle for the pilot / ground callouts.
   dRadioSubtitle(ctx, evac, now);

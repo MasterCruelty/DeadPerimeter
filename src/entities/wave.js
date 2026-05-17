@@ -1,17 +1,20 @@
 import {
   HUMAN_WAVE_FIRST, HUMAN_WAVE_EVERY, isHumanWaveNumber,
 } from '../data/humans.js';
-import { DIFFICULTY } from '../data/difficulty.js';
+import { DIFFICULTY, BALANCE } from '../data/difficulty.js';
 
 export { isHumanWaveNumber };
 
 // Zombie spawn queue. Walkers, runners (from configured wave) and tanks.
+// Wave 30 ("the extraction") gets a mega-multiplier on every count so
+// it feels like the final assault.
 export const mkWave = n => {
   const q = [];
   const D = DIFFICULTY;
-  const nw = D.walkerBase + n * D.walkerPerWave;
-  const nr = Math.max(0, n - (D.runnerFromWave - 1)) * D.runnerPerWave;
-  const nt = Math.max(0, n - (D.tankFromWave - 1)) * D.tankPerWave;
+  const mul = n === BALANCE.maxWaves ? BALANCE.megaWaveMultiplier : 1;
+  const nw = Math.floor((D.walkerBase + n * D.walkerPerWave) * mul);
+  const nr = Math.floor(Math.max(0, n - (D.runnerFromWave - 1)) * D.runnerPerWave * mul);
+  const nt = Math.floor(Math.max(0, n - (D.tankFromWave - 1)) * D.tankPerWave * mul);
   for (let i = 0; i < nw; i++) q.push({ type: 'walker', at: i * D.walkerCadence + Math.random() * 600 });
   for (let i = 0; i < nr; i++) q.push({ type: 'runner', at: 1800 + i * D.runnerCadence + Math.random() * 400 });
   for (let i = 0; i < nt; i++) q.push({ type: 'tank',   at: 3500 + i * D.tankCadence });

@@ -1,4 +1,5 @@
 import { C, CW, CH, laneY, laneSc } from '../constants.js';
+import { BALANCE } from '../data/difficulty.js';
 
 export function dSquadMarker(ctx, target, lane, now) {
   if (target === null || lane === null) return;
@@ -24,7 +25,9 @@ export function dHUD(ctx, gs, now, muted) {
   ctx.fillStyle = 'rgba(0,0,0,0.74)'; ctx.fillRect(0, 0, CW, 38);
   ctx.strokeStyle = C.uib; ctx.lineWidth = 1; ctx.strokeRect(0, 0, CW, 38);
   ctx.fillStyle = C.acc; ctx.font = 'bold 13px monospace';
-  ctx.fillText(`DAY ${gs.day}  WAVE ${gs.wave}`, 14, 24);
+  // Wave-of-MAX so the player sees how close they are to the final
+  // extraction (wave 30).
+  ctx.fillText(`DAY ${gs.day}  WAVE ${gs.wave}/${BALANCE.maxWaves}`, 14, 24);
   ctx.fillStyle = C.txt; ctx.font = '12px monospace';
   ctx.fillText(`☠ ${gs.kills}`, 200, 24); ctx.fillText(`⭐ ${gs.score}`, 290, 24);
   ctx.fillStyle = C.txt; ctx.font = '9px monospace';
