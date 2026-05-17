@@ -1,8 +1,53 @@
 import { C, CW, CH, GY, WX } from '../constants.js';
 import { dBg } from './background.js';
 import { dBase } from './base.js';
+import { dSoldier } from './soldier.js';
+import { dZombie } from './zombie.js';
+import { ZTP } from '../data/zombies.js';
 import { pushRadio, RADIO_LINES } from '../audio/radio.js';
 import { dRadioSubtitle } from './hud.js';
+
+// Sprite scaling + reuse helpers (mirrors the intro module's versions
+// so dSoldier / dZombie can be rendered at arbitrary scale + foot Y).
+function dSpriteAt(drawFn, ctx, entity, screenX, screenFootY, scale, now) {
+  ctx.save();
+  ctx.translate(screenX, screenFootY - GY * scale);
+  ctx.scale(scale, scale);
+  const e = { ...entity, x: 0, lane: 0 };
+  drawFn(ctx, e, now);
+  ctx.restore();
+}
+function mkSold(opts = {}) {
+  return {
+    id: 'd' + Math.random(),
+    name: opts.name || 'X', weapon: opts.weapon || 'rifle',
+    hp: opts.hp ?? 100, maxHp: 100,
+    ammo: opts.ammo ?? 30, maxAmmo: 30,
+    state: opts.state || 'idle',
+    facing: opts.facing ?? 1,
+    civilian: false, bandit: false, police: false, swat: false,
+    onRoof: false, onExpedition: false,
+    walkPhase: opts.walkPhase ?? 0,
+    lastShot: opts.lastShot ?? 0, reloadStart: 0, shootAt: 0, knifeTimer: 0,
+    hurtTimer: 0, recoil: 0,
+    deadAt: opts.deadAt,
+  };
+}
+function mkZom(opts = {}) {
+  const type = opts.type || 'walker';
+  const ztp = ZTP[type] || ZTP.walker;
+  return {
+    id: 'dz' + Math.random(),
+    type, z: ztp,
+    hp: opts.hp ?? ztp.hp, maxHp: ztp.hp,
+    state: opts.state || 'walk',
+    facing: opts.facing ?? -1,
+    walkPhase: opts.walkPhase ?? Math.random() * Math.PI * 2,
+    atkTimer: 0, hurtTimer: 0,
+    deadAt: opts.deadAt ?? 0,
+    activated: true,
+  };
+}
 
 // Game-over cinematic. ~24 seconds, four chained beats that show
 // Fort Omega being overrun. Skippable like the intro.
@@ -23,75 +68,72 @@ function phaseAt(t) {
 }
 
 // ── Scripted defenders: each falls at their scheduled time. ────
+// Positions are slightly irregular so they don't read as a row.
+// dipY shifts a soldier down so the parapet covers more of him
+// (some defenders peek from cover, others stand more exposed).
 const DEFENDERS = [
-  { x: WX - 12, weapon: 'rifle',   fallAt: 7500,  hurtAt: 6800, line: "I'm hit!" },
-  { x: WX - 32, weapon: 'shotgun', fallAt: 11500, hurtAt: 10800, line: "Mag dry!" },
-  { x: WX - 50, weapon: 'pistol',  fallAt: 16500, hurtAt: 15500, line: "They're everywhere!", urgent: true },
-  // The last man — Alpha — fires until the very end.
-  { x: WX - 70, weapon: 'rifle',   fallAt: 21500, hurtAt: 20500, line: 'For Fort Omega!', urgent: true, hero: true },
+  { name: 'Bravo',   x: WX - 10, dipY:  0, scale: 0.88, weapon: 'rifle',   fallAt: 7500,  hurtAt: 6800, line: "I'm hit!" },
+  { name: 'Charlie', x: WX - 36, dipY:  6, scale: 0.82, weapon: 'shotgun', fallAt: 11500, hurtAt: 10800, line: 'Mag dry!' },
+  { name: 'Delta',   x: WX - 58, dipY:  2, scale: 0.84, weapon: 'pistol',  fallAt: 16500, hurtAt: 15500, line: "They're everywhere!", urgent: true },
+  // The last man — Alpha — fires until the very end. Standing tallest
+  // and on the inner-right corner near the watchtower.
+  { name: 'Alpha',   x: WX - 78, dipY: -2, scale: 0.92, weapon: 'rifle',   fallAt: 21500, hurtAt: 20500, line: 'For Fort Omega!', urgent: true, hero: true },
 ];
 
-// ── Tiny actors (same style as the intro for consistency) ──────
+// ── Actor renderers using the real in-game sprites ────────────
 function dDefeatSoldier(ctx, d, elapsed, now) {
   const dead = elapsed >= d.fallAt;
   const dying = !dead && elapsed >= d.hurtAt;
-  const x = d.x;
-  const baseY = GY - 88; // standing on the rampart
+  // Defenders stand on the wall TOP behind the parapet — feet at the
+  // wall body top with a 12 px overlap so the crenellations hide
+  // their boots and the figure reads as manning the wall, not
+  // floating on it.
+  const footY = GY - 148 + (d.dipY || 0);
 
   if (dead) {
-    // Body lying on the rampart, blood pool
+    const sol = mkSold({
+      name: d.name, weapon: d.weapon, facing: 1, state: 'dead',
+      deadAt: d.fallAt,
+    });
+    dSpriteAt(dSoldier, ctx, sol, d.x, footY, d.scale || 0.85, now);
+    // Pool of blood on the rampart
     ctx.fillStyle = 'rgba(110,5,5,0.55)';
-    ctx.beginPath(); ctx.ellipse(x, baseY + 16, 12, 3, 0, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = '#1a2418';
-    ctx.fillRect(x - 9, baseY + 13, 18, 4);
-    ctx.fillStyle = '#101010';
-    ctx.fillRect(x - 11, baseY + 12, 4, 3);
+    ctx.beginPath(); ctx.ellipse(d.x, footY + 2, 14 * (d.scale || 0.85), 3, 0, 0, Math.PI * 2); ctx.fill();
     return;
   }
 
-  // Standing
-  const sway = Math.sin(now / 240 + d.x) * 0.6 + (dying ? Math.sin(now / 90) * 1.4 : 0);
-  ctx.fillStyle = dying ? '#3a2418' : '#1a2418';
-  ctx.fillRect(x - 3, baseY + sway, 6, 16);
-  // Helmet
-  ctx.fillStyle = dying ? '#3a2412' : '#1a1812';
-  ctx.fillRect(x - 3, baseY - 3 + sway, 6, 3);
-  // Rifle
-  ctx.fillStyle = '#0a0a0a';
-  ctx.fillRect(x + 3, baseY + 4 + sway, 10, 1.4);
-  // Muzzle flash if firing (random)
-  const firing = !dying && Math.floor(now / 180 + d.x) % 3 === 0;
+  // Living: alternate idle/shoot for muzzle-flash sync, more frantic
+  // when dying.
+  const cadence = dying ? 110 : 180;
+  const firing = Math.floor(now / cadence + d.x) % 2 === 0;
+  const sol = mkSold({
+    name: d.name, weapon: d.weapon, facing: 1,
+    state: firing ? 'shoot' : 'idle',
+    lastShot: now - 30,
+    walkPhase: d.x * 0.05,
+  });
+  dSpriteAt(dSoldier, ctx, sol, d.x, footY, d.scale || 0.85, now);
   if (firing) {
+    // Muzzle flash overlay tuned for ~0.85x scale (rifle barrel tip
+    // ends roughly 18 px right of feet x, 36 px above).
+    const fx = d.x + 22, fy = footY - 36;
     ctx.fillStyle = 'rgba(255,210,80,0.95)';
     ctx.beginPath();
-    ctx.moveTo(x + 13, baseY + 5 + sway);
-    ctx.lineTo(x + 18, baseY + 3 + sway);
-    ctx.lineTo(x + 18, baseY + 7 + sway);
-    ctx.closePath(); ctx.fill();
-    // Bullet streak
-    ctx.fillStyle = 'rgba(255,210,80,0.85)';
-    ctx.fillRect(x + 19, baseY + 5 + sway, 12 + (d.x % 20), 1.4);
-  }
-  // Blood smear if dying
-  if (dying) {
-    ctx.fillStyle = 'rgba(110,5,5,0.6)';
-    ctx.fillRect(x - 3, baseY + 5 + sway, 6, 2);
+    ctx.moveTo(fx, fy); ctx.lineTo(fx + 12, fy - 4);
+    ctx.lineTo(fx + 12, fy + 4); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = 'rgba(255,230,140,0.85)';
+    ctx.fillRect(fx + 14, fy - 0.5, 24 + (d.x % 20), 1.4);
   }
 }
 
 function dGOZombie(ctx, x, y, t) {
-  const wob = Math.sin(t / 220 + x) * 1.4;
-  ctx.fillStyle = '#3d5a30'; ctx.fillRect(x - 4, y - 14, 8, 10);
-  ctx.fillStyle = '#1a2014'; ctx.fillRect(x - 3, y - 4, 3, 6); ctx.fillRect(x, y - 4, 3, 6);
-  ctx.fillStyle = '#0a0a0a'; ctx.fillRect(x - 3, y + 1, 3, 2); ctx.fillRect(x, y + 1, 3, 2);
-  ctx.fillStyle = '#5a7042';
-  ctx.beginPath(); ctx.arc(x + wob * 0.3, y - 17, 3.2, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = '#cc1818';
-  ctx.fillRect(x - 1.5 + wob * 0.3, y - 17, 1, 1);
-  ctx.fillRect(x + 0.7 + wob * 0.3, y - 17, 1, 1);
-  ctx.fillStyle = '#3d5a30';
-  ctx.fillRect(x - 7, y - 11, 3, 2);
-  ctx.fillRect(x + 4, y - 11, 3, 2);
+  // y is GY-aligned floor in the call sites. Use a small scale so
+  // a horde reads as many.
+  const z = mkZom({
+    type: 'walker', facing: -1, state: 'walk',
+    walkPhase: (t * 0.001) + x * 0.01,
+  });
+  dSpriteAt(dZombie, ctx, z, x, y, 1.0, t);
 }
 
 function dFire(ctx, x, y, now, size = 1) {
@@ -216,14 +258,20 @@ function dBreach(ctx, defeat, ph, now) {
     ctx.beginPath(); ctx.moveTo(WX - 2, GY - 80); ctx.lineTo(WX + 14, GY - 40); ctx.lineTo(WX + 6, GY - 4); ctx.stroke();
   }
 
-  // Defenders + zombies
+  // Defenders + zombies (real sprites)
   DEFENDERS.forEach(d => dDefeatSoldier(ctx, d, ph.local, now));
-  // Zombies massing against the wall on the right side
-  const zCount = Math.floor(ph.t * 14) + 4;
+  // Parapet shadow under the defenders to anchor them
+  ctx.fillStyle = 'rgba(0,0,0,0.55)';
+  ctx.fillRect(0, GY - 160, WX + 12, 12);
+  // Zombies massing against the wall — real dZombie sprites at 1x
+  // scale. Mix of types to feel like a real horde.
+  const zCount = Math.floor(ph.t * 12) + 4;
   for (let i = 0; i < zCount; i++) {
-    const zx = WX + 30 + i * 18 + Math.sin(now / 400 + i) * 3;
+    const zx = WX + 30 + i * 22 + Math.sin(now / 400 + i) * 3;
     if (zx > CW + 10) continue;
-    dGOZombie(ctx, zx, GY - 6, now + i * 130);
+    const ztype = i % 6 === 0 ? 'tank' : i % 4 === 0 ? 'runner' : 'walker';
+    const z = mkZom({ type: ztype, facing: -1, state: 'walk', walkPhase: i * 0.3 });
+    dSpriteAt(dZombie, ctx, z, zx, GY, 1.0, now);
   }
 
   // Screen shake on impact ticks
@@ -263,18 +311,26 @@ function dOverrun(ctx, defeat, ph, now) {
   // Defenders firing wildly
   DEFENDERS.forEach(d => dDefeatSoldier(ctx, d, ph.local + PHASES.breach.end, now));
 
-  // Zombies streaming THROUGH the wall (some on the inside now)
-  const through = Math.floor(ph.t * 16);
+  // Zombies streaming THROUGH the wall (now inside the perimeter)
+  const through = Math.floor(ph.t * 14);
   for (let i = 0; i < through; i++) {
-    const zx = WX + 20 - i * 18 + Math.sin(now / 300 + i) * 2;
+    const zx = WX + 20 - i * 22 + Math.sin(now / 300 + i) * 2;
     if (zx < 30) continue;
-    dGOZombie(ctx, zx, GY - 6, now + i * 130);
+    const z = mkZom({
+      type: i % 5 === 0 ? 'tank' : i % 3 === 0 ? 'runner' : 'walker',
+      facing: 1, state: 'walk', walkPhase: i * 0.3,
+    });
+    dSpriteAt(dZombie, ctx, z, zx, GY, 1.0, now);
   }
-  // Outside zombies still pressing
-  for (let i = 0; i < 14; i++) {
-    const zx = WX + 30 + i * 22 + Math.sin(now / 400 + i) * 3;
+  // Outside zombies still pressing in through the breach
+  for (let i = 0; i < 12; i++) {
+    const zx = WX + 30 + i * 26 + Math.sin(now / 400 + i) * 3;
     if (zx > CW + 10) continue;
-    dGOZombie(ctx, zx, GY - 6, now + i * 110);
+    const z = mkZom({
+      type: i % 4 === 0 ? 'runner' : 'walker',
+      facing: -1, state: 'walk', walkPhase: i * 0.4,
+    });
+    dSpriteAt(dZombie, ctx, z, zx, GY, 1.0, now);
   }
 
   // Red flash on heavy hits
@@ -306,19 +362,27 @@ function dLastStand(ctx, defeat, ph, now) {
   const heroPhaseLocal = ph.local + PHASES.breach.end + (PHASES.overrun.end - PHASES.overrun.start);
   DEFENDERS.forEach(d => dDefeatSoldier(ctx, d, heroPhaseLocal, now));
 
-  // Wave of zombies closing in from both sides
-  const tideR = Math.floor(ph.t * 18);
+  // Wave of zombies closing in from both sides (real dZombie sprites)
+  const tideR = Math.floor(ph.t * 14);
   for (let i = 0; i < tideR; i++) {
-    const zx = WX + 30 + i * 14 + Math.sin(now / 250 + i) * 2;
+    const zx = WX + 30 + i * 18 + Math.sin(now / 250 + i) * 2;
     if (zx > CW + 10) continue;
-    dGOZombie(ctx, zx, GY - 6, now + i * 90);
+    const z = mkZom({
+      type: i % 5 === 0 ? 'tank' : i % 3 === 0 ? 'runner' : 'walker',
+      facing: -1, state: 'walk', walkPhase: i * 0.3,
+    });
+    dSpriteAt(dZombie, ctx, z, zx, GY, 1.0, now);
   }
   // Some that broke through earlier are now closer
-  const tideL = Math.floor(ph.t * 8);
+  const tideL = Math.floor(ph.t * 7);
   for (let i = 0; i < tideL; i++) {
-    const zx = WX - 90 - i * 16;
-    if (zx < 0) continue;
-    dGOZombie(ctx, zx, GY - 6, now + i * 110);
+    const zx = WX - 90 - i * 20;
+    if (zx < 10) continue;
+    const z = mkZom({
+      type: i % 4 === 0 ? 'runner' : 'walker',
+      facing: 1, state: 'walk', walkPhase: i * 0.5,
+    });
+    dSpriteAt(dZombie, ctx, z, zx, GY, 1.0, now);
   }
 
   // Pulsing red vignette
@@ -341,18 +405,28 @@ function dSilence(ctx, defeat, ph, now) {
   dSmoke(ctx, WX + 80, GY - 6, now, 0.35, 1.1);
   dSmoke(ctx, WX - 60, GY - 6, now, 0.28, 0.9);
 
-  // Bodies on the ground
-  DEFENDERS.forEach(d => {
+  // Bodies on the ground — real dSoldier sprites in 'dead' state.
+  // Scattered across the foreground, not the rampart (the rampart
+  // collapsed in the prior phase).
+  DEFENDERS.forEach((d, i) => {
+    const bx = WX - 60 + i * 50;
+    const sol = mkSold({
+      name: d.name, weapon: d.weapon, facing: i % 2 === 0 ? 1 : -1,
+      state: 'dead', deadAt: now - 8000,
+    });
+    dSpriteAt(dSoldier, ctx, sol, bx, GY, 0.95, now);
     ctx.fillStyle = 'rgba(110,5,5,0.45)';
-    ctx.beginPath(); ctx.ellipse(d.x, GY - 2, 12, 3, 0, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = '#1a1814';
-    ctx.fillRect(d.x - 9, GY - 5, 18, 4);
+    ctx.beginPath(); ctx.ellipse(bx, GY + 2, 16, 4, 0, 0, Math.PI * 2); ctx.fill();
   });
 
-  // A few zombies shambling among the dead
+  // A few zombies shambling among the dead — real sprites
   for (let i = 0; i < 5; i++) {
     const zx = WX - 80 + i * 50 + Math.sin(now / 500 + i) * 6;
-    dGOZombie(ctx, zx, GY - 6, now + i * 220);
+    const z = mkZom({
+      type: 'walker', facing: i % 2 === 0 ? 1 : -1,
+      state: 'walk', walkPhase: i * 0.5,
+    });
+    dSpriteAt(dZombie, ctx, z, zx, GY, 1.0, now);
   }
 
   // Title card
