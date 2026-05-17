@@ -59,14 +59,20 @@ export function mkMission(soldier, dest, wave = 1) {
   const zombies = [], pickups = [], obstacles = [];
 
   // Spitters are the most punishing zombie kind (ranged + chip damage).
-  // Gate them behind wave 3 so the very first sortie isn't a meatgrinder,
+  // Gate them behind wave 5 so the early sorties aren't meatgrinders,
   // and scale their lethality up with wave count for late-game runs.
-  const waveAbove = Math.max(0, wave - 3);
-  const enableSpitter = wave >= 3;
-  const spitDmgScaled = Math.max(3, Math.round(ZTP.spitter.dmg * (1 + waveAbove * 0.10)));
+  const waveAbove = Math.max(0, wave - 5);
+  const enableSpitter = wave >= 5;
+  // Tanks in HIGH missions only from wave 4+ — early HIGH runs leaned
+  // on 3+ tank spawns which made them un-survivable for a fresh squad.
+  const enableHighTank = wave >= 4;
+  const spitDmgScaled = Math.max(3, Math.round(ZTP.spitter.dmg * (0.7 + waveAbove * 0.10)));
   const spitRateScaled = Math.max(1500, 2800 - waveAbove * 130);
 
-  const totalZ = Math.floor(8 * dest.zSpawn + rng(0, 4));
+  // Mission zombie count: rebalanced down from `8 * zSpawn + 0-4` after
+  // playtest feedback that mid-tier sorties were a net resource loss.
+  // LOW ≈ 3-6, MED ≈ 6-9, HIGH ≈ 10-13 (was 5-9 / 9-13 / 14-18).
+  const totalZ = Math.floor(6 * dest.zSpawn + rng(0, 3));
   for (let i = 0; i < totalZ; i++) {
     const x = 400 + Math.random() * (MISSION_W - 700);
     let types;
@@ -76,8 +82,10 @@ export function mkMission(soldier, dest, wave = 1) {
       types = enableSpitter ? ['walker', 'walker', 'walker', 'runner', 'spitter']
                             : ['walker', 'walker', 'walker', 'runner'];
     } else {
-      types = enableSpitter ? ['walker', 'runner', 'runner', 'tank', 'spitter']
-                            : ['walker', 'walker', 'runner', 'runner', 'tank'];
+      const base = enableSpitter
+        ? ['walker', 'runner', 'runner', 'spitter']
+        : ['walker', 'walker', 'runner', 'runner'];
+      types = enableHighTank ? [...base, 'tank'] : base;
     }
     const t = types[Math.floor(Math.random() * types.length)];
     const z = ZTP[t];
@@ -107,19 +115,24 @@ export function mkMission(soldier, dest, wave = 1) {
       : dest.risk === 'MED' ? ['ammo', 'materials']
       : ['ammo', 'medicine', 'materials']));
   }
-  const pkCount = dest.risk === 'LOW' ? 4 : dest.risk === 'MED' ? 5 : 7;
+  // Pickup count bumped (was 4/5/7) so a successful sortie actually
+  // pays for the ammo + medicine you spent getting there.
+  const pkCount = dest.risk === 'LOW' ? 6 : dest.risk === 'MED' ? 7 : 9;
   // Pickup values scale modestly with wave so late-game runs reward
   // proportional to their increased threat.
   const waveBonus = Math.floor(Math.max(0, wave - 1) / 2);
   for (let i = 0; i < pkCount; i++) {
     const x = 300 + Math.floor(MISSION_W / (pkCount + 1)) * (i + 1) + rng(-60, 60);
     const type = pkOptions[Math.floor(Math.random() * pkOptions.length)];
-    const base = type === 'medicine' ? rng(4, 8)
-      : type === 'ammo' ? rng(8, 15)
-      : type === 'food' ? rng(5, 10)
-      : type === 'sniperAmmo' ? rng(2, 4)
-      : type === 'turretAmmo' ? rng(6, 14)
-      : rng(3, 6);
+    // Pickup values bumped after playtest: ammo 8-15 → 12-22, food
+    // 5-10 → 8-14, medicine 4-8 → 6-12. Keeps proportions across types
+    // but turns sorties from break-even into a real income source.
+    const base = type === 'medicine' ? rng(6, 12)
+      : type === 'ammo' ? rng(12, 22)
+      : type === 'food' ? rng(8, 14)
+      : type === 'sniperAmmo' ? rng(2, 5)
+      : type === 'turretAmmo' ? rng(8, 16)
+      : rng(4, 8);
     pickups.push({ id: uid(), x, type, value: base + waveBonus, collected: false, lane: 0 });
   }
   // 'civilian' / 'lostSoldier' are flagged via the loot table when the

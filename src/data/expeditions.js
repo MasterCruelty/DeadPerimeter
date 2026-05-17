@@ -16,8 +16,8 @@ export const DEST_POOL = {
     { name: 'Pharmacy',          icon: '💊', biome: 'hospital', loot: ['medicine','medicine','medicine','food'],                desc: 'Looted but not empty. Some pills survived.' },
     { name: 'Supermarket',       icon: '🛒', biome: 'downtown', loot: ['food','food','food','medicine'],                        desc: 'Shattered glass front. Half-empty shelves.' },
     { name: 'Hardware Store',    icon: '🔧', biome: 'armory',   loot: ['materials','materials','materials','ammo'],              desc: 'Tools and screws. A forgotten lunchbox.' },
-    { name: 'Convenience Store', icon: '🏪', biome: 'downtown', loot: ['food','medicine','food','materials'],                    desc: 'Open 24/7 — was. Power\'s been out for weeks.' },
-    { name: 'Diner',             icon: '🍔', biome: 'downtown', loot: ['food','food','medicine'],                                desc: 'Walk-in freezer still cold. Worth a look.' },
+    { name: 'Convenience Store', icon: '🏪', biome: 'downtown', loot: ['food','medicine','food','materials','ammo'],            desc: 'Open 24/7 — was. Power\'s been out for weeks.' },
+    { name: 'Diner',             icon: '🍔', biome: 'downtown', loot: ['food','food','medicine','ammo'],                        desc: 'Walk-in freezer still cold. Worth a look.' },
   ],
   MED: [
     { name: 'Police Station',    icon: '🚓', biome: 'police_interior', loot: ['ammo','ammo','civilian','lostSoldier','materials'],      desc: 'Inside the local PD. Cells, lockers, evidence room.' },
@@ -40,9 +40,12 @@ export const DEST_POOL = {
 // inherits these so the auto-dispatcher and mission generator keep
 // working without per-location bookkeeping.
 export const RISK_BASE = {
-  LOW:  { riskColor: '#44bb44', solDmg: [0, 14],  missionLen: 1400, zSpawn: 0.6 },
-  MED:  { riskColor: C.wrn,    solDmg: [10, 34], missionLen: 1700, zSpawn: 1.1 },
-  HIGH: { riskColor: C.dng,    solDmg: [20, 58], missionLen: 2000, zSpawn: 1.7 },
+  // solDmg = [min, max] HP loss applied to the auto-dispatch party
+  // (non-playable mode). Tuned down after playtest so a MED sortie
+  // doesn't routinely return soldiers at 1 HP.
+  LOW:  { riskColor: '#44bb44', solDmg: [0, 10],  missionLen: 1400, zSpawn: 0.6 },
+  MED:  { riskColor: C.wrn,    solDmg: [8, 22],  missionLen: 1700, zSpawn: 1.1 },
+  HIGH: { riskColor: C.dng,    solDmg: [15, 40], missionLen: 2000, zSpawn: 1.7 },
 };
 
 // Pretty list of icons summarising the loot pool for the card UI.
