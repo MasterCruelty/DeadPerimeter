@@ -76,9 +76,10 @@ export const BALANCE = {
   wallRepairCost: 8,                // materials per repair tick
   wallRepairHp: 30,                 // hp restored per tick
 
-  // Per-wave clear bonuses (bumped from the original +10/+8 to make
-  // sustained survival feasible without grinding expeditions).
+  // Per-wave clear bonuses. Food is intentionally 0 — daily rations
+  // come from expedition food runs and helicopter evac payouts, not
+  // from holding the wall. Ammo bonus stays so combat stays sustainable.
   waveClearAmmo: 25,
-  waveClearFood: 12,
+  waveClearFood: 0,
 };
 
