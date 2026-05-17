@@ -47,4 +47,75 @@ export const BIOMES = {
   },
 };
 
+// ── Indoor variants ─────────────────────────────────────────────
+// Indoor biomes carry indoor: true so the mission renderer swaps the
+// outdoor sky+buildings backdrop for a ceiling+walls+lights interior.
+// They keep the same outdoor-derived obstacle pool concept but with
+// interior-appropriate props.
+
+BIOMES.police_interior = {
+  indoor: true,
+  // Ceiling + wall + floor palettes used in lieu of sky / bldg / ground.
+  ceiling:    ['#0e1620', '#1a2630'],
+  ceilingTrim: '#070c14',
+  wallFill:   '#7a6a55',                 // institutional beige
+  wallDark:   '#3a3025',
+  wallTrim:   '#1f1a14',
+  ground:     ['#5a5045', '#2a2520'],    // worn linoleum
+  groundLine: '#3a3530',
+  // Window-cutouts on the side walls show muzzle-flash flicker outside.
+  windowCount: 3,
+  windowFill: '#0a1418',
+  // Light fixture: square fluorescent panels.
+  lightSpacing: 200,
+  lightColor: 'rgba(220,230,200,0.42)',
+  lightFixture: 'panel',
+  obstacles: ['desk', 'locker', 'filing-cabinet', 'crate', 'evidence-box'],
+  propsPerStep: 220,
+  propType: 'wall-poster',
+  accentLight: 'rgba(180,180,140,0.06)',
+};
+
+BIOMES.armory_interior = {
+  indoor: true,
+  ceiling:    ['#1a1814', '#0e0a08'],    // dark exposed rafters
+  ceilingTrim: '#080604',
+  wallFill:   '#4a3a28',                 // dark wood panel
+  wallDark:   '#1a1208',
+  wallTrim:   '#2a1c10',
+  ground:     ['#2a2620', '#181410'],    // worn concrete
+  groundLine: '#1a1410',
+  windowCount: 0,                         // no windows in an armory
+  // Hanging bare bulbs.
+  lightSpacing: 240,
+  lightColor: 'rgba(255,200,120,0.55)',
+  lightFixture: 'bulb',
+  obstacles: ['gun-rack', 'glass-case', 'ammo-crate', 'workbench', 'crate'],
+  propsPerStep: 240,
+  propType: 'wall-flag',
+  accentLight: 'rgba(200,140,40,0.10)',
+};
+
+BIOMES.office_interior = {
+  indoor: true,
+  ceiling:    ['#1a2028', '#0e1218'],    // dimmed drop-ceiling at night
+  ceilingTrim: '#080c10',
+  wallFill:   '#4a5060',                 // partition grey
+  wallDark:   '#1a1e22',
+  wallTrim:   '#0e1018',
+  ground:     ['#2a2620', '#161410'],    // industrial carpet
+  groundLine: '#1a1612',
+  // Floor-to-ceiling windows on the side walls show the burning city.
+  windowCount: 4,
+  windowFill: '#3a1a08',                 // distant fire glow
+  // Drop-ceiling tile lights, regularly spaced.
+  lightSpacing: 180,
+  lightColor: 'rgba(210,220,240,0.45)',
+  lightFixture: 'tile',
+  obstacles: ['cubicle', 'photocopier', 'water-cooler', 'office-chair', 'crate'],
+  propsPerStep: 200,
+  propType: 'exit-sign',
+  accentLight: 'rgba(180,200,220,0.05)',
+};
+
 export const DEFAULT_BIOME = 'armory';

@@ -1053,6 +1053,88 @@ function dHazard(ctx, h, now) {
 }
 
 // ── Biome-aware props (decorative, never block movement) ───────────
+// Indoor backdrop: dark ceiling band, panelled back wall, optional
+// window cutouts and ceiling light fixtures, then a tiled floor with
+// a baseboard. Each indoor biome picks its palette + fixture style.
+function dIndoorBackdrop(ctx, m, biome) {
+  const wallTop = 32;
+  const wallBot = MGY - 80;
+
+  // Ceiling band (dark)
+  const cg = ctx.createLinearGradient(0, 0, 0, wallTop);
+  cg.addColorStop(0, biome.ceiling[0]); cg.addColorStop(1, biome.ceiling[1]);
+  ctx.fillStyle = cg; ctx.fillRect(0, 0, MISSION_W, wallTop);
+  ctx.fillStyle = biome.ceilingTrim; ctx.fillRect(0, wallTop - 2, MISSION_W, 2);
+
+  // Back wall
+  ctx.fillStyle = biome.wallFill;
+  ctx.fillRect(0, wallTop, MISSION_W, wallBot - wallTop);
+  // Vertical panel seams
+  ctx.strokeStyle = biome.wallDark; ctx.lineWidth = 1;
+  for (let px = 0; px < MISSION_W; px += 100) {
+    ctx.beginPath(); ctx.moveTo(px, wallTop); ctx.lineTo(px, wallBot); ctx.stroke();
+  }
+  // Horizontal trim rail (chair-rail height)
+  const trimY = wallTop + (wallBot - wallTop) * 0.65;
+  ctx.fillStyle = biome.wallTrim; ctx.fillRect(0, trimY - 2, MISSION_W, 4);
+
+  // Window cutouts (city outside)
+  if (biome.windowCount && biome.windowFill) {
+    const winW = 90, winH = 70;
+    const winSpacing = Math.max(260, MISSION_W / (biome.windowCount * 3));
+    for (let wx = 120; wx < MISSION_W; wx += winSpacing) {
+      const wy = wallTop + 24;
+      ctx.fillStyle = biome.windowFill; ctx.fillRect(wx, wy, winW, winH);
+      // Flickering distant fire / muzzle flashes inside the windows
+      ctx.fillStyle = 'rgba(255,140,60,0.18)';
+      ctx.fillRect(wx, wy + winH * 0.6, winW, winH * 0.4);
+      // Cross frame
+      ctx.fillStyle = biome.wallDark;
+      ctx.fillRect(wx + winW / 2 - 1, wy, 2, winH);
+      ctx.fillRect(wx, wy + winH / 2 - 1, winW, 2);
+      ctx.strokeStyle = biome.wallTrim; ctx.lineWidth = 2;
+      ctx.strokeRect(wx, wy, winW, winH);
+    }
+  }
+
+  // Baseboard between wall and floor
+  ctx.fillStyle = biome.wallDark; ctx.fillRect(0, MGY - 88, MISSION_W, 8);
+
+  // Floor (gradient + tile seams)
+  const fg = ctx.createLinearGradient(0, MGY, 0, CH);
+  fg.addColorStop(0, biome.ground[0]); fg.addColorStop(1, biome.ground[1]);
+  ctx.fillStyle = fg; ctx.fillRect(0, MGY, MISSION_W, CH - MGY);
+  ctx.strokeStyle = biome.groundLine; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(0, MGY); ctx.lineTo(MISSION_W, MGY); ctx.stroke();
+  ctx.strokeStyle = biome.groundLine; ctx.lineWidth = 0.5;
+  for (let tx = 0; tx < MISSION_W; tx += 60) {
+    ctx.beginPath(); ctx.moveTo(tx, MGY + 8); ctx.lineTo(tx, CH); ctx.stroke();
+  }
+
+  // Ceiling light fixtures
+  const ls = biome.lightSpacing || 220;
+  for (let lx = ls / 2; lx < MISSION_W; lx += ls) {
+    if (biome.lightFixture === 'panel') {
+      ctx.fillStyle = biome.ceilingTrim; ctx.fillRect(lx - 22, 4, 44, 7);
+      ctx.fillStyle = biome.lightColor; ctx.fillRect(lx - 20, 5, 40, 4);
+    } else if (biome.lightFixture === 'bulb') {
+      ctx.strokeStyle = biome.ceilingTrim; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(lx, wallTop); ctx.lineTo(lx, wallTop + 18); ctx.stroke();
+      ctx.fillStyle = biome.lightColor;
+      ctx.beginPath(); ctx.arc(lx, wallTop + 22, 4, 0, Math.PI * 2); ctx.fill();
+    } else if (biome.lightFixture === 'tile') {
+      ctx.fillStyle = biome.lightColor; ctx.fillRect(lx - 30, 2, 60, 8);
+      ctx.fillStyle = biome.ceilingTrim; ctx.fillRect(lx - 32, 8, 64, 2);
+    }
+    // Soft downward halo
+    const grad = ctx.createRadialGradient(lx, 14, 0, lx, 14, 140);
+    grad.addColorStop(0, biome.lightColor);
+    grad.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(lx - 140, 0, 280, 200);
+  }
+}
+
 function dProp(ctx, p) {
   const x = p.x, y = MGY;
   if (p.type === 'lamppost-hospital') {
@@ -1084,6 +1166,34 @@ function dProp(ctx, p) {
     ctx.fillStyle = '#3a1a08'; ctx.fillRect(x + 14, y - 64, 8, 6);
     ctx.fillStyle = 'rgba(255,80,0,0.18)';
     ctx.beginPath(); ctx.arc(x + 18, y - 60, 10, 0, Math.PI * 2); ctx.fill();
+  } else if (p.type === 'wall-poster') {
+    // Bulletin board / wanted poster pinned to the back wall, well
+    // above the floor so it never overlaps obstacles.
+    const py = MGY - 160;
+    ctx.fillStyle = '#1a1410'; ctx.fillRect(x - 18, py, 36, 28);
+    ctx.fillStyle = '#9a8868'; ctx.fillRect(x - 16, py + 2, 32, 24);
+    ctx.fillStyle = '#1a1410'; ctx.font = 'bold 6px monospace'; ctx.textAlign = 'center';
+    ctx.fillText('WANTED', x, py + 11);
+    ctx.fillStyle = '#3a2818'; ctx.fillRect(x - 10, py + 14, 20, 8);
+    ctx.textAlign = 'left';
+  } else if (p.type === 'wall-flag') {
+    // Hung flag on a horizontal pole
+    const py = MGY - 175;
+    ctx.fillStyle = '#3a2818'; ctx.fillRect(x - 22, py, 44, 2);
+    ctx.fillStyle = '#502a18'; ctx.fillRect(x - 20, py + 2, 40, 30);
+    ctx.fillStyle = '#cca838'; ctx.font = 'bold 7px monospace'; ctx.textAlign = 'center';
+    ctx.fillText('★', x, py + 20);
+    ctx.textAlign = 'left';
+  } else if (p.type === 'exit-sign') {
+    // Glowing EXIT panel high on the wall
+    const py = MGY - 180;
+    ctx.fillStyle = '#1a0a0a'; ctx.fillRect(x - 18, py, 36, 14);
+    ctx.fillStyle = '#dd3322'; ctx.fillRect(x - 16, py + 2, 32, 10);
+    ctx.fillStyle = '#fff'; ctx.font = 'bold 8px monospace'; ctx.textAlign = 'center';
+    ctx.fillText('EXIT', x, py + 10);
+    ctx.fillStyle = 'rgba(220,50,30,0.20)';
+    ctx.beginPath(); ctx.arc(x, py + 7, 22, 0, Math.PI * 2); ctx.fill();
+    ctx.textAlign = 'left';
   }
 }
 
@@ -1180,6 +1290,133 @@ function dObstacle(ctx, o) {
       ctx.fillText('STOP', x, MGY - 28); ctx.textAlign = 'left';
       break;
     }
+    // ── Indoor: Police Station ──────────────────────────────
+    case 'desk': {
+      // Office desk with monitor + paperwork
+      ctx.fillStyle = '#3a2a18'; ctx.fillRect(x - 22, MGY - 20, 44, 20);
+      ctx.fillStyle = '#2a1c10'; ctx.fillRect(x - 22, MGY - 20, 44, 3);
+      ctx.fillStyle = '#1a1612'; ctx.fillRect(x - 20, MGY - 6, 4, 6); ctx.fillRect(x + 16, MGY - 6, 4, 6);
+      ctx.fillStyle = '#181818'; ctx.fillRect(x - 8, MGY - 36, 16, 14);
+      ctx.fillStyle = '#2a4a5a'; ctx.fillRect(x - 7, MGY - 35, 14, 12);
+      ctx.fillStyle = '#1a1410'; ctx.fillRect(x - 3, MGY - 22, 6, 4);
+      ctx.fillStyle = '#dcd8c8'; ctx.fillRect(x + 10, MGY - 22, 8, 3);
+      break;
+    }
+    case 'locker': {
+      // Tall PD locker, vertical seam + handle
+      ctx.fillStyle = '#3a4a55'; ctx.fillRect(x - 13, MGY - 44, 26, 44);
+      ctx.fillStyle = '#2a3640'; ctx.fillRect(x - 13, MGY - 44, 26, 3);
+      ctx.fillStyle = '#1a2228'; ctx.fillRect(x - 1, MGY - 42, 2, 40);
+      ctx.fillStyle = '#cccccc'; ctx.fillRect(x - 9, MGY - 24, 3, 3); ctx.fillRect(x + 6, MGY - 24, 3, 3);
+      ctx.fillStyle = '#1a2228'; ctx.fillRect(x - 10, MGY - 40, 8, 4); ctx.fillRect(x + 2, MGY - 40, 8, 4);
+      break;
+    }
+    case 'filing-cabinet': {
+      ctx.fillStyle = '#48402a'; ctx.fillRect(x - 12, MGY - 28, 24, 28);
+      ctx.fillStyle = '#2a2418'; ctx.fillRect(x - 12, MGY - 28, 24, 2);
+      // Three drawers
+      for (let dy = 0; dy < 3; dy++) {
+        const y = MGY - 25 + dy * 8;
+        ctx.fillStyle = '#2a2418'; ctx.fillRect(x - 12, y, 24, 1);
+        ctx.fillStyle = '#1a1410'; ctx.fillRect(x - 3, y + 3, 6, 1.5);
+      }
+      break;
+    }
+    case 'evidence-box': {
+      ctx.fillStyle = '#7a6a48'; ctx.fillRect(x - 14, MGY - 16, 28, 16);
+      ctx.fillStyle = '#5a4a30'; ctx.fillRect(x - 14, MGY - 16, 28, 3);
+      ctx.fillStyle = '#cc8800'; ctx.font = 'bold 6px monospace'; ctx.textAlign = 'center';
+      ctx.fillText('EVIDENCE', x, MGY - 6); ctx.textAlign = 'left';
+      break;
+    }
+    // ── Indoor: Gun Shop ────────────────────────────────────
+    case 'gun-rack': {
+      // Wooden vertical rack with rifle silhouettes
+      ctx.fillStyle = '#3a2818'; ctx.fillRect(x - 16, MGY - 42, 32, 42);
+      ctx.fillStyle = '#2a1c10'; ctx.fillRect(x - 16, MGY - 42, 32, 2);
+      ctx.fillStyle = '#1a1410';
+      for (let dy = 0; dy < 3; dy++) {
+        const y = MGY - 36 + dy * 12;
+        ctx.fillRect(x - 14, y, 28, 1.5);
+        // Rifle silhouette resting on the peg
+        ctx.fillStyle = '#0a0a08';
+        ctx.fillRect(x - 12, y - 3, 22, 2);
+        ctx.fillRect(x + 8, y - 6, 4, 4);
+        ctx.fillStyle = '#1a1410';
+      }
+      break;
+    }
+    case 'glass-case': {
+      // Glass display case with handgun outline
+      ctx.fillStyle = '#2a2620'; ctx.fillRect(x - 18, MGY - 14, 36, 14);
+      ctx.fillStyle = 'rgba(180,200,220,0.20)'; ctx.fillRect(x - 17, MGY - 26, 34, 14);
+      ctx.strokeStyle = '#9a9088'; ctx.lineWidth = 1; ctx.strokeRect(x - 17, MGY - 26, 34, 14);
+      // Pistol silhouette
+      ctx.fillStyle = '#1a1410';
+      ctx.fillRect(x - 8, MGY - 19, 12, 3);
+      ctx.fillRect(x - 4, MGY - 16, 4, 4);
+      // Reflection shimmer
+      ctx.fillStyle = 'rgba(255,255,255,0.10)';
+      ctx.fillRect(x - 15, MGY - 25, 6, 12);
+      break;
+    }
+    case 'workbench': {
+      ctx.fillStyle = '#4a3220'; ctx.fillRect(x - 24, MGY - 18, 48, 18);
+      ctx.fillStyle = '#2a1c10'; ctx.fillRect(x - 24, MGY - 18, 48, 3);
+      ctx.fillStyle = '#1a1410'; ctx.fillRect(x - 22, MGY - 6, 3, 6); ctx.fillRect(x + 19, MGY - 6, 3, 6);
+      // Bench vise
+      ctx.fillStyle = '#5a5048'; ctx.fillRect(x + 4, MGY - 24, 10, 8);
+      ctx.fillStyle = '#1a1410'; ctx.fillRect(x + 7, MGY - 28, 4, 4);
+      // Tools
+      ctx.fillStyle = '#8a8480'; ctx.fillRect(x - 18, MGY - 22, 12, 2);
+      ctx.fillStyle = '#3a2818'; ctx.fillRect(x - 14, MGY - 26, 3, 6);
+      break;
+    }
+    // ── Indoor: Office Tower ────────────────────────────────
+    case 'cubicle': {
+      // Partition panel with desk inside
+      ctx.fillStyle = '#5a6878'; ctx.fillRect(x - 24, MGY - 40, 48, 40);
+      ctx.fillStyle = '#3a4858'; ctx.fillRect(x - 24, MGY - 40, 48, 3);
+      ctx.fillStyle = '#2a3848'; ctx.fillRect(x - 24, MGY - 18, 48, 2);
+      // Desk peeking over the front edge
+      ctx.fillStyle = '#3a2a18'; ctx.fillRect(x - 18, MGY - 16, 36, 8);
+      ctx.fillStyle = '#181818'; ctx.fillRect(x - 6, MGY - 28, 12, 12);
+      ctx.fillStyle = '#1a3a4a'; ctx.fillRect(x - 5, MGY - 27, 10, 10);
+      break;
+    }
+    case 'photocopier': {
+      ctx.fillStyle = '#bcbcbc'; ctx.fillRect(x - 16, MGY - 30, 32, 30);
+      ctx.fillStyle = '#888888'; ctx.fillRect(x - 16, MGY - 30, 32, 4);
+      ctx.fillStyle = '#1a1a1a'; ctx.fillRect(x - 14, MGY - 24, 28, 6);
+      // Output tray
+      ctx.fillStyle = '#888888'; ctx.fillRect(x - 18, MGY - 14, 4, 6);
+      ctx.fillStyle = '#f8f4e8'; ctx.fillRect(x - 19, MGY - 12, 6, 3);
+      // Status light
+      ctx.fillStyle = '#22cc44'; ctx.fillRect(x + 8, MGY - 28, 4, 2);
+      break;
+    }
+    case 'water-cooler': {
+      ctx.fillStyle = '#cfd6dc'; ctx.fillRect(x - 8, MGY - 22, 16, 22);
+      ctx.fillStyle = '#3a4858'; ctx.fillRect(x - 9, MGY - 24, 18, 4);
+      // Big bottle on top
+      ctx.fillStyle = 'rgba(120,180,220,0.55)';
+      ctx.beginPath(); ctx.ellipse(x, MGY - 36, 9, 14, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#1a2228'; ctx.fillRect(x - 4, MGY - 50, 8, 4);
+      // Spigot
+      ctx.fillStyle = '#1a1410'; ctx.fillRect(x - 1, MGY - 14, 2, 4);
+      break;
+    }
+    case 'office-chair': {
+      ctx.fillStyle = '#1a1812'; ctx.fillRect(x - 8, MGY - 30, 16, 14);
+      ctx.fillStyle = '#1a1812'; ctx.fillRect(x - 8, MGY - 14, 16, 4);
+      ctx.fillStyle = '#3a3a3a'; ctx.fillRect(x - 1, MGY - 10, 2, 6);
+      // Star base wheels
+      ctx.fillStyle = '#1a1410';
+      for (let dx = -10; dx <= 10; dx += 5) {
+        ctx.beginPath(); ctx.arc(x + dx, MGY - 2, 2, 0, Math.PI * 2); ctx.fill();
+      }
+      break;
+    }
     default: {
       ctx.fillStyle = '#5a3e18'; ctx.fillRect(x - 12, MGY - 18, 24, 18);
     }
@@ -1192,43 +1429,47 @@ export function dMissionWorld(ctx, m, now) {
 
   const biome = BIOMES[m.biomeKey] || BIOMES[DEFAULT_BIOME];
 
-  // Sky (biome-tinted gradient)
-  const sg = ctx.createLinearGradient(0, 0, 0, MGY - 80);
-  sg.addColorStop(0, biome.sky[0]); sg.addColorStop(1, biome.sky[1]);
-  ctx.fillStyle = sg; ctx.fillRect(0, 0, MISSION_W, MGY - 80);
+  if (biome.indoor) {
+    dIndoorBackdrop(ctx, m, biome, now);
+  } else {
+    // Sky (biome-tinted gradient)
+    const sg = ctx.createLinearGradient(0, 0, 0, MGY - 80);
+    sg.addColorStop(0, biome.sky[0]); sg.addColorStop(1, biome.sky[1]);
+    ctx.fillStyle = sg; ctx.fillRect(0, 0, MISSION_W, MGY - 80);
 
-  // Stars / specks (always)
-  for (let i = 0; i < 60; i++) {
-    const sx = ((i * 173 + m.cameraX * 0.2) % MISSION_W);
-    const sy = (i * 97 + 17) % (MGY - 100);
-    ctx.fillStyle = `rgba(255,255,255,${0.3 + (i % 4) * 0.18})`;
-    ctx.fillRect(sx, sy, 1.5, 1.5);
+    // Stars / specks (always)
+    for (let i = 0; i < 60; i++) {
+      const sx = ((i * 173 + m.cameraX * 0.2) % MISSION_W);
+      const sy = (i * 97 + 17) % (MGY - 100);
+      ctx.fillStyle = `rgba(255,255,255,${0.3 + (i % 4) * 0.18})`;
+      ctx.fillRect(sx, sy, 1.5, 1.5);
+    }
+    // Biome accent glow (smear of color: clinical halo, sunset blaze, etc.)
+    ctx.fillStyle = biome.accentLight;
+    ctx.beginPath(); ctx.arc(MISSION_W * 0.4, MGY - 120, 200, 0, Math.PI * 2); ctx.fill();
+
+    // Background buildings: count + height range from biome
+    const bldCount = biome.bldgCount;
+    const [hMin, hMax] = biome.bldgHRange;
+    for (let i = 0; i < bldCount; i++) {
+      const bx = (i * MISSION_W / bldCount) + 50 + (i % 3) * 30;
+      const bw = 40 + (i * 7) % 70;
+      const bh = hMin + ((i * 23) % (hMax - hMin));
+      ctx.fillStyle = biome.bldgFill; ctx.fillRect(bx, MGY - 80 - bh, bw, bh);
+      ctx.fillStyle = biome.bldgRoof; ctx.fillRect(bx, MGY - 80 - bh, bw, 4);
+      ctx.fillStyle = biome.bldgWindow;
+      for (let wx = bx + 8; wx < bx + bw - 5; wx += 14)
+        for (let wy = MGY - 80 - bh + 10; wy < MGY - 90; wy += 18)
+          if (Math.sin((bx + wx) * 0.1 + wy * 0.07) > 0.2) ctx.fillRect(wx, wy, 8, 10);
+    }
+
+    // Ground
+    const gg = ctx.createLinearGradient(0, MGY, 0, CH);
+    gg.addColorStop(0, biome.ground[0]); gg.addColorStop(1, biome.ground[1]);
+    ctx.fillStyle = gg; ctx.fillRect(0, MGY, MISSION_W, CH - MGY);
+    ctx.strokeStyle = biome.groundLine; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(0, MGY); ctx.lineTo(MISSION_W, MGY); ctx.stroke();
   }
-  // Biome accent glow (smear of color: clinical halo, sunset blaze, etc.)
-  ctx.fillStyle = biome.accentLight;
-  ctx.beginPath(); ctx.arc(MISSION_W * 0.4, MGY - 120, 200, 0, Math.PI * 2); ctx.fill();
-
-  // Background buildings: count + height range from biome
-  const bldCount = biome.bldgCount;
-  const [hMin, hMax] = biome.bldgHRange;
-  for (let i = 0; i < bldCount; i++) {
-    const bx = (i * MISSION_W / bldCount) + 50 + (i % 3) * 30;
-    const bw = 40 + (i * 7) % 70;
-    const bh = hMin + ((i * 23) % (hMax - hMin));
-    ctx.fillStyle = biome.bldgFill; ctx.fillRect(bx, MGY - 80 - bh, bw, bh);
-    ctx.fillStyle = biome.bldgRoof; ctx.fillRect(bx, MGY - 80 - bh, bw, 4);
-    ctx.fillStyle = biome.bldgWindow;
-    for (let wx = bx + 8; wx < bx + bw - 5; wx += 14)
-      for (let wy = MGY - 80 - bh + 10; wy < MGY - 90; wy += 18)
-        if (Math.sin((bx + wx) * 0.1 + wy * 0.07) > 0.2) ctx.fillRect(wx, wy, 8, 10);
-  }
-
-  // Ground
-  const gg = ctx.createLinearGradient(0, MGY, 0, CH);
-  gg.addColorStop(0, biome.ground[0]); gg.addColorStop(1, biome.ground[1]);
-  ctx.fillStyle = gg; ctx.fillRect(0, MGY, MISSION_W, CH - MGY);
-  ctx.strokeStyle = biome.groundLine; ctx.lineWidth = 2;
-  ctx.beginPath(); ctx.moveTo(0, MGY); ctx.lineTo(MISSION_W, MGY); ctx.stroke();
 
   // Branching path (high lane road)
   if (m.fork) {
