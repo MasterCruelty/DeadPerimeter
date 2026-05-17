@@ -2177,74 +2177,92 @@ function dShotFortWide(ctx, t, now) {
   // The actual game wall
   dBase(ctx, 200, 200);
 
-  // Soldiers on the rampart. To break up the "row of figures floating
-  // on a wall" look they get:
-  //   - irregular X spacing (no even-divisor line)
-  //   - per-soldier Y dip so a couple peek lower from cover
-  //   - one in the watchtower instead of on the rampart
-  //   - feet anchored BELOW the wall-top (GY-148) so the
-  //     crenellation blocks visually overlap their boots/legs and
-  //     they read as "manning" the wall, not standing on a flat shelf
-  //   - one kneeling pose (state walk frozen) for variety
-  // Also drawn AFTER dBase so they layer above the brick face but
-  // their lower body is covered when their feet sit behind the
-  // parapet line. Final cap-detail pass overdraws a thin parapet
-  // shadow to anchor them.
-  const ramparts = [
-    { x: WX - 78, dipY: 0,  scale: 0.85, weapon: 'rifle',   pose: 'idle' },
-    { x: WX - 58, dipY: 6,  scale: 0.82, weapon: 'rifle',   pose: 'walk' }, // crouching
-    { x: WX - 34, dipY: 2,  scale: 0.88, weapon: 'shotgun', pose: 'idle' },
-    { x: WX - 14, dipY: 4,  scale: 0.84, weapon: 'rifle',   pose: 'idle' },
-    { x: WX + 18, dipY: 0,  scale: 0.90, weapon: 'sniper',  pose: 'idle' },
+  // ── Soldiers deployed at ground level IN FRONT of the wall ──────
+  // They stand on the killzone road facing right — Fort Omega behind
+  // them, the city horizon ahead. Spread out, irregular positions,
+  // mix of poses so it reads as a defensive line rather than a row.
+  // Feet at GY (true ground), full 1x scale so they're foreground.
+  const deployed = [
+    { x: WX + 60,  weapon: 'rifle',   pose: 'idle' },               // standing rifle
+    { x: WX + 130, weapon: 'shotgun', pose: 'idle' },               // standing shotgun
+    { x: WX + 210, weapon: 'rifle',   pose: 'walk' },               // walking forward
+    { x: WX + 300, weapon: 'sniper',  pose: 'idle' },               // sniper
+    { x: WX + 380, weapon: 'rifle',   pose: 'idle' },               // rear flank
   ];
-  ramparts.forEach((r, i) => {
-    const wob = Math.sin(now / 380 + i) * 0.6;
-    const sol = mkIntroSoldier({
-      name: 'R' + i, weapon: r.weapon, facing: 1,
-      state: r.pose, walkPhase: i * 0.5 + wob,
-    });
-    dSpriteAt(dSoldier, ctx, sol, r.x, GY - 148 + r.dipY + wob, r.scale, now);
+  // Knee-pad sandbags scattered at their feet — small piles of
+  // dirt/cover (not the full wall sandbag emplacement).
+  deployed.forEach((d, i) => {
+    if (i % 2 === 0) {
+      // Small forward sandbag in front of every other soldier
+      ctx.fillStyle = '#5a4828';
+      ctx.beginPath(); ctx.ellipse(d.x + 18, GY - 2, 12, 6, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#705836';
+      ctx.beginPath(); ctx.ellipse(d.x + 8, GY - 1, 12, 6, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#8a6c44';
+      ctx.fillRect(d.x + 2, GY - 4, 22, 2);
+    }
   });
-  // Re-draw a thin shadow strip under the crenellation row so the
-  // soldiers' boots get visually buried in cover (they were drawn at
-  // GY-148, which is 12 px below the wall body top at GY-160).
-  ctx.fillStyle = 'rgba(0,0,0,0.55)';
-  ctx.fillRect(0, GY - 160, WX + 12, 12);
+  deployed.forEach((d, i) => {
+    const wob = Math.sin(now / 420 + i * 1.3) * 0.4;
+    const sol = mkIntroSoldier({
+      name: 'R' + i, weapon: d.weapon, facing: 1,
+      state: d.pose, walkPhase: i * 0.7 + wob,
+    });
+    dSpriteAt(dSoldier, ctx, sol, d.x, GY + wob, 1.0, now);
+  });
 
-  // One soldier visible in the watchtower window (head + rifle barrel)
-  const tx = WX - 22;
-  ctx.fillStyle = '#bf8a6a';
-  ctx.beginPath(); ctx.arc(tx, GY - 226, 3.5, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = '#1a2418';
-  ctx.fillRect(tx - 4, GY - 230, 8, 3);  // helmet rim
-  ctx.fillStyle = '#0a0a0a';
-  ctx.fillRect(tx + 4, GY - 223, 12, 1.5);  // rifle barrel out the window
+  // ── Distant zombie horde, approaching slowly from the horizon ───
+  // Camera time t∈[0,1]. Zombies start far in the background (small
+  // scale ~0.45 at near-horizon) and creep closer over the shot
+  // length. They never reach the soldiers in the cinematic — the
+  // tension is in the wait.
+  const ZSCALE_FAR = 0.42;
+  const Z_COUNT = 22;
+  // Approach velocity (px over the full shot duration). Slow.
+  const totalCreep = 120;
+  for (let i = 0; i < Z_COUNT; i++) {
+    // Stagger start positions across the right half of the screen
+    const startX = CW - 30 + (i % 5) * 18 + Math.floor(i / 5) * 36;
+    // Per-zombie speed variation
+    const speedJitter = 0.7 + (i * 0.13 % 0.6);
+    const zx = startX - t * totalCreep * speedJitter
+                      + Math.sin(now / 700 + i * 0.7) * 1.5;
+    // Off the right side? Skip (kept in case some random ones start
+    // further out)
+    if (zx > CW + 30 || zx < WX + 480) continue;
+    const ztype = i % 8 === 0 ? 'tank'
+                : i % 5 === 0 ? 'runner'
+                : 'walker';
+    const z = mkIntroZombie({
+      type: ztype, facing: -1, state: 'walk',
+      walkPhase: i * 0.4,
+    });
+    // Y-stagger so they don't all sit on the exact horizon line
+    const yJit = (i % 3) * 1.5;
+    dSpriteAt(dZombie, ctx, z, zx, GY + yJit, ZSCALE_FAR, now);
+  }
+  // Faint dust haze on the horizon to soften the distant zombies
+  const dust = ctx.createLinearGradient(0, GY - 14, 0, GY + 6);
+  dust.addColorStop(0, 'rgba(40,35,30,0)');
+  dust.addColorStop(0.5, 'rgba(60,50,40,0.18)');
+  dust.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = dust;
+  ctx.fillRect(WX + 480, GY - 14, CW - WX - 480, 20);
 
-  // Search light sweeping the field beyond
+  // Search light sweep from the watchtower over the killzone (over the
+  // soldiers' heads, going outward toward the horde).
   const sweep = Math.sin(now / 1200) * 0.4;
-  const lx = WX + 4, ly = GY - 96;
-  const lgr = ctx.createLinearGradient(lx, ly, lx + 460, ly + 200);
-  lgr.addColorStop(0, 'rgba(255,250,200,0.25)');
+  const lx = WX - 22, ly = GY - 226;
+  const lgr = ctx.createLinearGradient(lx, ly, lx + 700, ly + 220);
+  lgr.addColorStop(0, 'rgba(255,250,200,0.22)');
   lgr.addColorStop(1, 'rgba(255,250,200,0)');
   ctx.fillStyle = lgr;
   ctx.save();
   ctx.translate(lx, ly); ctx.rotate(sweep);
   ctx.beginPath();
-  ctx.moveTo(0, 0); ctx.lineTo(480, 60); ctx.lineTo(480, 130); ctx.lineTo(0, 12);
+  ctx.moveTo(0, 0); ctx.lineTo(700, 80); ctx.lineTo(700, 200); ctx.lineTo(0, 16);
   ctx.closePath(); ctx.fill();
   ctx.restore();
-
-  // Distant zombie horde — real dZombie sprites at tiny scale (0.55x)
-  // so 14 of them read as a wall of pressing dead.
-  for (let i = 0; i < 14; i++) {
-    const zx = WX + 80 + i * 44 + Math.sin(now / 600 + i) * 4;
-    if (zx > CW + 10) continue;
-    const z = mkIntroZombie({
-      type: i % 5 === 0 ? 'tank' : i % 3 === 0 ? 'runner' : 'walker',
-      facing: -1, state: 'walk', walkPhase: i * 0.4,
-    });
-    dSpriteAt(dZombie, ctx, z, zx, GY, 0.55, now);
-  }
 }
 
 // ── Per-banner overlay text (drawn at unscaled screen coords) ──
