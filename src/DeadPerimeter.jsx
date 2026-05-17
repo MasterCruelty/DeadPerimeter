@@ -26,7 +26,11 @@ import { dSquadMarker, dHUD } from './render/hud.js';
 import { dEvacScene, EVAC_DURATION } from './render/evac.js';
 import { dIntroScene, INTRO_DURATION } from './render/intro.js';
 import { dDefeatScene, DEFEAT_DURATION } from './render/defeat.js';
+import { dTransmissionScene } from './render/transmission.js';
+import { dExtractionScene, EXTRACTION_DURATION, EXTRACTION_SCRIPT, mkExtraction } from './render/extraction.js';
+import { TRANSMISSIONS } from './data/transmissions.js';
 import { pushRadio } from './audio/radio.js';
+import { initRadioVoice, isRadioVoiceEnabled, isRadioVoiceAvailable, setRadioVoiceEnabled, speakRadio } from './audio/radioVoice.js';
 
 import { update } from './update/siege.js';
 import { mkMission, updateMission, dMissionWorld, dMissionHUD } from './update/mission.js';
@@ -41,9 +45,13 @@ export default function DeadPerimeter() {
   const evacRef = useRef(null);                // active helicopter-evac animation, if any
   const introRef = useRef(null);               // opening cinematic state, if any
   const defeatRef = useRef(null);              // game-over cinematic state, if any
+  const transmissionRef = useRef(null);        // intermediate radio cinematic (waves 10/20/25)
+  const extractionRef = useRef(null);          // wave-30 convoy finale cinematic
   const inputRef = useRef({ left: false, right: false, shoot: false });
   const pausedRef = useRef(false);
   const [scr, setScr] = useState('menu'), [ui, setUi] = useState(null), [muted, setMuted] = useState(false);
+  const [voiceOn, setVoiceOn] = useState(true);
+  const voiceAvail = isRadioVoiceAvailable();
   const [paused, setPaused] = useState(false);
   const [hasSave, setHasSave] = useState(false);
   const [, setMissionTick] = useState(0);
@@ -74,6 +82,12 @@ export default function DeadPerimeter() {
   }, []);
   const pickDest = useCallback(i => { expDstRef.current = i; setExpDestIdx(i); }, []);
 
+  const toggleVoice = useCallback(() => {
+    const n = !isRadioVoiceEnabled();
+    setRadioVoiceEnabled(n);
+    setVoiceOn(n);
+  }, []);
+
   const toggleMute = useCallback(() => {
     const am = getAM();
     const n = !mutedR.current;
@@ -88,8 +102,12 @@ export default function DeadPerimeter() {
     if (am) { if (n) am.stopBg(); else if (!mutedR.current) am.startBg(); }
   }, []);
 
-  // Detect existing save on mount
-  useEffect(() => { setHasSave(hasSavedGame()); }, []);
+  // Detect existing save + load radio-voice preference on mount.
+  useEffect(() => {
+    setHasSave(hasSavedGame());
+    initRadioVoice();
+    setVoiceOn(isRadioVoiceEnabled());
+  }, []);
 
   // Expedition animation ticker
   useEffect(() => {
@@ -122,6 +140,33 @@ export default function DeadPerimeter() {
     setScr('gameover');
   }, []);
 
+  // Intermediate radio transmission (waves 10/20/25): on finish, mark
+  // the wave done so it never replays, save, and drop into management.
+  const finishTransmission = useCallback(() => {
+    const gs = gsRef.current;
+    const tr = transmissionRef.current;
+    if (gs && tr && !gs.transmissionsDone.includes(tr.wave)) {
+      gs.transmissionsDone.push(tr.wave);
+    }
+    if (gs) { gs.pendingTransmission = null; saveGame(gs); }
+    try { window.speechSynthesis?.cancel(); } catch {}
+    transmissionRef.current = null;
+    setUi(mkSnap(gs));
+    setScr('management');
+  }, []);
+
+  // Wave-30 convoy cinematic: route to the victory stats screen.
+  const finishExtraction = useCallback(() => {
+    const gs = gsRef.current;
+    if (gs) gs.phase = 'victory';
+    try { window.speechSynthesis?.cancel(); } catch {}
+    extractionRef.current = null;
+    clearSave();
+    setHasSave(false);
+    setUi(mkSnap(gs));
+    setScr('victory');
+  }, []);
+
   const newGame = useCallback(() => {
     const am = getAM(); if (am) am.resume();
     clearSave();
@@ -129,6 +174,8 @@ export default function DeadPerimeter() {
     gs.soldiers.forEach(s => { s.ammo = WPN[s.weapon].ammo; gs.resources.ammo -= WPN[s.weapon].ammoCost; });
     gsRef.current = gs; setUi({ ...gs });
     setHasSave(false);
+    transmissionRef.current = null;
+    extractionRef.current = null;
     // Roll the opening cinematic before the player sees management.
     // Loaded games (continueGame) skip this and go straight to play.
     introRef.current = { startedAt: 0 };
@@ -325,6 +372,7 @@ export default function DeadPerimeter() {
     gs.resources.food       = Math.min(999, (gs.resources.food       || 0) + (evac.reward.food       || 0));
     gs.resources.medicine   = Math.min(999, (gs.resources.medicine   || 0) + (evac.reward.medicine   || 0));
     gs.resources.sniperAmmo = Math.min(99,  (gs.resources.sniperAmmo || 0) + (evac.reward.sniperAmmo || 0));
+    gs.resources.materials  = Math.min(999, (gs.resources.materials  || 0) + (evac.reward.materials  || 0));
     gs.lastEvacWave = gs.wave;
     evacRef.current = null;
     saveGame(gs); setHasSave(true);
@@ -348,6 +396,7 @@ export default function DeadPerimeter() {
         food:       civs * BALANCE.evacFoodPerCiv,
         medicine:   civs * BALANCE.evacMedicinePerCiv,
         sniperAmmo: civs * BALANCE.evacSniperAmmoPerCiv,
+        materials:  civs * BALANCE.evacMaterialsPerCiv,
       },
     };
     setScr('evac');
@@ -443,6 +492,9 @@ export default function DeadPerimeter() {
     const ctx = canvas.getContext('2d');
 
     const onClick = e => {
+      // Cinematics: tap anywhere to skip.
+      if (transmissionRef.current) { finishTransmission(); return; }
+      if (extractionRef.current)   { finishExtraction();   return; }
       const r = canvas.getBoundingClientRect();
       const mx = (e.clientX - r.left) * (CW / r.width), my = (e.clientY - r.top) * (CH / r.height);
       // Intro SKIP button.
@@ -509,6 +561,14 @@ export default function DeadPerimeter() {
     };
 
     const onKeyDown = e => {
+      // Space / Enter skip cinematics that have a skip hint.
+      if ((e.key === ' ' || e.key === 'Spacebar' || e.key === 'Enter')
+          && (transmissionRef.current || extractionRef.current)) {
+        if (transmissionRef.current) finishTransmission();
+        else if (extractionRef.current) finishExtraction();
+        e.preventDefault();
+        return;
+      }
       if (e.key === 'Escape' || e.key === 'Esc') {
         // Pause/resume only during siege. Missions and menus ignore Esc.
         const gs = gsRef.current;
@@ -544,6 +604,9 @@ export default function DeadPerimeter() {
     // Mobile touch: tap on canvas in siege = click; in mission =
     // shoot while held + half-screen virtual D-pad.
     const onTouchStart = e => {
+      // Cinematics skip on first tap.
+      if (transmissionRef.current) { e.preventDefault(); finishTransmission(); return; }
+      if (extractionRef.current)   { e.preventDefault(); finishExtraction();   return; }
       if (missionRef.current && missionRef.current.state === 'active') {
         e.preventDefault();
         const r = canvas.getBoundingClientRect();
@@ -628,6 +691,40 @@ export default function DeadPerimeter() {
         return;
       }
 
+      // Intermediate radio transmission cinematic (waves 10/20/25).
+      const tr = transmissionRef.current;
+      if (tr) {
+        if (!tr.startedAt) tr.startedAt = now;
+        dTransmissionScene(ctx, tr, now);
+        // Fire each scripted line through speakRadio() the first time
+        // its offset becomes active.
+        const off = now - tr.startedAt;
+        while (tr.lineIdx < tr.data.lines.length && off >= tr.data.lines[tr.lineIdx].at) {
+          const l = tr.data.lines[tr.lineIdx];
+          speakRadio(l.text, { pitch: l.pitch });
+          tr.lineIdx++;
+        }
+        if (off >= tr.data.durMs) finishTransmission();
+        rafId.current = requestAnimationFrame(loop);
+        return;
+      }
+
+      // Wave-30 extraction cinematic — convoy rolling out of Fort Omega.
+      const ext = extractionRef.current;
+      if (ext) {
+        if (!ext.startedAt) ext.startedAt = now;
+        dExtractionScene(ctx, ext, now);
+        const off = now - ext.startedAt;
+        while (ext.lineIdx < EXTRACTION_SCRIPT.length && off >= EXTRACTION_SCRIPT[ext.lineIdx].at) {
+          const l = EXTRACTION_SCRIPT[ext.lineIdx];
+          speakRadio(l.text, { pitch: l.pitch });
+          ext.lineIdx++;
+        }
+        if (off >= EXTRACTION_DURATION) finishExtraction();
+        rafId.current = requestAnimationFrame(loop);
+        return;
+      }
+
       // Helicopter evac animation overrides everything else.
       const evac = evacRef.current;
       if (evac) {
@@ -664,15 +761,31 @@ export default function DeadPerimeter() {
         }
         if (gs.phase !== 'siege') {
           const am = getAM(); if (am) am.stopBg();
-          // Auto-save whenever we transition to management or gameover
+          // Auto-save whenever we transition to management; clear save
+          // on terminal outcomes (gameover or victory).
           if (gs.phase === 'management') saveGame(gs);
-          else if (gs.phase === 'gameover') clearSave();
+          else if (gs.phase === 'gameover' || gs.phase === 'victory') clearSave();
           setHasSave(hasSavedGame());
           setUi(mkSnap(gs));
           // Defeat goes through a 24 s cinematic before the stats screen.
           if (gs.phase === 'gameover' && !defeatRef.current) {
             defeatRef.current = { startedAt: 0 };
             setScr('defeat');
+          } else if (gs.phase === 'extraction' && !extractionRef.current) {
+            // Wave-30 finale: convoy cinematic, then victory screen.
+            extractionRef.current = mkExtraction(gs);
+            setScr('extraction');
+          } else if (gs.phase === 'management' && gs.pendingTransmission && !transmissionRef.current) {
+            // Story-beat transmission queued at wave 10/20/25.
+            const wave = gs.pendingTransmission;
+            const data = TRANSMISSIONS[wave];
+            if (data) {
+              transmissionRef.current = { startedAt: 0, wave, data, lineIdx: 0 };
+              setScr('transmission');
+            } else {
+              gs.pendingTransmission = null;
+              setScr('management');
+            }
           } else {
             setScr(gs.phase);
           }
@@ -778,7 +891,7 @@ export default function DeadPerimeter() {
               DAY {gs?.day} — {sortiesLeft}/{BALANCE.expeditionsPerDay} sorties left before nightfall
             </div>
           </div>
-          <div style={{ color: C.dng, fontWeight: 'bold', fontSize: '20px' }}>WAVE #{gs?.wave}</div>
+          <div style={{ color: C.dng, fontWeight: 'bold', fontSize: '20px' }}>WAVE {gs?.wave}/{BALANCE.maxWaves}</div>
         </div>
         <hr style={hr} />
 
@@ -876,7 +989,7 @@ export default function DeadPerimeter() {
 
   return (
     <div style={{ background: '#030504', minHeight: '100vh', fontFamily: F, color: C.txt }}>
-      <div style={{ display: (scr === 'siege' || scr === 'mission' || scr === 'evac' || scr === 'intro' || scr === 'defeat') ? 'flex' : 'none', flexDirection: 'column', alignItems: 'center', padding: '10px 0' }}>
+      <div style={{ display: (scr === 'siege' || scr === 'mission' || scr === 'evac' || scr === 'intro' || scr === 'defeat' || scr === 'transmission' || scr === 'extraction') ? 'flex' : 'none', flexDirection: 'column', alignItems: 'center', padding: '10px 0' }}>
         <canvas ref={cvs} width={CW} height={CH} style={{ border: `1px solid ${C.uib}`, maxWidth: '100%', cursor: scr === 'mission' ? 'crosshair' : 'crosshair', display: 'block', outline: 'none' }} tabIndex={0} />
         {scr === 'siege' && (
           <div style={{ display: 'flex', gap: '7px', marginTop: '7px', flexWrap: 'wrap', justifyContent: 'center', alignItems: 'center', width: '100%', maxWidth: CW }}>
@@ -909,6 +1022,9 @@ export default function DeadPerimeter() {
             <button style={ctrlBtn} onClick={() => moveSquad('advance')}>ADVANCE ▶</button>
             <button style={mbtn} onClick={togglePause}>{paused ? '▶ RESUME' : '⏸ PAUSE'}</button>
             <button style={mbtn} onClick={toggleMute}>{muted ? '🔇' : '🔊'}</button>
+            {voiceAvail && (
+              <button style={mbtn} onClick={toggleVoice} title="Radio voice (TTS)">{voiceOn ? '🗣' : '🚫'}</button>
+            )}
           </div>
         )}
         {scr === 'mission' && (
@@ -917,6 +1033,9 @@ export default function DeadPerimeter() {
               <>
                 <span style={{ color: '#888', fontSize: '10px' }}>← / A or tap-left  ·  → / D or tap-right  ·  SPACE / tap-center : FIRE</span>
                 <button style={mbtn} onClick={toggleMute}>{muted ? '🔇' : '🔊'}</button>
+                {voiceAvail && (
+                  <button style={mbtn} onClick={toggleVoice} title="Radio voice (TTS)">{voiceOn ? '🗣' : '🚫'}</button>
+                )}
               </>
             ) : (
               <button style={btn('#1a3a18')} onClick={finalizeMission}>✦ RETURN TO BASE ✦</button>
@@ -956,10 +1075,15 @@ export default function DeadPerimeter() {
         <div style={wrap}>
           <div style={panel}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-              <div><div style={h1}>COMMAND CENTER</div><div style={{ color: C.txt, opacity: 0.5, fontSize: '10px', marginTop: '3px' }}>DAY {gs?.day || 1} — Wave {gs?.wave} incoming</div></div>
+              <div><div style={h1}>COMMAND CENTER</div><div style={{ color: C.txt, opacity: 0.5, fontSize: '10px', marginTop: '3px' }}>DAY {gs?.day || 1} — Wave {gs?.wave}/{BALANCE.maxWaves} incoming</div></div>
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '5px' }}>
-                <div style={{ color: C.dng, fontWeight: 'bold', fontSize: '20px' }}>WAVE #{gs?.wave || 1}</div>
-                <button style={mbtn} onClick={toggleMute}>{muted ? '🔇 MUTED' : '🔊 SOUND'}</button>
+                <div style={{ color: C.dng, fontWeight: 'bold', fontSize: '20px' }}>WAVE {gs?.wave || 1}/{BALANCE.maxWaves}</div>
+                <div style={{ display: 'flex', gap: '6px' }}>
+                  <button style={mbtn} onClick={toggleMute}>{muted ? '🔇 MUTED' : '🔊 SOUND'}</button>
+                  {voiceAvail && (
+                    <button style={mbtn} onClick={toggleVoice} title="Radio voice (TTS)">{voiceOn ? '🗣 VOICE' : '🚫 SILENT'}</button>
+                  )}
+                </div>
               </div>
             </div>
             {nextWaveIsHuman && (
@@ -970,6 +1094,33 @@ export default function DeadPerimeter() {
                 <div style={{ color: C.txt, fontSize: '10px', marginTop: '4px', lineHeight: '1.5' }}>
                   Survivor gangs spotted in the perimeter. Knifemen rush the wall; gunmen open fire from a distance. They drop ammo when killed.
                 </div>
+              </div>
+            )}
+            {/* Wave 30: extraction-day warning */}
+            {gs.wave === BALANCE.maxWaves && (
+              <div style={{ background: 'rgba(30,20,80,0.92)', border: `1px solid #5a7acc`, padding: '10px 14px', marginTop: '8px' }}>
+                <div style={{ color: '#88aaff', fontWeight: 'bold', fontSize: '13px', letterSpacing: '.05em' }}>
+                  ★ EXTRACTION DAY — FINAL WAVE
+                </div>
+                <div style={{ color: C.txt, fontSize: '10px', marginTop: '4px', lineHeight: '1.5' }}>
+                  Central Command needs the vaccine sample out. Hold the wall through one last assault — the convoy is on standby.
+                </div>
+              </div>
+            )}
+            {/* Daily food consumption report */}
+            {gs.lastFoodReport && gs.lastFoodReport.hungry > 0 && (
+              <div style={{ background: 'rgba(80,40,20,0.92)', border: `1px solid ${C.wrn}`, padding: '10px 14px', marginTop: '8px' }}>
+                <div style={{ color: C.wrn, fontWeight: 'bold', fontSize: '13px', letterSpacing: '.05em' }}>
+                  ⚠ DAY {gs.lastFoodReport.day} — RATIONS SHORT
+                </div>
+                <div style={{ color: C.txt, fontSize: '10px', marginTop: '4px', lineHeight: '1.5' }}>
+                  {gs.lastFoodReport.hungry} {gs.lastFoodReport.hungry === 1 ? 'person' : 'people'} went hungry and lost {gs.lastFoodReport.dmg} HP. Every soldier (active + reserve) eats {BALANCE.foodPerPersonPerDay} food per day.
+                </div>
+              </div>
+            )}
+            {gs.lastFoodReport && gs.lastFoodReport.hungry === 0 && gs.lastFoodReport.ate > 0 && (
+              <div style={{ background: 'rgba(20,40,20,0.85)', border: `1px solid ${C.acc}`, padding: '6px 14px', marginTop: '8px', fontSize: '10px', color: C.txt }}>
+                ✔ Day {gs.lastFoodReport.day}: {gs.lastFoodReport.ate} fed, rations holding.
               </div>
             )}
             <hr style={hr} />
@@ -1062,7 +1213,7 @@ export default function DeadPerimeter() {
                 <div style={{ fontSize: '9px', color: C.txt, opacity: 0.55, marginBottom: '6px' }}>
                   Civilians and recruits at rest. Auto-promoted to active duty when a slot opens up after each wave.
                   Helicopter evac unlocks at <b>{BALANCE.evacMinReserve} civilians</b> in reserve, then needs a {BALANCE.evacWaveCooldown}-wave cool-down between calls.
-                  Reward: +{BALANCE.evacFoodPerCiv} food, +{BALANCE.evacMedicinePerCiv} med, +{BALANCE.evacSniperAmmoPerCiv} sniper ammo per civ.
+                  Reward per civ: +{BALANCE.evacFoodPerCiv} food, +{BALANCE.evacMedicinePerCiv} med, +{BALANCE.evacSniperAmmoPerCiv} sniper ammo, +{BALANCE.evacMaterialsPerCiv} materials.
                 </div>
                 <div style={row}>
                   {gs.reserve.map((r, i) => {
@@ -1149,6 +1300,32 @@ export default function DeadPerimeter() {
             ))}</div>
             <hr style={hr} />
             <button style={btn('#5a1a1a', '#883030')} onClick={newGame}>↺ TRY AGAIN</button>
+          </div>
+        </div>
+      )}
+
+      {scr === 'victory' && (
+        <div style={wrap}>
+          <div style={{ ...panel, textAlign: 'center', maxWidth: '560px' }}>
+            <div style={{ fontSize: '48px', marginBottom: '6px' }}>🚁</div>
+            <div style={{ ...h1, color: '#88aaff', fontSize: '22px' }}>EXTRACTION COMPLETE</div>
+            <div style={{ color: C.txt, fontSize: '11px', marginTop: '8px', opacity: 0.7, lineHeight: '1.5' }}>
+              You held the wall for 30 waves. Central Command's last transmission asked you to carry a vaccine sample to the rendezvous. Whoever made it out of Fort Omega is on the road now.
+            </div>
+            <hr style={hr} />
+            <div style={row}>
+              {[
+                ['Waves', BALANCE.maxWaves],
+                ['Days', gs?.day],
+                ['Kills', gs?.kills],
+                ['Score', gs?.score],
+                ['Survivors', (gs?.soldiers?.filter(s => s.state !== 'dead').length || 0) + (gs?.reserve?.length || 0)],
+              ].map(([l, v]) => (
+                <div key={l} style={{ ...card, flex: 1, textAlign: 'center' }}><span style={lbl}>{l}</span><div style={{ ...val, fontSize: '18px' }}>{v}</div></div>
+              ))}
+            </div>
+            <hr style={hr} />
+            <button style={btn('#1a3a5a', '#4474aa')} onClick={newGame}>↻ NEW OPERATION</button>
           </div>
         </div>
       )}
