@@ -2177,20 +2177,48 @@ function dShotFortWide(ctx, t, now) {
   // The actual game wall
   dBase(ctx, 200, 200);
 
-  // Soldiers on the rampart — real dSoldier sprites standing on the
-  // wall TOP (dBase's wall body extends from GY-160 to GY). Feet on
-  // y = GY-160 so they read as standing on the parapet walkway, with
-  // crenellation blocks hiding their boots and legs from camera.
-  const positions = [WX - 78, WX - 56, WX - 32, WX - 8, WX + 16];
-  const weaps = ['rifle', 'rifle', 'shotgun', 'rifle', 'sniper'];
-  positions.forEach((sx, i) => {
-    const wob = Math.sin(now / 380 + i) * 0.8;
+  // Soldiers on the rampart. To break up the "row of figures floating
+  // on a wall" look they get:
+  //   - irregular X spacing (no even-divisor line)
+  //   - per-soldier Y dip so a couple peek lower from cover
+  //   - one in the watchtower instead of on the rampart
+  //   - feet anchored BELOW the wall-top (GY-148) so the
+  //     crenellation blocks visually overlap their boots/legs and
+  //     they read as "manning" the wall, not standing on a flat shelf
+  //   - one kneeling pose (state walk frozen) for variety
+  // Also drawn AFTER dBase so they layer above the brick face but
+  // their lower body is covered when their feet sit behind the
+  // parapet line. Final cap-detail pass overdraws a thin parapet
+  // shadow to anchor them.
+  const ramparts = [
+    { x: WX - 78, dipY: 0,  scale: 0.85, weapon: 'rifle',   pose: 'idle' },
+    { x: WX - 58, dipY: 6,  scale: 0.82, weapon: 'rifle',   pose: 'walk' }, // crouching
+    { x: WX - 34, dipY: 2,  scale: 0.88, weapon: 'shotgun', pose: 'idle' },
+    { x: WX - 14, dipY: 4,  scale: 0.84, weapon: 'rifle',   pose: 'idle' },
+    { x: WX + 18, dipY: 0,  scale: 0.90, weapon: 'sniper',  pose: 'idle' },
+  ];
+  ramparts.forEach((r, i) => {
+    const wob = Math.sin(now / 380 + i) * 0.6;
     const sol = mkIntroSoldier({
-      name: 'R' + i, weapon: weaps[i], facing: 1,
-      state: 'idle', walkPhase: i * 0.5 + wob,
+      name: 'R' + i, weapon: r.weapon, facing: 1,
+      state: r.pose, walkPhase: i * 0.5 + wob,
     });
-    dSpriteAt(dSoldier, ctx, sol, sx, GY - 160 + wob, 0.85, now);
+    dSpriteAt(dSoldier, ctx, sol, r.x, GY - 148 + r.dipY + wob, r.scale, now);
   });
+  // Re-draw a thin shadow strip under the crenellation row so the
+  // soldiers' boots get visually buried in cover (they were drawn at
+  // GY-148, which is 12 px below the wall body top at GY-160).
+  ctx.fillStyle = 'rgba(0,0,0,0.55)';
+  ctx.fillRect(0, GY - 160, WX + 12, 12);
+
+  // One soldier visible in the watchtower window (head + rifle barrel)
+  const tx = WX - 22;
+  ctx.fillStyle = '#bf8a6a';
+  ctx.beginPath(); ctx.arc(tx, GY - 226, 3.5, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#1a2418';
+  ctx.fillRect(tx - 4, GY - 230, 8, 3);  // helmet rim
+  ctx.fillStyle = '#0a0a0a';
+  ctx.fillRect(tx + 4, GY - 223, 12, 1.5);  // rifle barrel out the window
 
   // Search light sweeping the field beyond
   const sweep = Math.sin(now / 1200) * 0.4;
