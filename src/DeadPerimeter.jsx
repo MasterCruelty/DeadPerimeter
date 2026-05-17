@@ -332,6 +332,20 @@ export default function DeadPerimeter() {
     setUi({ ...gs });
   }, []);
 
+  // Repair the perimeter wall: spend wallRepairCost materials for
+  // wallRepairHp HP, capped at baseMaxHp. Only available during the
+  // management phase and disabled when wall is already full.
+  const repairWall = useCallback(() => {
+    const gs = gsRef.current;
+    if (!gs || gs.phase !== 'management') return;
+    if (gs.resources.materials < BALANCE.wallRepairCost) return;
+    if (gs.baseHp >= gs.baseMaxHp) return;
+    gs.resources.materials -= BALANCE.wallRepairCost;
+    gs.baseHp = Math.min(gs.baseMaxHp, gs.baseHp + BALANCE.wallRepairHp);
+    saveGame(gs); setHasSave(true);
+    setUi({ ...gs });
+  }, []);
+
   const benchSoldier = useCallback(idx => {
     const gs = gsRef.current; if (!gs) return;
     const s = gs.soldiers[idx]; if (!s || s.state === 'dead') return;
@@ -1150,6 +1164,11 @@ export default function DeadPerimeter() {
                 <button style={{ ...btn('#1a3028', '#226644'), fontSize: '10px', padding: '4px 10px' }} disabled={!canRecruit} onClick={recruit}>+RECRUIT (🥫20 🔧15)</button>
                 <button style={{ ...btn('#2a1e08', '#885522'), fontSize: '10px', padding: '4px 10px' }} disabled={!canBarricadeFlag} onClick={buildBarricade}>🪵 BARRICADE (🔧15)</button>
                 <button style={{ ...btn('#1a2438', '#446699'), fontSize: '10px', padding: '4px 10px' }} disabled={!canTurret} onClick={buildTurret}>🛠 MG TURRET (🔧{BALANCE.turretCostMaterials} 🟠{BALANCE.turretCostAmmo})</button>
+                <button
+                  style={{ ...btn('#2a1818', '#883333'), fontSize: '10px', padding: '4px 10px' }}
+                  disabled={!gs || gs.baseHp >= gs.baseMaxHp || (gs.resources?.materials || 0) < BALANCE.wallRepairCost}
+                  onClick={repairWall}
+                >🧱 REPAIR WALL (🔧{BALANCE.wallRepairCost} → +{BALANCE.wallRepairHp} HP)</button>
               </div>
             </div>
             <div style={row}>

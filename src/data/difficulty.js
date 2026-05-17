@@ -7,11 +7,11 @@
 export const DIFFICULTY = {
   // Zombie counts per wave n
   walkerBase: 5,     // walkers spawned even at wave 1
-  walkerPerWave: 3,  // extra walkers per subsequent wave
+  walkerPerWave: 2,  // extra walkers per subsequent wave
   runnerFromWave: 2, // runners start showing up at this wave
-  runnerPerWave: 2,
-  tankFromWave: 4,   // tanks start at this wave
-  tankPerWave: 1,    // extra tank per wave beyond tankFromWave
+  runnerPerWave: 1.5,
+  tankFromWave: 6,   // tanks start at this wave (was 4)
+  tankPerWave: 0.5,  // extra tank every two waves beyond tankFromWave
 
   // Spawn cadence (ms between successive spawns)
   walkerCadence: 1700,
@@ -71,5 +71,14 @@ export const BALANCE = {
   // after a wave clear, except after wave 1 which is the tutorial).
   foodPerPersonPerDay: 2,
   starveDmg: 15,                    // hp lost by anyone who didn't eat
+
+  // Wall repair (manual, from the command center)
+  wallRepairCost: 8,                // materials per repair tick
+  wallRepairHp: 30,                 // hp restored per tick
+
+  // Per-wave clear bonuses (bumped from the original +10/+8 to make
+  // sustained survival feasible without grinding expeditions).
+  waveClearAmmo: 25,
+  waveClearFood: 12,
 };
 
