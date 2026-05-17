@@ -2,6 +2,7 @@ import { C, CW, GY, WX, uid, rng, laneY, laneSc } from '../constants.js';
 import { WPN } from '../data/weapons.js';
 import { HUMAN_AMMO_DROP } from '../data/humans.js';
 import { BALANCE } from '../data/difficulty.js';
+import { TRANSMISSION_WAVES } from '../data/transmissions.js';
 import { mkZombie } from '../entities/zombie.js';
 import { mkHuman } from '../entities/human.js';
 import { mkSoldier } from '../entities/soldier.js';
@@ -449,10 +450,17 @@ export function update(gs, now, dt) {
     // management. The React layer will route this to the wave-30
     // extraction cinematic.
     if (gs.wave > BALANCE.maxWaves) {
-      gs.phase = 'victory';
+      gs.phase = 'extraction';
       return;
     }
     gs.phase = 'management';
+    // Intermediate story-beat transmissions interleave with the wave
+    // pacing. Trigger once per wave (transmissionsDone is persisted)
+    // so reloading a save doesn't replay the cinematic.
+    if (!Array.isArray(gs.transmissionsDone)) gs.transmissionsDone = [];
+    if (TRANSMISSION_WAVES.includes(gs.wave) && !gs.transmissionsDone.includes(gs.wave)) {
+      gs.pendingTransmission = gs.wave;
+    }
     gs.resources.ammo = Math.min(999, gs.resources.ammo + 10);
     gs.resources.food = Math.min(999, gs.resources.food + 8);
     // Daily food consumption — every soldier (active + reserve) eats
