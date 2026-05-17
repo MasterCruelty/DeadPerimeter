@@ -461,8 +461,14 @@ export function update(gs, now, dt) {
     if (TRANSMISSION_WAVES.includes(gs.wave) && !gs.transmissionsDone.includes(gs.wave)) {
       gs.pendingTransmission = gs.wave;
     }
-    gs.resources.ammo = Math.min(999, gs.resources.ammo + 10);
-    gs.resources.food = Math.min(999, gs.resources.food + 8);
+    gs.resources.ammo = Math.min(999, gs.resources.ammo + BALANCE.waveClearAmmo);
+    gs.resources.food = Math.min(999, gs.resources.food + BALANCE.waveClearFood);
+    // Barricades that survived the wave get patched back up to full HP
+    // for free (squad maintenance between waves). Destroyed ones stay
+    // gone — the player has to rebuild manually.
+    if (Array.isArray(gs.barricades)) {
+      gs.barricades.forEach(b => { if (b.hp > 0) b.hp = b.maxHp; });
+    }
     // Daily food consumption — every soldier (active + reserve) eats
     // foodPerPersonPerDay food. If we don't have enough, hungry people
     // lose starveDmg HP each. Skipped after wave 1 (the tutorial wave).
