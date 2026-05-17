@@ -35,8 +35,10 @@ export const BALANCE = {
 
   // Mission (playable expedition)
   missionActivationRange: 700,      // zombies wake up earlier so you can't sprint past
-  missionGoalKillRatio: 0.60,       // must have killed >= 60% of activated zombies
-                                    // before the goal becomes reachable
+  missionGoalKillRatio: 0.45,       // must have killed >= 45% of activated zombies
+                                    // before the goal becomes reachable (down from
+                                    // 60% so the player can skip the last stragglers
+                                    // if they're badly outnumbered)
 
   // Reserve / contingent
   maxActiveSoldiers: 6,             // dispatched to Fort Omega at any one time
