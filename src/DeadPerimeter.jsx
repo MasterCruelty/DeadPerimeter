@@ -27,6 +27,7 @@ import { dEvacScene, EVAC_DURATION } from './render/evac.js';
 import { dIntroScene, INTRO_DURATION } from './render/intro.js';
 import { dDefeatScene, DEFEAT_DURATION } from './render/defeat.js';
 import { pushRadio } from './audio/radio.js';
+import { initRadioVoice, isRadioVoiceEnabled, isRadioVoiceAvailable, setRadioVoiceEnabled } from './audio/radioVoice.js';
 
 import { update } from './update/siege.js';
 import { mkMission, updateMission, dMissionWorld, dMissionHUD } from './update/mission.js';
@@ -44,6 +45,8 @@ export default function DeadPerimeter() {
   const inputRef = useRef({ left: false, right: false, shoot: false });
   const pausedRef = useRef(false);
   const [scr, setScr] = useState('menu'), [ui, setUi] = useState(null), [muted, setMuted] = useState(false);
+  const [voiceOn, setVoiceOn] = useState(true);
+  const voiceAvail = isRadioVoiceAvailable();
   const [paused, setPaused] = useState(false);
   const [hasSave, setHasSave] = useState(false);
   const [, setMissionTick] = useState(0);
@@ -74,6 +77,12 @@ export default function DeadPerimeter() {
   }, []);
   const pickDest = useCallback(i => { expDstRef.current = i; setExpDestIdx(i); }, []);
 
+  const toggleVoice = useCallback(() => {
+    const n = !isRadioVoiceEnabled();
+    setRadioVoiceEnabled(n);
+    setVoiceOn(n);
+  }, []);
+
   const toggleMute = useCallback(() => {
     const am = getAM();
     const n = !mutedR.current;
@@ -88,8 +97,12 @@ export default function DeadPerimeter() {
     if (am) { if (n) am.stopBg(); else if (!mutedR.current) am.startBg(); }
   }, []);
 
-  // Detect existing save on mount
-  useEffect(() => { setHasSave(hasSavedGame()); }, []);
+  // Detect existing save + load radio-voice preference on mount.
+  useEffect(() => {
+    setHasSave(hasSavedGame());
+    initRadioVoice();
+    setVoiceOn(isRadioVoiceEnabled());
+  }, []);
 
   // Expedition animation ticker
   useEffect(() => {
@@ -914,6 +927,9 @@ export default function DeadPerimeter() {
             <button style={ctrlBtn} onClick={() => moveSquad('advance')}>ADVANCE ▶</button>
             <button style={mbtn} onClick={togglePause}>{paused ? '▶ RESUME' : '⏸ PAUSE'}</button>
             <button style={mbtn} onClick={toggleMute}>{muted ? '🔇' : '🔊'}</button>
+            {voiceAvail && (
+              <button style={mbtn} onClick={toggleVoice} title="Radio voice (TTS)">{voiceOn ? '🗣' : '🚫'}</button>
+            )}
           </div>
         )}
         {scr === 'mission' && (
@@ -922,6 +938,9 @@ export default function DeadPerimeter() {
               <>
                 <span style={{ color: '#888', fontSize: '10px' }}>← / A or tap-left  ·  → / D or tap-right  ·  SPACE / tap-center : FIRE</span>
                 <button style={mbtn} onClick={toggleMute}>{muted ? '🔇' : '🔊'}</button>
+                {voiceAvail && (
+                  <button style={mbtn} onClick={toggleVoice} title="Radio voice (TTS)">{voiceOn ? '🗣' : '🚫'}</button>
+                )}
               </>
             ) : (
               <button style={btn('#1a3a18')} onClick={finalizeMission}>✦ RETURN TO BASE ✦</button>
@@ -964,7 +983,12 @@ export default function DeadPerimeter() {
               <div><div style={h1}>COMMAND CENTER</div><div style={{ color: C.txt, opacity: 0.5, fontSize: '10px', marginTop: '3px' }}>DAY {gs?.day || 1} — Wave {gs?.wave}/{BALANCE.maxWaves} incoming</div></div>
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '5px' }}>
                 <div style={{ color: C.dng, fontWeight: 'bold', fontSize: '20px' }}>WAVE {gs?.wave || 1}/{BALANCE.maxWaves}</div>
-                <button style={mbtn} onClick={toggleMute}>{muted ? '🔇 MUTED' : '🔊 SOUND'}</button>
+                <div style={{ display: 'flex', gap: '6px' }}>
+                  <button style={mbtn} onClick={toggleMute}>{muted ? '🔇 MUTED' : '🔊 SOUND'}</button>
+                  {voiceAvail && (
+                    <button style={mbtn} onClick={toggleVoice} title="Radio voice (TTS)">{voiceOn ? '🗣 VOICE' : '🚫 SILENT'}</button>
+                  )}
+                </div>
               </div>
             </div>
             {nextWaveIsHuman && (
