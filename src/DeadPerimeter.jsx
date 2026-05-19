@@ -35,9 +35,7 @@ import { initRadioVoice, isRadioVoiceEnabled, isRadioVoiceAvailable, setRadioVoi
 import { update } from './update/siege.js';
 import { mkMission, updateMission, dMissionWorld, dMissionHUD } from './update/mission.js';
 
-import { resolveExpedition, resolvePartyExpedition } from './expedition/auto.js';
 import { finishMission } from './expedition/missionFinish.js';
-import { genEvents } from './expedition/events.js';
 
 export default function DeadPerimeter() {
   const cvs = useRef(null), gsRef = useRef(null), rafId = useRef(null), prevT = useRef(0), mutedR = useRef(false);
@@ -240,53 +238,6 @@ export default function DeadPerimeter() {
     ground.forEach((s, i) => { s.x = WX + 20; s.state = 'walk'; s.facing = 1; s.destX = 224 + i * 24; s.reloadTriggered = false; });
     gs.soldiers.filter(s => s.onRoof && s.state !== 'dead').forEach(s => { s.x = WX - 40; s.state = 'idle'; s.facing = 1; s.reloadTriggered = false; });
     setScr('siege'); setExpResult(null);
-  }, []);
-
-  const sendExpedition = useCallback(() => {
-    const idxs = expSolsRef.current, di = expDstRef.current;
-    if (!idxs || idxs.length === 0 || di === null) return;
-    const gs = gsRef.current;
-    if ((gs.expeditionsToday || 0) >= BALANCE.expeditionsPerDay) return;
-    const soldiers = idxs.map(i => gs.soldiers[i]).filter(s => s && s.state !== 'dead');
-    if (soldiers.length === 0) return;
-    const dest = expDestsRef.current[di];
-
-    const result = soldiers.length === 1
-      ? resolveExpedition(soldiers[0], dest, gs)
-      : resolvePartyExpedition(soldiers, dest, gs);
-
-    if (result.reward.ammo)       gs.resources.ammo       = Math.min(999, gs.resources.ammo + result.reward.ammo);
-    if (result.reward.medicine)   gs.resources.medicine   = Math.min(999, gs.resources.medicine + result.reward.medicine);
-    if (result.reward.food)       gs.resources.food       = Math.min(999, gs.resources.food + result.reward.food);
-    if (result.reward.materials)  gs.resources.materials  = Math.min(999, gs.resources.materials + result.reward.materials);
-    if (result.reward.sniperAmmo) gs.resources.sniperAmmo = Math.min(99,  (gs.resources.sniperAmmo || 0) + result.reward.sniperAmmo);
-    if (result.reward.turretAmmo) gs.resources.turretAmmo = Math.min(999, (gs.resources.turretAmmo || 0) + result.reward.turretAmmo);
-
-    if (result.recruit) {
-      const r = result.recruit;
-      const activeCount = gs.soldiers.filter(s => s.state !== 'dead').length;
-      if (activeCount < BALANCE.maxActiveSoldiers) {
-        const ns = mkSoldier(r.name, r.weapon, 270, r.hp, Math.floor(Math.random() * 3), !!r.civilian, false, { veteran: !!r.veteran });
-        ns.ammo = 0; gs.soldiers.push(ns);
-      } else if ((gs.reserve?.length || 0) < BALANCE.maxReserveSoldiers) {
-        gs.reserve = gs.reserve || [];
-        gs.reserve.push({ name: r.name, weapon: r.weapon, civilian: !!r.civilian, veteran: !!r.veteran, hp: r.hp });
-      }
-    }
-
-    gs.expeditionsToday = (gs.expeditionsToday || 0) + 1;
-
-    // Use the (single) soldier's narrative log; for a party we use the first.
-    const lead = soldiers[0];
-    const events = genEvents(lead.name, dest, result.outcome, result.dmgTaken, result.recruit);
-    if (result.party && result.party.length > 1) {
-      events.unshift({ icon: '🛡', text: `Party of ${result.party.length}: ${result.soldierNames.join(', ')}.`, delay: 700, col: C.acc });
-      if (result.kiaNames && result.kiaNames.length > 0) {
-        events.push({ icon: '💀', text: `Lost in action: ${result.kiaNames.join(', ')}.`, delay: 1200, col: C.dng });
-      }
-    }
-    setExpEvents(events); setExpVisible(0); setExpResult(result); setExpPhase('running');
-    setUi({ ...gs, soldiers: gs.soldiers.map(s => ({ ...s })) });
   }, []);
 
   const playMission = useCallback(() => {
@@ -960,16 +911,10 @@ export default function DeadPerimeter() {
                 style={btn('#1a3a18')}
                 disabled={!partyValid || expDestIdx === null || !canSortie}
                 onClick={playMission}
-              >🎮 PLAY LIVE</button>
-              <button
-                style={btn('#2a3018', '#558844')}
-                disabled={!partyValid || expDestIdx === null || !canSortie}
-                onClick={sendExpedition}
-              >🗺 AUTO-DISPATCH</button>
+              >🎮 LAUNCH SORTIE</button>
             </div>
             <div style={{ fontSize: '9px', color: C.txt, opacity: 0.5, marginTop: '8px', lineHeight: '1.5' }}>
-              <b style={{ color: C.acc }}>PLAY LIVE</b>: control the first picked soldier; the others follow as AI (auto-shoot in range, knife on dry mag). Lead death = mission failed.<br />
-              <b style={{ color: C.txt }}>AUTO-DISPATCH</b>: text-based; up to {BALANCE.maxExpeditionParty} soldiers, rewards stack with diminishing returns.
+              You control the first picked soldier; the others follow as AI (auto-shoot in range, knife on dry mag). Lead death = mission failed — but a surviving follower takes point.
               {!expeditionsUnlocked && <><br /><b style={{ color: C.dng }}>LOCKED</b>: expeditions unlock from wave 2 onward.</>}
               {expeditionsUnlocked && sortiesLeft <= 0 && <><br /><b style={{ color: C.dng }}>NIGHTFALL</b>: no more sorties today — survive the next wave to dispatch again.</>}
             </div>
