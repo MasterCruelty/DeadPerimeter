@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 
-import { C, CW, CH, WX, laneY, clickToLane, rng } from './constants.js';
+import { C, CW, CH, WX, WORLD_W, laneY, clickToLane, rng } from './constants.js';
 import { WPN } from './data/weapons.js';
 import { rollDestinations, RECRUIT_NAMES, RECRUIT_WEAPONS } from './data/expeditions.js';
 import { isHumanWaveNumber } from './data/humans.js';
@@ -514,19 +514,25 @@ export default function DeadPerimeter() {
       const gs = gsRef.current;
       if (!gs || gs.phase !== 'siege' || my <= 38) return;
 
+      // The world is wider than the viewport (WORLD_W vs CW) and the
+      // siege view scrolls. Translate the click into world coordinates
+      // so entity-hit tests and target placement line up with what the
+      // player sees regardless of cameraX.
+      const worldX = mx + (gs.cameraX || 0);
+
       const clickedSol = gs.soldiers.find(s => {
         if (s.state === 'dead' || s.onExpedition || s.onRoof) return false;
         const sly = laneY(s.lane);
-        return Math.abs(s.x - mx) < 22 && my > sly - 58 && my < sly + 10;
+        return Math.abs(s.x - worldX) < 22 && my > sly - 58 && my < sly + 10;
       });
       if (clickedSol) {
         gs.selectedSoldierId = (gs.selectedSoldierId === clickedSol.id) ? null : clickedSol.id;
         return;
       }
 
-      if (mx > WX + 40) {
+      if (worldX > WX + 40) {
         const clickedLane = clickToLane(my);
-        const targetX = Math.max(WX + 40, Math.min(CW - 80, mx));
+        const targetX = Math.max(WX + 40, Math.min(CW - 80, worldX));
         if (gs.selectedSoldierId !== null) {
           const s = gs.soldiers.find(s => s.id === gs.selectedSoldierId);
           if (s && s.state !== 'dead' && !s.onExpedition && !s.onRoof && s.state !== 'reload') {
@@ -568,11 +574,18 @@ export default function DeadPerimeter() {
         if (e.key === 'ArrowUp'    || e.key === 'w' || e.key === 'W') { inputRef.current.up = true;    e.preventDefault(); }
         if (e.key === 'ArrowDown'  || e.key === 's' || e.key === 'S') { inputRef.current.down = true;  e.preventDefault(); }
         if (e.key === ' ' || e.key === 'Spacebar') { inputRef.current.shoot = true; e.preventDefault(); }
+      } else {
+        // Siege phase: arrow keys pan the camera across the wider WORLD_W.
+        const gs = gsRef.current;
+        if (gs && gs.phase === 'siege' && !missionRef.current) {
+          if (e.key === 'ArrowLeft'  || e.key === 'a' || e.key === 'A') { inputRef.current.panLeft  = true; e.preventDefault(); }
+          if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') { inputRef.current.panRight = true; e.preventDefault(); }
+        }
       }
     };
     const onKeyUp = e => {
-      if (e.key === 'ArrowLeft'  || e.key === 'a' || e.key === 'A') inputRef.current.left = false;
-      if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') inputRef.current.right = false;
+      if (e.key === 'ArrowLeft'  || e.key === 'a' || e.key === 'A') { inputRef.current.left = false; inputRef.current.panLeft = false; }
+      if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') { inputRef.current.right = false; inputRef.current.panRight = false; }
       if (e.key === 'ArrowUp'    || e.key === 'w' || e.key === 'W') inputRef.current.up = false;
       if (e.key === 'ArrowDown'  || e.key === 's' || e.key === 'S') inputRef.current.down = false;
       if (e.key === ' ' || e.key === 'Spacebar') inputRef.current.shoot = false;
@@ -744,6 +757,15 @@ export default function DeadPerimeter() {
           update(gs, now, dt);
           processSounds(gs.soundQ, getAM(), mutedR);
         }
+        // Camera pan from arrow-key input. 0.55 px/ms ≈ 33 px/frame at
+        // 60 FPS, clamped to [0, WORLD_W - CW].
+        if (inputRef.current.panLeft || inputRef.current.panRight) {
+          const panSpd = 0.55 * dt;
+          let cx = gs.cameraX || 0;
+          if (inputRef.current.panLeft)  cx -= panSpd;
+          if (inputRef.current.panRight) cx += panSpd;
+          gs.cameraX = Math.max(0, Math.min(WORLD_W - CW, cx));
+        }
         if (gs.phase !== 'siege') {
           const am = getAM(); if (am) am.stopBg();
           // Auto-save whenever we transition to management; clear save
@@ -777,6 +799,12 @@ export default function DeadPerimeter() {
         } else {
           ctx.save(); ctx.clearRect(0, 0, CW, CH);
           if (gs.shakeTimer > 0) ctx.translate((Math.random() - 0.5) * 5, (Math.random() - 0.5) * 3);
+          // Camera scroll: pan the world coordinate system left by
+          // gs.cameraX so the 900-wide viewport maps to a slice of the
+          // wider WORLD_W. HUD is drawn after ctx.restore() so it stays
+          // in screen-space and never scrolls.
+          ctx.save();
+          ctx.translate(-(gs.cameraX || 0), 0);
           dBg(ctx); dBase(ctx, gs.baseHp, gs.baseMaxHp);
           for (let lane = 2; lane >= 0; lane--) {
             gs.zombies.filter(z => z.state === 'dead' && z.lane === lane).forEach(z => dZombie(ctx, z, now));
@@ -790,6 +818,8 @@ export default function DeadPerimeter() {
           gs.effects.forEach(e => dFx(ctx, e, now));
           gs.bullets.forEach(b => dBlt(ctx, b));
           dSquadMarker(ctx, gs.squadTarget, gs.squadLane, now);
+          ctx.restore();
+          // HUD lives in screen-space.
           dHUD(ctx, gs, now, mutedR.current);
           if (pausedRef.current) {
             ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(0, 0, CW, CH);

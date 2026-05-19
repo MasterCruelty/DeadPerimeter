@@ -16,6 +16,9 @@ export const mkGS = () => {
     zombies: [], humans: [], bullets: [], effects: [], barricades: [], turrets: [], soundQ: [],
     spawnQueue: [], waveTime: 0, waveClearAt: null, waveComplete: false,
     score: 0, kills: 0, zombiesSpawned: 0, shakeTimer: 0,
+    // Camera scroll for the wider WORLD_W siege view. 0 = wall on the
+    // left edge (default). Player pans with arrow keys to scout.
+    cameraX: 0,
     squadTarget: null, squadLane: null, selectedSoldierId: null,
     expeditionResult: null,
     isHumanWave: false,
