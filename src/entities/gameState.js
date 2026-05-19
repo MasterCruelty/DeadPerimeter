@@ -29,6 +29,7 @@ export const mkGS = () => {
     transmissionsDone: [],    // story-beat cinematic waves already shown
     pendingTransmission: null,
     lastFoodReport: null,
+    lastSupplyDrop: null,     // { wave, breakdown } banner data
     usedNames: new Set(['Alpha', 'Bravo', 'Charlie', 'Delta']),
   };
 };
