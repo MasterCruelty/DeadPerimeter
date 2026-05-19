@@ -142,48 +142,74 @@ export default function DeadPerimeter() {
 
   // Intermediate radio transmission (waves 10/20/25): on finish, mark
   // the wave done so it never replays, save, and drop into management.
+  // Wrapped defensively — any throw here would kill the rAF loop and
+  // freeze the canvas on the last cinematic frame.
   const finishTransmission = useCallback(() => {
-    const gs = gsRef.current;
-    const tr = transmissionRef.current;
-    if (gs && tr && !gs.transmissionsDone.includes(tr.wave)) {
-      gs.transmissionsDone.push(tr.wave);
-      // Apply the supply drop payload Central Command promised in the
-      // transmission. The management screen surfaces a banner showing
-      // what was received via gs.lastSupplyDrop.
-      const drop = tr.data.supplyDrop;
-      if (drop && gs) {
-        const breakdown = {};
-        const apply = (k, cap) => {
-          if (!drop[k]) return;
-          const before = gs.resources[k] || 0;
-          gs.resources[k] = Math.min(cap, before + drop[k]);
-          breakdown[k] = gs.resources[k] - before;
-        };
-        apply('ammo', 999);
-        apply('food', 999);
-        apply('medicine', 999);
-        apply('materials', 999);
-        apply('sniperAmmo', 99);
-        apply('turretAmmo', 999);
-        gs.lastSupplyDrop = { wave: tr.wave, breakdown };
+    try {
+      const gs = gsRef.current;
+      const tr = transmissionRef.current;
+      if (gs && tr) {
+        if (!Array.isArray(gs.transmissionsDone)) gs.transmissionsDone = [];
+        if (!gs.transmissionsDone.includes(tr.wave)) {
+          gs.transmissionsDone.push(tr.wave);
+          // Apply the supply drop payload Central Command promised in
+          // the transmission. The management screen surfaces a banner
+          // showing what was received via gs.lastSupplyDrop.
+          const drop = tr.data && tr.data.supplyDrop;
+          if (drop) {
+            const breakdown = {};
+            const apply = (k, cap) => {
+              const inc = drop[k];
+              if (!inc) return;
+              const before = (gs.resources && gs.resources[k]) || 0;
+              const after  = Math.min(cap, before + inc);
+              gs.resources[k] = after;
+              breakdown[k] = after - before;
+            };
+            if (!gs.resources) gs.resources = {};
+            apply('ammo', 999);
+            apply('food', 999);
+            apply('medicine', 999);
+            apply('materials', 999);
+            apply('sniperAmmo', 99);
+            apply('turretAmmo', 999);
+            gs.lastSupplyDrop = { wave: tr.wave, breakdown };
+          }
+        }
+        gs.pendingTransmission = null;
+        try { saveGame(gs); } catch (e) { /* save failure is non-fatal */ }
       }
+      try { window.speechSynthesis?.cancel(); } catch {}
+    } catch (e) {
+      // Swallow + log: a bug in the drop apply must not freeze the game.
+      // eslint-disable-next-line no-console
+      console.error('finishTransmission error:', e);
     }
-    if (gs) { gs.pendingTransmission = null; saveGame(gs); }
-    try { window.speechSynthesis?.cancel(); } catch {}
+    // Always clear the cinematic ref + route to management, even if
+    // the payload application above threw. The player must never be
+    // stuck on a finished cinematic.
     transmissionRef.current = null;
-    setUi(mkSnap(gs));
+    try { setUi(mkSnap(gsRef.current)); } catch (e) { /* fall through */ }
     setScr('management');
   }, []);
 
   // Wave-30 convoy cinematic: route to the victory stats screen.
+  // Wrapped defensively for the same reason as finishTransmission —
+  // any throw here would freeze the canvas on the last cinematic
+  // frame instead of advancing to the stats screen.
   const finishExtraction = useCallback(() => {
-    const gs = gsRef.current;
-    if (gs) gs.phase = 'victory';
-    try { window.speechSynthesis?.cancel(); } catch {}
+    try {
+      const gs = gsRef.current;
+      if (gs) gs.phase = 'victory';
+      try { window.speechSynthesis?.cancel(); } catch {}
+      clearSave();
+      setHasSave(false);
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.error('finishExtraction error:', e);
+    }
     extractionRef.current = null;
-    clearSave();
-    setHasSave(false);
-    setUi(mkSnap(gs));
+    try { setUi(mkSnap(gsRef.current)); } catch (e) { /* fall through */ }
     setScr('victory');
   }, []);
 
@@ -297,15 +323,21 @@ export default function DeadPerimeter() {
 
   // Enter placement mode for a new barricade. The actual mkBarricade
   // + resource deduction runs in confirmPlacement once the player
-  // clicks a valid spot on the siege view.
+  // clicks a valid spot on the siege view. The placement camera
+  // (pl.cameraX) follows the cursor so the player can roam the full
+  // valid range without bumping into the viewport edge.
   const buildBarricade = useCallback(() => {
     const gs = gsRef.current;
     if (gs.resources.materials < 15 || gs.barricades.length >= BALANCE.maxBarricades) return;
+    const mouseWorldX = WX + 240;
     placementRef.current = {
       kind: 'barricade',
       cost: { materials: 15 },
-      validRange: [WX + 70, WX + 480],
-      mouseWorldX: WX + 200,
+      // Anywhere from just past the inner wall out to most of the
+      // killbox — barricades are physical obstacles for the zombies.
+      validRange: [WX + 50, WORLD_W - 100],
+      mouseWorldX,
+      cameraX: Math.max(0, Math.min(WORLD_W - CW, mouseWorldX - CW / 2)),
     };
     setScr('placement');
   }, []);
@@ -433,13 +465,16 @@ export default function DeadPerimeter() {
       (gs.resources.turretAmmo || 0) < BALANCE.turretCostAmmo ||
       (gs.turrets?.length || 0) >= BALANCE.maxTurrets
     ) return;
+    const mouseWorldX = WX + 60;
     placementRef.current = {
       kind: 'turret',
       cost: { materials: BALANCE.turretCostMaterials, turretAmmo: BALANCE.turretCostAmmo },
-      // Turrets mount on the wall (inner side). Allow a small strip
-      // either side of WX so two turrets don't have to overlap.
-      validRange: [WX - 12, WX + 60],
-      mouseWorldX: WX + 20,
+      // Turrets can mount along the wall OR be set forward into the
+      // killbox as an advance emplacement. Wider strip than barricade
+      // gives the player real tactical choice (forward vs anchored).
+      validRange: [WX - 40, WX + 600],
+      mouseWorldX,
+      cameraX: Math.max(0, Math.min(WORLD_W - CW, mouseWorldX - CW / 2)),
     };
     setScr('placement');
   }, []);
@@ -696,17 +731,15 @@ export default function DeadPerimeter() {
     };
 
     // Mouse move tracks cursor world-X for build placement so the
-    // ghost preview follows the pointer.
+    // ghost preview follows the pointer. Uses the same pl.cameraX
+    // the renderer uses (the camera follows the cursor) so screen→
+    // world conversion stays consistent frame to frame.
     const onMouseMove = e => {
       const pl = placementRef.current;
       if (!pl) return;
       const r = canvas.getBoundingClientRect();
       const mx = (e.clientX - r.left) * (CW / r.width);
-      // Placement view centers on the valid-range midpoint; mirror the
-      // same camera math so screenX → worldX.
-      const [minX, maxX] = pl.validRange;
-      const focusX = (minX + maxX) / 2;
-      const camX = Math.max(0, Math.min(WORLD_W - CW, focusX - CW / 2));
+      const camX = pl.cameraX ?? 0;
       pl.mouseWorldX = mx + camX;
     };
 
@@ -731,9 +764,9 @@ export default function DeadPerimeter() {
 
     const mkSnap = gs => ({
       phase: gs.phase, day: gs.day, wave: gs.wave, baseHp: gs.baseHp, baseMaxHp: gs.baseMaxHp,
-      resources: { ...gs.resources },
-      soldiers: gs.soldiers.map(s => ({ ...s })),
-      barricades: gs.barricades.map(b => ({ ...b })),
+      resources: { ...(gs.resources || {}) },
+      soldiers: (gs.soldiers || []).map(s => ({ ...s })),
+      barricades: (gs.barricades || []).map(b => ({ ...b })),
       turrets: (gs.turrets || []).map(t => ({ ...t })),
       reserve: (gs.reserve || []).map(r => ({ ...r })),
       selectedSoldierId: gs.selectedSoldierId,
@@ -741,6 +774,15 @@ export default function DeadPerimeter() {
       isHumanWave: gs.isHumanWave,
       expeditionsToday: gs.expeditionsToday || 0,
       lastEvacWave: gs.lastEvacWave ?? -10,
+      // Story-beat fields the management UI banners read. Forgetting
+      // any of these here used to cause the post-transmission
+      // management screen to render with stale data (or to never
+      // render at all if mkSnap throws on a missing field).
+      transmissionsDone: Array.isArray(gs.transmissionsDone) ? [...gs.transmissionsDone] : [],
+      pendingTransmission: gs.pendingTransmission ?? null,
+      lastFoodReport:  gs.lastFoodReport  ?? null,
+      lastSupplyDrop:  gs.lastSupplyDrop  ?? null,
+      cameraX: gs.cameraX || 0,
     });
 
     const loop = now => {
@@ -823,11 +865,15 @@ export default function DeadPerimeter() {
       const pl = placementRef.current;
       if (pl) {
         ctx.save(); ctx.clearRect(0, 0, CW, CH);
-        // Center the camera roughly on the valid range so the player
-        // can see the whole zone without scrolling.
         const [minX, maxX] = pl.validRange;
-        const focusX = (minX + maxX) / 2;
-        const camX = Math.max(0, Math.min(WORLD_W - CW, focusX - CW / 2));
+        // Camera follows the cursor smoothly so the whole valid range
+        // is reachable no matter how wide. Smoothing avoids jitter
+        // when the cursor moves fast. Clamped so we never scroll off
+        // the world.
+        const targetCam = Math.max(0, Math.min(WORLD_W - CW, pl.mouseWorldX - CW / 2));
+        pl.cameraX = (pl.cameraX ?? targetCam)
+                   + (targetCam - (pl.cameraX ?? targetCam)) * 0.18;
+        const camX = pl.cameraX;
         ctx.save();
         ctx.translate(-camX, 0);
         dBg(ctx); dBase(ctx, gs.baseHp, gs.baseMaxHp);
@@ -861,13 +907,38 @@ export default function DeadPerimeter() {
           ctx.stroke();
         }
         ctx.restore();
+        // Off-screen wall indicator: arrow + "FORT OMEGA" hint when the
+        // wall (at WX) has scrolled out of view on the left so the
+        // player keeps their bearings while panning far out.
+        if (camX > WX + 20) {
+          ctx.fillStyle = 'rgba(10, 16, 8, 0.78)';
+          ctx.fillRect(6, CH / 2 - 22, 86, 44);
+          ctx.strokeStyle = C.acc; ctx.strokeRect(6.5, CH / 2 - 22, 86, 44);
+          ctx.fillStyle = C.acc; ctx.font = 'bold 11px monospace'; ctx.textAlign = 'left';
+          ctx.fillText('◀ FORT', 14, CH / 2 - 5);
+          ctx.fillText('  OMEGA', 14, CH / 2 + 8);
+          ctx.fillStyle = '#88ee99'; ctx.font = '9px monospace';
+          ctx.fillText(`${Math.round(camX - WX)}px`, 14, CH / 2 + 18);
+        }
+        // Off-screen far-edge indicator: when there's more world to
+        // the right that the player can reach with the cursor.
+        if (camX < WORLD_W - CW - 20) {
+          ctx.fillStyle = 'rgba(10, 16, 8, 0.78)';
+          ctx.fillRect(CW - 92, CH / 2 - 22, 86, 44);
+          ctx.strokeStyle = C.acc; ctx.strokeRect(CW - 91.5, CH / 2 - 22, 86, 44);
+          ctx.fillStyle = C.acc; ctx.font = 'bold 11px monospace'; ctx.textAlign = 'right';
+          ctx.fillText('PERIMETER ▶', CW - 12, CH / 2 - 5);
+          ctx.fillStyle = '#88ee99'; ctx.font = '9px monospace';
+          ctx.fillText(`${Math.round(WORLD_W - CW - camX)}px`, CW - 12, CH / 2 + 8);
+        }
+        ctx.textAlign = 'left';
         // Header banner (screen space)
         ctx.fillStyle = 'rgba(10, 16, 8, 0.92)';
         ctx.fillRect(0, 0, CW, 36);
         ctx.fillStyle = C.acc; ctx.font = 'bold 13px monospace'; ctx.textAlign = 'center';
         ctx.fillText(`PLACE ${pl.kind === 'barricade' ? '🪵 BARRICADE' : '🛠 MG TURRET'} — click in green zone`, CW / 2, 18);
         ctx.fillStyle = C.txt; ctx.font = '10px monospace';
-        ctx.fillText('[ESC] or right-click to cancel', CW / 2, 31);
+        ctx.fillText('move cursor freely · [ESC] or right-click to cancel', CW / 2, 31);
         ctx.textAlign = 'left';
         ctx.restore();
         rafId.current = requestAnimationFrame(loop);
