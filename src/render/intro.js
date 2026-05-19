@@ -757,41 +757,155 @@ function dShotFamilyFleeing(ctx, t, now) {
 
   // Camera "tracks" the family from right to left — at t=0 they're
   // far right, at t=1 they're at mid-left, with pursuers gaining.
+  // Silhouettes against the fire-glow horizon — drawn with curved
+  // running anatomy (leaning torso, swinging arms, mid-stride legs)
+  // so they read as people in motion, not stick figures.
   const fx = CW * 0.7 - t * 280;
   const wob = Math.sin(now / 130) * 2.5;
-  // Adult silhouette
-  ctx.fillStyle = '#0a0606';
-  ctx.fillRect(fx - 6, GY - 64 + wob * 0.4, 12, 36);
-  ctx.beginPath(); ctx.arc(fx, GY - 72 + wob * 0.4, 6, 0, Math.PI * 2); ctx.fill();
-  // Legs in mid-stride
-  const legSpread = Math.sin(now / 100) * 8;
-  ctx.fillRect(fx - 4 - legSpread, GY - 28, 4, 22);
-  ctx.fillRect(fx + legSpread, GY - 28, 4, 22);
-  // Outstretched arm holding child's hand
-  ctx.strokeStyle = '#0a0606'; ctx.lineWidth = 5;
-  ctx.beginPath(); ctx.moveTo(fx - 4, GY - 50); ctx.lineTo(fx - 24, GY - 36); ctx.stroke();
-  // Child silhouette
-  const cx = fx - 26;
-  ctx.fillStyle = '#0a0606';
-  ctx.fillRect(cx - 4, GY - 38 + wob * 0.3, 8, 22);
-  ctx.beginPath(); ctx.arc(cx, GY - 42, 4, 0, Math.PI * 2); ctx.fill();
-  ctx.fillRect(cx - 3 - legSpread * 0.6, GY - 16, 3, 12);
-  ctx.fillRect(cx + legSpread * 0.6, GY - 16, 3, 12);
+  const stride = Math.sin(now / 100);
+  const armSwing = Math.sin(now / 100 + Math.PI);
+  const silhouette = '#0a0606';
 
-  // Pursuers — 3 zombie silhouettes behind, slightly slower
+  // ── Adult (leaning forward in a run, free arm pumping back) ──
+  ctx.fillStyle = silhouette;
+  // Torso (leaning forward)
+  ctx.beginPath();
+  ctx.moveTo(fx - 7, GY - 60 + wob * 0.4);
+  ctx.bezierCurveTo(fx - 10, GY - 50, fx - 10, GY - 38, fx - 8, GY - 30);
+  ctx.lineTo(fx + 6, GY - 28);
+  ctx.bezierCurveTo(fx + 8, GY - 40, fx + 8, GY - 54, fx + 5, GY - 62 + wob * 0.4);
+  ctx.closePath(); ctx.fill();
+  // Head + neck
+  ctx.beginPath();
+  ctx.ellipse(fx + 1, GY - 70 + wob * 0.4, 6, 7, 0.1, 0, Math.PI * 2); ctx.fill();
+  ctx.fillRect(fx - 2, GY - 64 + wob * 0.4, 5, 4);
+  // Hair flying back
+  ctx.beginPath();
+  ctx.moveTo(fx + 4, GY - 76); ctx.lineTo(fx + 12, GY - 70);
+  ctx.lineTo(fx + 6, GY - 68); ctx.closePath(); ctx.fill();
+  // Forward arm pulling the child (leading toward the child)
+  ctx.beginPath();
+  ctx.moveTo(fx - 4, GY - 50);
+  ctx.bezierCurveTo(fx - 12, GY - 46, fx - 20, GY - 40, fx - 24, GY - 36);
+  ctx.lineTo(fx - 22, GY - 32);
+  ctx.bezierCurveTo(fx - 16, GY - 36, fx - 8, GY - 42, fx - 2, GY - 46);
+  ctx.closePath(); ctx.fill();
+  // Free arm pumping back (running motion)
+  const backArmY = GY - 44 + armSwing * 6;
+  ctx.beginPath();
+  ctx.moveTo(fx + 5, GY - 52);
+  ctx.bezierCurveTo(fx + 14, GY - 50, fx + 20, backArmY, fx + 22, backArmY + 4);
+  ctx.lineTo(fx + 18, backArmY + 6);
+  ctx.bezierCurveTo(fx + 14, backArmY + 2, fx + 8, GY - 48, fx + 3, GY - 48);
+  ctx.closePath(); ctx.fill();
+  // Mid-stride legs — one forward, one back-pushing
+  ctx.beginPath();
+  // Forward leg (thigh bent up, calf down)
+  ctx.moveTo(fx - 6, GY - 30);
+  ctx.bezierCurveTo(fx - 12, GY - 22, fx - 14 + stride * 4, GY - 12, fx - 12 + stride * 6, GY - 6);
+  ctx.lineTo(fx - 8 + stride * 6, GY - 6);
+  ctx.bezierCurveTo(fx - 8 + stride * 4, GY - 12, fx - 4, GY - 22, fx - 2, GY - 30);
+  ctx.closePath(); ctx.fill();
+  // Back-pushing leg (extended behind)
+  ctx.beginPath();
+  ctx.moveTo(fx + 2, GY - 30);
+  ctx.bezierCurveTo(fx + 6, GY - 22, fx + 10 - stride * 4, GY - 14, fx + 12 - stride * 6, GY - 8);
+  ctx.lineTo(fx + 16 - stride * 6, GY - 8);
+  ctx.bezierCurveTo(fx + 14 - stride * 4, GY - 14, fx + 10, GY - 22, fx + 6, GY - 30);
+  ctx.closePath(); ctx.fill();
+  // Feet
+  ctx.fillRect(fx - 14 + stride * 6, GY - 7, 7, 3);
+  ctx.fillRect(fx + 10 - stride * 6, GY - 9, 7, 3);
+
+  // ── Child (small, being pulled along, struggling to keep up) ──
+  const cx = fx - 28;
+  const childStride = Math.sin(now / 90);
+  // Torso (smaller, more upright)
+  ctx.beginPath();
+  ctx.moveTo(cx - 5, GY - 34 + wob * 0.3);
+  ctx.bezierCurveTo(cx - 7, GY - 28, cx - 7, GY - 22, cx - 5, GY - 18);
+  ctx.lineTo(cx + 4, GY - 18);
+  ctx.bezierCurveTo(cx + 6, GY - 24, cx + 6, GY - 30, cx + 3, GY - 35 + wob * 0.3);
+  ctx.closePath(); ctx.fill();
+  // Head (proportionally bigger relative to body)
+  ctx.beginPath();
+  ctx.arc(cx, GY - 40 + wob * 0.3, 5, 0, Math.PI * 2); ctx.fill();
+  // Hair (longer, flying back)
+  ctx.beginPath();
+  ctx.moveTo(cx + 3, GY - 42); ctx.lineTo(cx + 10, GY - 38);
+  ctx.lineTo(cx + 4, GY - 36); ctx.closePath(); ctx.fill();
+  // Reaching arm (gripping adult's hand)
+  ctx.beginPath();
+  ctx.moveTo(cx + 3, GY - 28);
+  ctx.bezierCurveTo(cx + 9, GY - 28, cx + 16, GY - 32, cx + 20, GY - 34);
+  ctx.lineTo(cx + 20, GY - 30);
+  ctx.bezierCurveTo(cx + 14, GY - 28, cx + 8, GY - 24, cx + 4, GY - 24);
+  ctx.closePath(); ctx.fill();
+  // Trailing arm (small backswing)
+  ctx.beginPath();
+  ctx.moveTo(cx - 4, GY - 28);
+  ctx.bezierCurveTo(cx - 8, GY - 26, cx - 10, GY - 22, cx - 9, GY - 18);
+  ctx.lineTo(cx - 6, GY - 20);
+  ctx.closePath(); ctx.fill();
+  // Legs mid-stride
+  ctx.beginPath();
+  ctx.moveTo(cx - 4, GY - 18);
+  ctx.bezierCurveTo(cx - 6, GY - 12, cx - 6 + childStride * 3, GY - 8, cx - 6 + childStride * 4, GY - 4);
+  ctx.lineTo(cx - 3 + childStride * 4, GY - 4);
+  ctx.bezierCurveTo(cx - 3 + childStride * 3, GY - 10, cx - 1, GY - 14, cx - 1, GY - 18);
+  ctx.closePath(); ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(cx + 2, GY - 18);
+  ctx.bezierCurveTo(cx + 4, GY - 12, cx + 6 - childStride * 3, GY - 8, cx + 6 - childStride * 4, GY - 4);
+  ctx.lineTo(cx + 9 - childStride * 4, GY - 4);
+  ctx.bezierCurveTo(cx + 9 - childStride * 3, GY - 10, cx + 5, GY - 14, cx + 5, GY - 18);
+  ctx.closePath(); ctx.fill();
+  ctx.fillRect(cx - 8 + childStride * 4, GY - 5, 5, 2);
+  ctx.fillRect(cx + 4 - childStride * 4, GY - 5, 5, 2);
+
+  // Pursuers — 3 zombie silhouettes behind, slightly slower, with
+  // a stumbling gait (uneven leg lengths + arms reaching forward).
   for (let p = 0; p < 3; p++) {
     const px = CW * 1.05 - t * 240 + p * 36;
     const wb = Math.sin(now / 240 + p) * 1.6;
+    const zStride = Math.sin(now / 180 + p * 1.7);
     ctx.fillStyle = '#1a261a';
-    ctx.fillRect(px - 4, GY - 60 + wb, 8, 34);
-    ctx.beginPath(); ctx.arc(px + wb * 0.3, GY - 66, 4, 0, Math.PI * 2); ctx.fill();
-    // Outstretched arms
-    ctx.fillStyle = '#1a261a';
-    ctx.fillRect(px - 9, GY - 50, 4, 2);
-    ctx.fillRect(px + 5, GY - 50, 4, 2);
-    // Stagger legs
-    ctx.fillRect(px - 4, GY - 26, 3, 22);
-    ctx.fillRect(px + 1, GY - 26, 3, 22);
+    // Hunched torso
+    ctx.beginPath();
+    ctx.moveTo(px - 6, GY - 56 + wb);
+    ctx.bezierCurveTo(px - 10, GY - 46, px - 10, GY - 34, px - 7, GY - 26);
+    ctx.lineTo(px + 7, GY - 26);
+    ctx.bezierCurveTo(px + 10, GY - 36, px + 10, GY - 48, px + 6, GY - 58 + wb);
+    ctx.closePath(); ctx.fill();
+    // Sloped head
+    ctx.beginPath();
+    ctx.ellipse(px - 1 + wb * 0.3, GY - 64 + wb, 5, 6, 0.2, 0, Math.PI * 2); ctx.fill();
+    // Outstretched arms (one higher, one lower)
+    ctx.beginPath();
+    ctx.moveTo(px - 4, GY - 50);
+    ctx.bezierCurveTo(px - 14, GY - 52, px - 22, GY - 48, px - 26, GY - 44);
+    ctx.lineTo(px - 24, GY - 40);
+    ctx.bezierCurveTo(px - 18, GY - 44, px - 10, GY - 46, px - 2, GY - 46);
+    ctx.closePath(); ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(px + 4, GY - 48);
+    ctx.bezierCurveTo(px + 14, GY - 46, px + 22, GY - 40, px + 26, GY - 36);
+    ctx.lineTo(px + 24, GY - 32);
+    ctx.bezierCurveTo(px + 16, GY - 38, px + 8, GY - 42, px + 2, GY - 44);
+    ctx.closePath(); ctx.fill();
+    // Uneven legs (zombie stumble)
+    ctx.beginPath();
+    ctx.moveTo(px - 5, GY - 28);
+    ctx.bezierCurveTo(px - 7, GY - 20, px - 7 + zStride * 2, GY - 12, px - 6 + zStride * 3, GY - 6);
+    ctx.lineTo(px - 3 + zStride * 3, GY - 6);
+    ctx.bezierCurveTo(px - 3 + zStride * 2, GY - 12, px - 1, GY - 20, px - 1, GY - 28);
+    ctx.closePath(); ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(px + 1, GY - 28);
+    ctx.bezierCurveTo(px + 3, GY - 18, px + 5 - zStride * 2, GY - 10, px + 6 - zStride * 3, GY - 4);
+    ctx.lineTo(px + 9 - zStride * 3, GY - 4);
+    ctx.bezierCurveTo(px + 9 - zStride * 2, GY - 12, px + 5, GY - 20, px + 5, GY - 28);
+    ctx.closePath(); ctx.fill();
   }
 }
 
@@ -1256,35 +1370,98 @@ function dShotCopDragged(ctx, t, now) {
   // Tug animation
   const tug = Math.sin(now / 150) * 5;
 
-  // The officer — pulled to the ground, on his back, propped on one
-  // arm, the other firing the pistol up into the air.
+  // The officer — on his back, propped on one elbow, the other arm
+  // firing the pistol up into the air. Drawn with curved silhouettes
+  // so the body reads as a person being pulled down, not a slab.
   const ox = CW * 0.50, oy = CH - 60;
-  // Legs flailing
-  ctx.fillStyle = '#0e1622';
+
+  // Skin / uniform palette
+  const navyD  = '#0a121e';
+  const navy   = '#162236';
+  const navyL  = '#1f3148';
+  const skin   = '#c69a78';
+  const skinD  = '#9a7256';
+
+  // ── Right leg (flailing toward the leg-grabbing zombie on the left)
+  ctx.fillStyle = navy;
   ctx.beginPath();
-  ctx.moveTo(ox - 30, oy);
-  ctx.lineTo(ox - 80 + tug, oy - 18);
-  ctx.lineTo(ox - 70 + tug, oy - 8);
-  ctx.lineTo(ox - 20, oy + 12);
+  ctx.moveTo(ox - 28, oy - 6);
+  ctx.bezierCurveTo(ox - 50, oy - 14, ox - 78, oy - 16, ox - 92, oy - 12);
+  ctx.bezierCurveTo(ox - 96, oy - 6,  ox - 88, oy + 2,  ox - 72, oy + 4);
+  ctx.bezierCurveTo(ox - 50, oy + 6,  ox - 32, oy + 8,  ox - 22, oy + 6);
   ctx.closePath(); ctx.fill();
+  // Knee fold shadow
+  ctx.fillStyle = navyD;
   ctx.beginPath();
-  ctx.moveTo(ox + 10, oy);
-  ctx.lineTo(ox + 70 - tug, oy - 14);
-  ctx.lineTo(ox + 80 - tug, oy - 4);
-  ctx.lineTo(ox + 20, oy + 12);
+  ctx.moveTo(ox - 56, oy - 12); ctx.lineTo(ox - 60, oy + 2);
+  ctx.lineTo(ox - 50, oy + 4);  ctx.lineTo(ox - 52, oy - 8);
   ctx.closePath(); ctx.fill();
-  // Boots flailing
-  ctx.fillStyle = '#0a0a0a';
-  ctx.fillRect(ox - 92 + tug, oy - 22, 18, 10);
-  ctx.fillRect(ox + 76 - tug, oy - 18, 18, 10);
-  // Torso (on his back, slanted)
+  // Right boot
+  ctx.fillStyle = '#080808';
+  ctx.beginPath();
+  ctx.moveTo(ox - 92, oy - 14); ctx.lineTo(ox - 110 + tug, oy - 16);
+  ctx.bezierCurveTo(ox - 116 + tug, oy - 10, ox - 116 + tug, oy + 2, ox - 108 + tug, oy + 4);
+  ctx.lineTo(ox - 90, oy + 2); ctx.closePath(); ctx.fill();
+  // Boot lacing highlight
+  ctx.fillStyle = '#1a1a1a';
+  ctx.fillRect(ox - 104 + tug, oy - 10, 10, 1.5);
+  ctx.fillRect(ox - 104 + tug, oy - 6, 10, 1.5);
+  ctx.fillRect(ox - 104 + tug, oy - 2, 10, 1.5);
+
+  // ── Left leg (flailing the other direction)
+  ctx.fillStyle = navy;
+  ctx.beginPath();
+  ctx.moveTo(ox + 10, oy - 8);
+  ctx.bezierCurveTo(ox + 30, oy - 16, ox + 58, oy - 18, ox + 76, oy - 14);
+  ctx.bezierCurveTo(ox + 92, oy - 4,  ox + 86, oy + 4,  ox + 70, oy + 6);
+  ctx.bezierCurveTo(ox + 50, oy + 8,  ox + 28, oy + 8,  ox + 16, oy + 6);
+  ctx.closePath(); ctx.fill();
+  ctx.fillStyle = navyD;
+  ctx.beginPath();
+  ctx.moveTo(ox + 42, oy - 14); ctx.lineTo(ox + 46, oy);
+  ctx.lineTo(ox + 36, oy + 2);  ctx.lineTo(ox + 38, oy - 10);
+  ctx.closePath(); ctx.fill();
+  // Left boot
+  ctx.fillStyle = '#080808';
+  ctx.beginPath();
+  ctx.moveTo(ox + 76, oy - 16); ctx.lineTo(ox + 94 - tug, oy - 14);
+  ctx.bezierCurveTo(ox + 100 - tug, oy - 8, ox + 100 - tug, oy + 4, ox + 90 - tug, oy + 6);
+  ctx.lineTo(ox + 74, oy + 4); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#1a1a1a';
+  ctx.fillRect(ox + 84 - tug, oy - 8, 10, 1.5);
+  ctx.fillRect(ox + 84 - tug, oy - 4, 10, 1.5);
+  ctx.fillRect(ox + 84 - tug, oy, 10, 1.5);
+
+  // ── Torso (slanted, on his back) ────────────────────────────
   ctx.save();
   ctx.translate(ox, oy - 20);
   ctx.rotate(-0.18);
-  ctx.fillStyle = '#0e1622';
-  ctx.fillRect(-44, -80, 88, 90);
+  // Main torso silhouette — curved sides for shoulders + waist
+  ctx.fillStyle = navy;
+  ctx.beginPath();
+  ctx.moveTo(-44, 8);
+  ctx.bezierCurveTo(-50, -20, -52, -56, -42, -78);
+  ctx.bezierCurveTo(-28, -86, -8,  -90, 12,  -88);
+  ctx.bezierCurveTo(32,  -82, 44,  -64, 46,  -38);
+  ctx.bezierCurveTo(48,  -12, 44,  4,   36,  10);
+  ctx.lineTo(-36, 12);
+  ctx.closePath(); ctx.fill();
+  // Belt
   ctx.fillStyle = '#c4a838';
-  ctx.fillRect(-44, -60, 88, 8);
+  ctx.fillRect(-44, -58, 90, 7);
+  ctx.fillStyle = '#7a6420';
+  ctx.fillRect(-44, -52, 90, 1);
+  // Belt buckle
+  ctx.fillStyle = '#e8c450';
+  ctx.fillRect(-6, -60, 14, 10);
+  ctx.fillStyle = '#a08020';
+  ctx.fillRect(-4, -56, 10, 2);
+  // Uniform highlight (chest panel)
+  ctx.fillStyle = navyL;
+  ctx.beginPath();
+  ctx.moveTo(-26, -78); ctx.lineTo(8, -78);
+  ctx.lineTo(14, -64); ctx.lineTo(-32, -62);
+  ctx.closePath(); ctx.fill();
   // Badge on chest
   ctx.fillStyle = '#dfb84a';
   ctx.beginPath();
@@ -1296,41 +1473,145 @@ function dShotCopDragged(ctx, t, now) {
     if (i === 0) ctx.moveTo(bx, by); else ctx.lineTo(bx, by);
   }
   ctx.closePath(); ctx.fill();
-  // Blood on uniform from the bite
+  ctx.fillStyle = '#9a7820';
+  ctx.beginPath(); ctx.arc(8, -38, 2, 0, Math.PI * 2); ctx.fill();
+  // Blood splatter on uniform from the bite
   ctx.fillStyle = 'rgba(120,4,4,0.78)';
   ctx.beginPath();
-  ctx.moveTo(-30, -78); ctx.lineTo(20, -76); ctx.lineTo(34, -40); ctx.lineTo(-26, -34);
+  ctx.moveTo(-30, -78);
+  ctx.bezierCurveTo(-14, -76, 4, -74, 22, -70);
+  ctx.bezierCurveTo(28, -56, 32, -42, 30, -32);
+  ctx.bezierCurveTo(14, -34, -8, -36, -28, -34);
+  ctx.bezierCurveTo(-30, -50, -32, -66, -30, -78);
   ctx.closePath(); ctx.fill();
-  // Head turned back (mouth open in scream)
-  ctx.fillStyle = '#bf8a6a';
-  ctx.beginPath(); ctx.arc(0, -100, 20, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = '#3a0a0a';
-  ctx.beginPath(); ctx.ellipse(2, -94, 7, 9, 0, 0, Math.PI * 2); ctx.fill();
-  // Eyes wide
-  ctx.fillStyle = '#fff'; ctx.fillRect(-8, -110, 6, 3); ctx.fillRect(4, -110, 6, 3);
-  ctx.fillStyle = '#1a1a1a'; ctx.fillRect(-6, -109, 2, 2); ctx.fillRect(6, -109, 2, 2);
-  // Police cap thrown back (sliding off)
-  ctx.fillStyle = '#0e1622';
-  ctx.fillRect(-22, -118, 26, 6);
-  // One arm bracing the ground
-  ctx.fillStyle = '#0e1622';
-  ctx.fillRect(-58, -10, 36, 12);
-  ctx.fillStyle = '#bf8a6a';
-  ctx.fillRect(-66, -10, 12, 12);
-  // Other arm shooting straight up
-  ctx.fillStyle = '#0e1622';
-  ctx.fillRect(38, -120, 16, 80);
-  ctx.fillStyle = '#bf8a6a';
-  ctx.fillRect(36, -138, 20, 22);
-  // Pistol pointing up
-  ctx.fillStyle = '#181818';
-  ctx.fillRect(40, -160, 12, 24);
+  // Drip lines
+  ctx.fillStyle = 'rgba(100,2,2,0.7)';
+  ctx.fillRect(-22, -32, 2, 14);
+  ctx.fillRect(-12, -30, 2, 18);
+  ctx.fillRect(2,   -32, 2, 16);
+  ctx.fillRect(18,  -32, 2, 12);
+
+  // ── Head (turned back, screaming) ──────────────────────────
+  // Skull base
+  ctx.fillStyle = skin;
+  ctx.beginPath();
+  // Egg-shaped head with chin pointing back-left (he's screaming up)
+  ctx.moveTo(-18, -98);
+  ctx.bezierCurveTo(-22, -118, -10, -130, 6, -130);
+  ctx.bezierCurveTo(22, -130, 32, -118, 30, -100);
+  ctx.bezierCurveTo(30, -88, 24, -80, 12, -80);
+  ctx.bezierCurveTo(-2, -82, -16, -88, -18, -98);
+  ctx.closePath(); ctx.fill();
+  // Jaw shadow (he's tilted back)
+  ctx.fillStyle = skinD;
+  ctx.beginPath();
+  ctx.moveTo(-14, -84); ctx.lineTo(14, -78);
+  ctx.lineTo(20, -82);  ctx.lineTo(-16, -88);
+  ctx.closePath(); ctx.fill();
+  // Hair (short military buzz, with sweat shine)
+  ctx.fillStyle = '#1a1a16';
+  ctx.beginPath();
+  ctx.moveTo(-20, -118);
+  ctx.bezierCurveTo(-22, -130, -8, -134, 8, -134);
+  ctx.bezierCurveTo(24, -134, 32, -130, 32, -116);
+  ctx.bezierCurveTo(26, -122, 14, -126, 4, -126);
+  ctx.bezierCurveTo(-8, -126, -16, -124, -20, -118);
+  ctx.closePath(); ctx.fill();
+  // Police cap slid back (tipping off the head)
+  ctx.fillStyle = navyD;
+  ctx.beginPath();
+  ctx.moveTo(-26, -120); ctx.lineTo(8, -126);
+  ctx.lineTo(8, -116);  ctx.lineTo(-22, -110);
+  ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#c4a838';
+  ctx.fillRect(-18, -120, 22, 2);
+  // Mouth wide open (scream) — proper jaw aperture with teeth + tongue
+  ctx.fillStyle = '#1a0606';
+  ctx.beginPath();
+  ctx.moveTo(-4, -94);
+  ctx.bezierCurveTo(-6, -86, 4, -82, 12, -84);
+  ctx.bezierCurveTo(16, -88, 14, -94, 8, -96);
+  ctx.bezierCurveTo(2, -98, -2, -96, -4, -94);
+  ctx.closePath(); ctx.fill();
+  // Teeth (upper row)
+  ctx.fillStyle = '#e0ddc0';
+  ctx.fillRect(-2, -94, 12, 2);
+  // Tongue
+  ctx.fillStyle = '#7a2020';
+  ctx.fillRect(0, -88, 8, 3);
+  // Eyes wide in panic
+  ctx.fillStyle = '#fff';
+  ctx.beginPath(); ctx.ellipse(-6, -108, 4.5, 3, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(8, -108, 4.5, 3, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#1a1a1a';
+  ctx.beginPath(); ctx.arc(-6, -108, 1.8, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(8, -108, 1.8, 0, Math.PI * 2); ctx.fill();
+  // Eyebrow furrowed (terror)
+  ctx.fillStyle = '#1a1a16';
+  ctx.fillRect(-12, -114, 10, 2);
+  ctx.fillRect(2,   -114, 10, 2);
+  // Nose
+  ctx.fillStyle = skinD;
+  ctx.beginPath();
+  ctx.moveTo(2, -108); ctx.lineTo(6, -100);
+  ctx.lineTo(0, -98); ctx.closePath(); ctx.fill();
+  // Sweat bead
+  ctx.fillStyle = 'rgba(140,180,200,0.6)';
+  ctx.beginPath(); ctx.arc(-16, -98, 1.4, 0, Math.PI * 2); ctx.fill();
+
+  // ── Bracing arm (left, propping up off the ground) ─────────
+  ctx.fillStyle = navy;
+  ctx.beginPath();
+  ctx.moveTo(-42, -34);
+  ctx.bezierCurveTo(-58, -28, -70, -18, -74, -8);
+  ctx.bezierCurveTo(-72, 2, -64, 4, -54, 0);
+  ctx.bezierCurveTo(-42, -2, -32, -10, -28, -22);
+  ctx.closePath(); ctx.fill();
+  // Cuff
+  ctx.fillStyle = navyD;
+  ctx.fillRect(-74, -10, 14, 6);
+  // Hand bracing on ground
+  ctx.fillStyle = skin;
+  ctx.beginPath();
+  ctx.ellipse(-80, -2, 9, 6, 0.3, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = skinD;
+  ctx.fillRect(-84, -2, 8, 2);
+
+  // ── Firing arm (right, raised, pistol pointing up) ─────────
+  // Upper arm
+  ctx.fillStyle = navy;
+  ctx.beginPath();
+  ctx.moveTo(28, -76);
+  ctx.bezierCurveTo(38, -98, 44, -118, 42, -134);
+  ctx.bezierCurveTo(54, -134, 60, -118, 58, -100);
+  ctx.bezierCurveTo(56, -84, 48, -72, 40, -68);
+  ctx.closePath(); ctx.fill();
+  // Forearm extending straight up
+  ctx.beginPath();
+  ctx.moveTo(42, -134);
+  ctx.bezierCurveTo(42, -150, 46, -160, 52, -162);
+  ctx.bezierCurveTo(60, -162, 64, -154, 62, -140);
+  ctx.lineTo(58, -134);
+  ctx.closePath(); ctx.fill();
+  // Hand gripping the pistol
+  ctx.fillStyle = skin;
+  ctx.beginPath();
+  ctx.ellipse(56, -162, 8, 6, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = skinD;
+  ctx.fillRect(50, -160, 12, 1.5);
+  // Pistol — proper silhouette with grip, slide, barrel
+  ctx.fillStyle = '#1a1a1a';
+  ctx.fillRect(52, -184, 10, 22);          // grip + slide
   ctx.fillStyle = '#0a0a0a';
-  ctx.fillRect(36, -160, 20, 8);
+  ctx.fillRect(48, -176, 18, 6);            // slide top
+  ctx.fillStyle = '#1a1a1a';
+  ctx.fillRect(58, -190, 5, 8);             // barrel tip
+  ctx.fillStyle = '#2a2a2a';
+  ctx.fillRect(54, -178, 6, 1);             // ejection port
   // Muzzle flash going up (every other beat)
   const fflash = Math.floor(now / 180) % 2 === 0;
   if (fflash) {
-    const fx = 46, fy = -168;
+    const fx = 60, fy = -196;
     const fg = ctx.createRadialGradient(fx, fy, 3, fx, fy, 80);
     fg.addColorStop(0, 'rgba(255,255,220,1)');
     fg.addColorStop(0.4, 'rgba(255,160,40,0.6)');
@@ -1338,58 +1619,179 @@ function dShotCopDragged(ctx, t, now) {
     ctx.fillStyle = fg; ctx.fillRect(fx - 80, fy - 80, 160, 160);
     ctx.fillStyle = 'rgba(255,255,210,0.95)';
     ctx.beginPath();
-    ctx.moveTo(fx - 14, fy + 10);
-    ctx.lineTo(fx, fy - 30);
-    ctx.lineTo(fx + 14, fy + 10);
+    ctx.moveTo(fx - 8, fy + 8);
+    ctx.lineTo(fx + 2, fy - 30);
+    ctx.lineTo(fx + 14, fy + 8);
     ctx.closePath(); ctx.fill();
+    // Ejecting brass casing
+    const ecx = 48 + (((now / 180) % 1)) * 18;
+    const ecy = -176 - (((now / 180) % 1)) * 12;
+    ctx.fillStyle = '#c4a850';
+    ctx.fillRect(ecx, ecy, 4, 2);
   }
   ctx.restore();
 
-  // Zombie #1 — biting the officer's shoulder/neck on his right
+  // Zombie #1 — biting the officer's shoulder/neck on the right.
+  // Drawn with curved torso + arms reaching forward into the bite.
+  const z1x = ox + 80, z1y = oy;
+  // Torso silhouette
   ctx.fillStyle = '#2a3826';
   ctx.beginPath();
-  ctx.moveTo(ox + 40, oy);
-  ctx.lineTo(ox + 60, oy - 80);
-  ctx.lineTo(ox + 90, oy - 110);
-  ctx.lineTo(ox + 130, oy - 100);
-  ctx.lineTo(ox + 140, oy - 50);
-  ctx.lineTo(ox + 110, oy);
+  ctx.moveTo(z1x - 22, z1y);
+  ctx.bezierCurveTo(z1x - 32, z1y - 30, z1x - 28, z1y - 60, z1x - 14, z1y - 78);
+  ctx.bezierCurveTo(z1x + 6, z1y - 88, z1x + 28, z1y - 86, z1x + 42, z1y - 70);
+  ctx.bezierCurveTo(z1x + 56, z1y - 48, z1x + 58, z1y - 18, z1x + 44, z1y);
   ctx.closePath(); ctx.fill();
-  // Head leaning into the bite
+  // Torn-shirt edges flapping
+  ctx.fillStyle = '#1a2418';
+  ctx.beginPath();
+  ctx.moveTo(z1x - 18, z1y - 40); ctx.lineTo(z1x - 28, z1y - 32);
+  ctx.lineTo(z1x - 24, z1y - 22); ctx.lineTo(z1x - 14, z1y - 28);
+  ctx.closePath(); ctx.fill();
+  // Spine shadow
+  ctx.fillStyle = '#1a2418';
+  ctx.beginPath();
+  ctx.moveTo(z1x + 8, z1y - 80);
+  ctx.bezierCurveTo(z1x + 14, z1y - 50, z1x + 10, z1y - 20, z1x + 4, z1y);
+  ctx.lineWidth = 1.5; ctx.strokeStyle = '#1a2418'; ctx.stroke();
+  // Neck + head (leaning into the bite)
   ctx.fillStyle = '#5a7042';
-  ctx.beginPath(); ctx.arc(ox + 70, oy - 96, 18, 0, Math.PI * 2); ctx.fill();
-  // Red eye
+  // Neck stub
+  ctx.beginPath();
+  ctx.moveTo(z1x - 16, z1y - 82); ctx.lineTo(z1x + 6, z1y - 88);
+  ctx.lineTo(z1x + 8, z1y - 96); ctx.lineTo(z1x - 14, z1y - 92);
+  ctx.closePath(); ctx.fill();
+  // Skull
+  ctx.beginPath();
+  ctx.moveTo(z1x - 24, z1y - 98);
+  ctx.bezierCurveTo(z1x - 28, z1y - 116, z1x - 16, z1y - 126, z1x, z1y - 122);
+  ctx.bezierCurveTo(z1x + 14, z1y - 118, z1x + 20, z1y - 104, z1x + 14, z1y - 92);
+  ctx.bezierCurveTo(z1x + 4, z1y - 86, z1x - 14, z1y - 88, z1x - 24, z1y - 98);
+  ctx.closePath(); ctx.fill();
+  // Skull-shadow / sunken cheek
+  ctx.fillStyle = '#3a4828';
+  ctx.beginPath();
+  ctx.ellipse(z1x - 8, z1y - 100, 6, 4, 0, 0, Math.PI * 2); ctx.fill();
+  // Red glowing eye
   ctx.fillStyle = '#cc1818';
-  ctx.fillRect(ox + 64, oy - 100, 4, 3);
+  ctx.fillRect(z1x - 14, z1y - 110, 4, 3);
+  // Eye glow halo
+  ctx.fillStyle = 'rgba(255,40,30,0.35)';
+  ctx.beginPath(); ctx.arc(z1x - 12, z1y - 108, 6, 0, Math.PI * 2); ctx.fill();
   // Open jaw biting
   ctx.fillStyle = '#1a0606';
-  ctx.beginPath(); ctx.ellipse(ox + 56, oy - 88, 8, 6, 0, 0, Math.PI * 2); ctx.fill();
-  // Blood on the jaw
-  ctx.fillStyle = '#7a0606';
-  ctx.fillRect(ox + 50, oy - 84, 10, 3);
-  // Arms grabbing officer's torso
+  ctx.beginPath();
+  ctx.moveTo(z1x - 24, z1y - 92);
+  ctx.bezierCurveTo(z1x - 26, z1y - 82, z1x - 14, z1y - 76, z1x - 6, z1y - 80);
+  ctx.bezierCurveTo(z1x - 2, z1y - 86, z1x - 8, z1y - 96, z1x - 18, z1y - 96);
+  ctx.closePath(); ctx.fill();
+  // Teeth (jagged broken row)
+  ctx.fillStyle = '#a89a78';
+  ctx.fillRect(z1x - 22, z1y - 92, 2, 4);
+  ctx.fillRect(z1x - 18, z1y - 92, 2, 5);
+  ctx.fillRect(z1x - 14, z1y - 92, 2, 4);
+  ctx.fillRect(z1x - 10, z1y - 92, 2, 5);
+  // Blood streaming down the jaw
+  ctx.fillStyle = '#9a0808';
+  ctx.fillRect(z1x - 18, z1y - 86, 8, 5);
+  ctx.beginPath();
+  ctx.moveTo(z1x - 14, z1y - 82);
+  ctx.bezierCurveTo(z1x - 14, z1y - 70, z1x - 12, z1y - 60, z1x - 14, z1y - 50);
+  ctx.lineWidth = 2; ctx.strokeStyle = '#9a0808'; ctx.stroke();
+  // Arms grabbing officer's torso — proper rounded form
   ctx.fillStyle = '#2a3826';
-  ctx.fillRect(ox + 30, oy - 70, 24, 8);
-  ctx.fillRect(ox + 28, oy - 50, 22, 8);
-
-  // Zombie #2 — pulling the officer's legs from below
+  // Right arm (clutching)
+  ctx.beginPath();
+  ctx.moveTo(z1x - 18, z1y - 64);
+  ctx.bezierCurveTo(z1x - 40, z1y - 60, z1x - 56, z1y - 56, z1x - 64, z1y - 50);
+  ctx.bezierCurveTo(z1x - 62, z1y - 42, z1x - 50, z1y - 44, z1x - 36, z1y - 48);
+  ctx.bezierCurveTo(z1x - 22, z1y - 50, z1x - 14, z1y - 54, z1x - 12, z1y - 58);
+  ctx.closePath(); ctx.fill();
+  // Clawed hand
+  ctx.fillStyle = '#7a8a52';
+  ctx.beginPath();
+  ctx.ellipse(z1x - 64, z1y - 52, 7, 5, 0.3, 0, Math.PI * 2); ctx.fill();
+  // Fingers
+  ctx.fillStyle = '#5a7042';
+  ctx.fillRect(z1x - 72, z1y - 56, 6, 2);
+  ctx.fillRect(z1x - 72, z1y - 52, 6, 2);
+  ctx.fillRect(z1x - 72, z1y - 48, 5, 2);
+  // Left arm (grabbing lower)
   ctx.fillStyle = '#2a3826';
   ctx.beginPath();
-  ctx.moveTo(ox - 110, oy);
-  ctx.lineTo(ox - 130, oy - 40);
-  ctx.lineTo(ox - 170, oy - 30);
-  ctx.lineTo(ox - 180, oy + 10);
-  ctx.lineTo(ox - 120, oy + 20);
+  ctx.moveTo(z1x - 14, z1y - 40);
+  ctx.bezierCurveTo(z1x - 36, z1y - 38, z1x - 52, z1y - 30, z1x - 60, z1y - 22);
+  ctx.bezierCurveTo(z1x - 58, z1y - 14, z1x - 46, z1y - 16, z1x - 32, z1y - 22);
+  ctx.bezierCurveTo(z1x - 18, z1y - 26, z1x - 10, z1y - 30, z1x - 8, z1y - 34);
   ctx.closePath(); ctx.fill();
-  ctx.fillStyle = '#5a7042';
-  ctx.beginPath(); ctx.arc(ox - 156, oy - 36, 14, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = '#cc1818';
-  ctx.fillRect(ox - 162, oy - 38, 3, 2);
-  ctx.fillRect(ox - 152, oy - 38, 3, 2);
-  // Arms grabbing officer's ankle
+  ctx.fillStyle = '#7a8a52';
+  ctx.beginPath();
+  ctx.ellipse(z1x - 60, z1y - 22, 6, 5, 0, 0, Math.PI * 2); ctx.fill();
+
+  // Zombie #2 — pulling the officer's legs from below-left.
+  // Crawling stance, lower body off-screen, top half visible.
+  const z2x = ox - 150, z2y = oy + 4;
   ctx.fillStyle = '#2a3826';
-  ctx.fillRect(ox - 130, oy - 14, 30, 6);
-  ctx.fillRect(ox - 130, oy - 4, 30, 6);
+  // Torso (low, crawling)
+  ctx.beginPath();
+  ctx.moveTo(z2x - 20, z2y);
+  ctx.bezierCurveTo(z2x - 26, z2y - 20, z2x - 18, z2y - 36, z2x, z2y - 40);
+  ctx.bezierCurveTo(z2x + 24, z2y - 38, z2x + 38, z2y - 30, z2x + 36, z2y - 14);
+  ctx.bezierCurveTo(z2x + 32, z2y - 4, z2x + 16, z2y, z2x - 4, z2y);
+  ctx.closePath(); ctx.fill();
+  // Head (looking up at officer's leg)
+  ctx.fillStyle = '#5a7042';
+  ctx.beginPath();
+  ctx.moveTo(z2x - 16, z2y - 44);
+  ctx.bezierCurveTo(z2x - 20, z2y - 60, z2x - 8, z2y - 68, z2x + 6, z2y - 66);
+  ctx.bezierCurveTo(z2x + 18, z2y - 62, z2x + 22, z2y - 50, z2x + 14, z2y - 40);
+  ctx.bezierCurveTo(z2x + 2, z2y - 36, z2x - 12, z2y - 38, z2x - 16, z2y - 44);
+  ctx.closePath(); ctx.fill();
+  // Sunken jaw shadow
+  ctx.fillStyle = '#3a4828';
+  ctx.fillRect(z2x - 10, z2y - 44, 18, 3);
+  // Two red eyes
+  ctx.fillStyle = '#cc1818';
+  ctx.fillRect(z2x - 10, z2y - 56, 3, 2);
+  ctx.fillRect(z2x + 4, z2y - 56, 3, 2);
+  ctx.fillStyle = 'rgba(255,40,30,0.30)';
+  ctx.beginPath(); ctx.arc(z2x - 8, z2y - 54, 5, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(z2x + 6, z2y - 54, 5, 0, Math.PI * 2); ctx.fill();
+  // Snarling mouth (lower row of teeth visible, blood on chin)
+  ctx.fillStyle = '#1a0606';
+  ctx.beginPath();
+  ctx.ellipse(z2x - 2, z2y - 46, 7, 3, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#a89a78';
+  ctx.fillRect(z2x - 6, z2y - 47, 1.5, 3);
+  ctx.fillRect(z2x - 2, z2y - 47, 1.5, 3);
+  ctx.fillRect(z2x + 2, z2y - 47, 1.5, 3);
+  ctx.fillStyle = '#9a0808';
+  ctx.fillRect(z2x - 4, z2y - 42, 8, 4);
+  // Arms reaching up to grab the officer's ankles
+  ctx.fillStyle = '#2a3826';
+  // Right arm (closer, reaching forward-right)
+  ctx.beginPath();
+  ctx.moveTo(z2x + 20, z2y - 32);
+  ctx.bezierCurveTo(z2x + 40, z2y - 28, z2x + 56, z2y - 22, z2x + 60, z2y - 14);
+  ctx.bezierCurveTo(z2x + 58, z2y - 6, z2x + 46, z2y - 8, z2x + 32, z2y - 14);
+  ctx.bezierCurveTo(z2x + 18, z2y - 20, z2x + 14, z2y - 26, z2x + 14, z2y - 30);
+  ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#7a8a52';
+  ctx.beginPath(); ctx.ellipse(z2x + 60, z2y - 14, 6, 4, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#5a7042';
+  ctx.fillRect(z2x + 62, z2y - 18, 5, 1.5);
+  ctx.fillRect(z2x + 62, z2y - 14, 5, 1.5);
+  ctx.fillRect(z2x + 62, z2y - 10, 5, 1.5);
+  // Left arm (further back, grasping at officer's other leg)
+  ctx.fillStyle = '#2a3826';
+  ctx.beginPath();
+  ctx.moveTo(z2x + 16, z2y - 14);
+  ctx.bezierCurveTo(z2x + 38, z2y - 8, z2x + 56, z2y - 4, z2x + 62, z2y + 2);
+  ctx.bezierCurveTo(z2x + 60, z2y + 10, z2x + 46, z2y + 6, z2x + 32, z2y);
+  ctx.bezierCurveTo(z2x + 18, z2y - 4, z2x + 12, z2y - 8, z2x + 12, z2y - 12);
+  ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#7a8a52';
+  ctx.beginPath(); ctx.ellipse(z2x + 62, z2y + 2, 6, 4, 0, 0, Math.PI * 2); ctx.fill();
 
   // Blood pool growing under the officer
   ctx.fillStyle = 'rgba(110,5,5,0.55)';
