@@ -88,6 +88,44 @@ export const STARS = Array.from({ length: 62 }, (_, i) => ({
   y: (i * 97 + 17) % (GY - 80),
   r: i % 4 === 0 ? 1.3 : 0.7,
 }));
+// Static siege-world decorations. Drawn behind the action by
+// background.js dBg(). Pure scenery — they have no gameplay impact
+// (no collision, no hitbox). Distributed across WORLD_W so the
+// camera-scroll keeps revealing fresh detail.
+//
+//   type: 'wreck' | 'lamppost' | 'rubble' | 'sign' | 'crater' | 'blood'
+//   x:    world X coordinate
+//   lane: optional, used by depth-sorted props (back vs mid)
+export const SIEGE_DECOR = [
+  // Killbox area (x=200..900) — sparse so it doesn't fight soldier visuals
+  { type: 'lamppost', x:  235 },
+  { type: 'blood',    x:  290 },
+  { type: 'rubble',   x:  340, lane: 2 },
+  { type: 'sign',     x:  420 },
+  { type: 'wreck',    x:  500, lane: 2 },
+  { type: 'blood',    x:  560 },
+  { type: 'rubble',   x:  650, lane: 2 },
+  { type: 'lamppost', x:  730 },
+  { type: 'wreck',    x:  830, lane: 2 },
+  { type: 'crater',   x:  890 },
+  // Extended scenery (x=950..1980) — denser, since this is where the
+  // player is looking when they scroll right to scout
+  { type: 'wreck',    x: 1000, lane: 2 },
+  { type: 'rubble',   x: 1080, lane: 2 },
+  { type: 'lamppost', x: 1140 },
+  { type: 'blood',    x: 1200 },
+  { type: 'crater',   x: 1240 },
+  { type: 'sign',     x: 1320 },
+  { type: 'wreck',    x: 1400, lane: 2 },
+  { type: 'rubble',   x: 1490, lane: 2 },
+  { type: 'blood',    x: 1550 },
+  { type: 'lamppost', x: 1610 },
+  { type: 'wreck',    x: 1700, lane: 2 },
+  { type: 'sign',     x: 1780 },
+  { type: 'rubble',   x: 1840, lane: 2 },
+  { type: 'crater',   x: 1920 },
+];
+
 export const BLDGS = [
   { x:  445, w: 72, h: 162 },
   { x:  562, w: 58, h: 138 },
