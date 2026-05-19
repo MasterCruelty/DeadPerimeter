@@ -142,48 +142,74 @@ export default function DeadPerimeter() {
 
   // Intermediate radio transmission (waves 10/20/25): on finish, mark
   // the wave done so it never replays, save, and drop into management.
+  // Wrapped defensively — any throw here would kill the rAF loop and
+  // freeze the canvas on the last cinematic frame.
   const finishTransmission = useCallback(() => {
-    const gs = gsRef.current;
-    const tr = transmissionRef.current;
-    if (gs && tr && !gs.transmissionsDone.includes(tr.wave)) {
-      gs.transmissionsDone.push(tr.wave);
-      // Apply the supply drop payload Central Command promised in the
-      // transmission. The management screen surfaces a banner showing
-      // what was received via gs.lastSupplyDrop.
-      const drop = tr.data.supplyDrop;
-      if (drop && gs) {
-        const breakdown = {};
-        const apply = (k, cap) => {
-          if (!drop[k]) return;
-          const before = gs.resources[k] || 0;
-          gs.resources[k] = Math.min(cap, before + drop[k]);
-          breakdown[k] = gs.resources[k] - before;
-        };
-        apply('ammo', 999);
-        apply('food', 999);
-        apply('medicine', 999);
-        apply('materials', 999);
-        apply('sniperAmmo', 99);
-        apply('turretAmmo', 999);
-        gs.lastSupplyDrop = { wave: tr.wave, breakdown };
+    try {
+      const gs = gsRef.current;
+      const tr = transmissionRef.current;
+      if (gs && tr) {
+        if (!Array.isArray(gs.transmissionsDone)) gs.transmissionsDone = [];
+        if (!gs.transmissionsDone.includes(tr.wave)) {
+          gs.transmissionsDone.push(tr.wave);
+          // Apply the supply drop payload Central Command promised in
+          // the transmission. The management screen surfaces a banner
+          // showing what was received via gs.lastSupplyDrop.
+          const drop = tr.data && tr.data.supplyDrop;
+          if (drop) {
+            const breakdown = {};
+            const apply = (k, cap) => {
+              const inc = drop[k];
+              if (!inc) return;
+              const before = (gs.resources && gs.resources[k]) || 0;
+              const after  = Math.min(cap, before + inc);
+              gs.resources[k] = after;
+              breakdown[k] = after - before;
+            };
+            if (!gs.resources) gs.resources = {};
+            apply('ammo', 999);
+            apply('food', 999);
+            apply('medicine', 999);
+            apply('materials', 999);
+            apply('sniperAmmo', 99);
+            apply('turretAmmo', 999);
+            gs.lastSupplyDrop = { wave: tr.wave, breakdown };
+          }
+        }
+        gs.pendingTransmission = null;
+        try { saveGame(gs); } catch (e) { /* save failure is non-fatal */ }
       }
+      try { window.speechSynthesis?.cancel(); } catch {}
+    } catch (e) {
+      // Swallow + log: a bug in the drop apply must not freeze the game.
+      // eslint-disable-next-line no-console
+      console.error('finishTransmission error:', e);
     }
-    if (gs) { gs.pendingTransmission = null; saveGame(gs); }
-    try { window.speechSynthesis?.cancel(); } catch {}
+    // Always clear the cinematic ref + route to management, even if
+    // the payload application above threw. The player must never be
+    // stuck on a finished cinematic.
     transmissionRef.current = null;
-    setUi(mkSnap(gs));
+    try { setUi(mkSnap(gsRef.current)); } catch (e) { /* fall through */ }
     setScr('management');
   }, []);
 
   // Wave-30 convoy cinematic: route to the victory stats screen.
+  // Wrapped defensively for the same reason as finishTransmission —
+  // any throw here would freeze the canvas on the last cinematic
+  // frame instead of advancing to the stats screen.
   const finishExtraction = useCallback(() => {
-    const gs = gsRef.current;
-    if (gs) gs.phase = 'victory';
-    try { window.speechSynthesis?.cancel(); } catch {}
+    try {
+      const gs = gsRef.current;
+      if (gs) gs.phase = 'victory';
+      try { window.speechSynthesis?.cancel(); } catch {}
+      clearSave();
+      setHasSave(false);
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.error('finishExtraction error:', e);
+    }
     extractionRef.current = null;
-    clearSave();
-    setHasSave(false);
-    setUi(mkSnap(gs));
+    try { setUi(mkSnap(gsRef.current)); } catch (e) { /* fall through */ }
     setScr('victory');
   }, []);
 
@@ -738,9 +764,9 @@ export default function DeadPerimeter() {
 
     const mkSnap = gs => ({
       phase: gs.phase, day: gs.day, wave: gs.wave, baseHp: gs.baseHp, baseMaxHp: gs.baseMaxHp,
-      resources: { ...gs.resources },
-      soldiers: gs.soldiers.map(s => ({ ...s })),
-      barricades: gs.barricades.map(b => ({ ...b })),
+      resources: { ...(gs.resources || {}) },
+      soldiers: (gs.soldiers || []).map(s => ({ ...s })),
+      barricades: (gs.barricades || []).map(b => ({ ...b })),
       turrets: (gs.turrets || []).map(t => ({ ...t })),
       reserve: (gs.reserve || []).map(r => ({ ...r })),
       selectedSoldierId: gs.selectedSoldierId,
@@ -748,6 +774,15 @@ export default function DeadPerimeter() {
       isHumanWave: gs.isHumanWave,
       expeditionsToday: gs.expeditionsToday || 0,
       lastEvacWave: gs.lastEvacWave ?? -10,
+      // Story-beat fields the management UI banners read. Forgetting
+      // any of these here used to cause the post-transmission
+      // management screen to render with stale data (or to never
+      // render at all if mkSnap throws on a missing field).
+      transmissionsDone: Array.isArray(gs.transmissionsDone) ? [...gs.transmissionsDone] : [],
+      pendingTransmission: gs.pendingTransmission ?? null,
+      lastFoodReport:  gs.lastFoodReport  ?? null,
+      lastSupplyDrop:  gs.lastSupplyDrop  ?? null,
+      cameraX: gs.cameraX || 0,
     });
 
     const loop = now => {
