@@ -1,4 +1,4 @@
-import { C, CW, GY } from '../constants.js';
+import { C, CW, GY, WORLD_W } from '../constants.js';
 
 // Mission location pools, one per risk tier. Each entry describes a
 // specific spot in the city around Fort Omega — the player sees a
@@ -81,17 +81,29 @@ export const MISSION_VIEW = CW;
 export const MGY = GY;
 export const objIcons = { medicine: '💊', ammo: '🔫', food: '🥫', materials: '🔧', sniperAmmo: '🎯', turretAmmo: '🟠', civilian: '👤', lostSoldier: '🪖' };
 
-export const STARS = Array.from({ length: 28 }, (_, i) => ({
-  x: (i * 181 + 53) % CW,
+// Stars and skyline now span the full WORLD_W so the camera-scroll
+// reveals more of the city without exposing a "wall of pixels" edge.
+export const STARS = Array.from({ length: 62 }, (_, i) => ({
+  x: (i * 181 + 53) % WORLD_W,
   y: (i * 97 + 17) % (GY - 80),
   r: i % 4 === 0 ? 1.3 : 0.7,
 }));
 export const BLDGS = [
-  { x: 445, w: 72, h: 162 },
-  { x: 562, w: 58, h: 138 },
-  { x: 655, w: 90, h: 190 },
-  { x: 775, w: 52, h: 118 },
-  { x: 843, w: 62, h: 156 },
+  { x:  445, w: 72, h: 162 },
+  { x:  562, w: 58, h: 138 },
+  { x:  655, w: 90, h: 190 },
+  { x:  775, w: 52, h: 118 },
+  { x:  843, w: 62, h: 156 },
+  { x:  945, w: 80, h: 178 },
+  { x: 1060, w: 64, h: 132 },
+  { x: 1148, w: 96, h: 204 },
+  { x: 1268, w: 56, h: 150 },
+  { x: 1352, w: 78, h: 188 },
+  { x: 1455, w: 68, h: 124 },
+  { x: 1548, w: 92, h: 168 },
+  { x: 1665, w: 60, h: 144 },
+  { x: 1748, w: 84, h: 196 },
+  { x: 1858, w: 74, h: 156 },
 ];
 
 export const RECRUIT_NAMES = [

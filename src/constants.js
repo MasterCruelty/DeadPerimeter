@@ -1,8 +1,14 @@
 // ────────────────────────────────────────────────────────────────
 // Canvas + world constants
 // ────────────────────────────────────────────────────────────────
+// CW / CH are the canvas viewport (what the player sees in one frame).
+// WORLD_W is the full siege world: ~2.2× wider than the viewport so
+// the wall and the gathering horde can both exist on the same map.
+// The siege loop applies a camera translation (gs.cameraX) so the
+// 900-wide viewport scrolls horizontally over the wider world.
 export const CW = 900;
 export const CH = 530;
+export const WORLD_W = 1980;
 export const GY = 400;
 export const WX = 162;
 
