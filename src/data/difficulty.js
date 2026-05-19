@@ -35,8 +35,10 @@ export const BALANCE = {
 
   // Mission (playable expedition)
   missionActivationRange: 700,      // zombies wake up earlier so you can't sprint past
-  missionGoalKillRatio: 0.60,       // must have killed >= 60% of activated zombies
-                                    // before the goal becomes reachable
+  missionGoalKillRatio: 0.45,       // must have killed >= 45% of activated zombies
+                                    // before the goal becomes reachable (down from
+                                    // 60% so the player can skip the last stragglers
+                                    // if they're badly outnumbered)
 
   // Reserve / contingent
   maxActiveSoldiers: 6,             // dispatched to Fort Omega at any one time
@@ -44,8 +46,7 @@ export const BALANCE = {
 
   // Expeditions
   expeditionsPerDay: 2,             // max sorties before the next wave (= one day)
-  maxExpeditionParty: 3,            // soldiers per auto-dispatch run (playable still 1)
-  partyRewardDiminish: 0.80,        // 2nd soldier contributes 80%, 3rd 64% to rewards
+  maxExpeditionParty: 3,            // soldiers per playable sortie (lead + up to 2 AI followers)
 
   // Turrets (machine-gun fixed emplacements)
   maxTurrets: 2,
@@ -76,9 +77,10 @@ export const BALANCE = {
   wallRepairCost: 8,                // materials per repair tick
   wallRepairHp: 30,                 // hp restored per tick
 
-  // Per-wave clear bonuses (bumped from the original +10/+8 to make
-  // sustained survival feasible without grinding expeditions).
+  // Per-wave clear bonuses. Food is intentionally 0 — daily rations
+  // come from expedition food runs and helicopter evac payouts, not
+  // from holding the wall. Ammo bonus stays so combat stays sustainable.
   waveClearAmmo: 25,
-  waveClearFood: 12,
+  waveClearFood: 0,
 };
 
