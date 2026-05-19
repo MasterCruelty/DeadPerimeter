@@ -171,74 +171,216 @@ function dShotCafeDrinker(ctx, t, now) {
     ctx.beginPath(); ctx.moveTo(0, CH - 160 + g * 24); ctx.lineTo(CW, CH - 162 + g * 24); ctx.stroke();
   }
 
-  // The patron — seen from the side, leaning forward, looking at phone
+  // The patron — three-quarter side view, leaning forward over his
+  // coffee, phone close to the face. Drawn with curved silhouettes
+  // and anatomy callouts (jaw, neck, shoulder, arm, hand) so the
+  // shape reads as a person, not a polygon.
   const px = 290, py = CH - 160;
-  // Chair back peek behind
-  ctx.fillStyle = '#1a1410'; ctx.fillRect(px - 80, py - 70, 30, 130);
-  // Torso (sweater, dark navy)
-  ctx.fillStyle = '#2a2a3a';
-  ctx.beginPath();
-  ctx.moveTo(px - 60, py - 30);
-  ctx.lineTo(px - 30, py - 130);
-  ctx.lineTo(px + 30, py - 130);
-  ctx.lineTo(px + 60, py - 20);
-  ctx.lineTo(px + 50, py + 60);
-  ctx.lineTo(px - 50, py + 60);
-  ctx.closePath(); ctx.fill();
-  // Shoulder seam
-  ctx.fillStyle = '#1a1a26'; ctx.fillRect(px - 38, py - 126, 70, 3);
-  // Arm holding the phone (close to face)
-  ctx.fillStyle = '#2a2a3a';
-  // Forearm
-  ctx.fillRect(px - 10, py - 120, 20, 60);
-  // Wrist+hand
-  ctx.fillStyle = '#bf8a6a';
-  ctx.fillRect(px - 10, py - 130, 22, 14);
-  // The phone — slight tilt, glowing screen
-  ctx.save();
-  ctx.translate(px + 2, py - 145);
-  ctx.rotate(-0.15);
-  ctx.fillStyle = '#0a0a0a';
-  ctx.fillRect(-22, -38, 44, 76);
-  ctx.fillStyle = '#1a4ccc';
-  ctx.fillRect(-20, -36, 40, 72);
-  // Pulsing red alert banner on phone
   const pulse = (Math.sin(now / 220) * 0.5 + 0.5);
-  ctx.fillStyle = `rgba(220,30,30,${0.55 + pulse * 0.4})`;
-  ctx.fillRect(-20, -36, 40, 14);
+
+  // ── Chair ────────────────────────────────────────────────────
+  // Back support (vertical bar tucked behind the figure)
+  ctx.fillStyle = '#1a1410'; ctx.fillRect(px - 72, py - 96, 12, 152);
+  ctx.fillStyle = '#0e0a08'; ctx.fillRect(px - 72, py - 96, 12, 4);
+  // Top rail of chair back
+  ctx.fillStyle = '#241a12';
+  ctx.beginPath();
+  ctx.moveTo(px - 78, py - 98); ctx.lineTo(px - 54, py - 102);
+  ctx.lineTo(px - 50, py - 90); ctx.lineTo(px - 76, py - 86);
+  ctx.closePath(); ctx.fill();
+  // Seat slat peeking behind the patron (just under the lower back)
+  ctx.fillStyle = '#1a1410'; ctx.fillRect(px - 78, py + 4, 60, 6);
+
+  // ── Body ─────────────────────────────────────────────────────
+  // Sweater base colour
+  const sweater = '#2d3046';
+  const sweaterShadow = '#1c1f30';
+  const skin   = '#c69a78';
+  const skinShadow = '#9a7256';
+
+  // Back / spine curve — leaning forward over the table
+  ctx.fillStyle = sweater;
+  ctx.beginPath();
+  // Start at the lumbar, curve up to the shoulder blade, over the
+  // shoulder, then down the front of the chest to the lap.
+  ctx.moveTo(px - 40, py + 32);
+  ctx.bezierCurveTo(px - 56, py - 18, px - 58, py - 70, px - 28, py - 96); // back
+  ctx.bezierCurveTo(px - 10, py - 108, px + 22, py - 104, px + 36, py - 92); // shoulder line
+  ctx.bezierCurveTo(px + 50, py - 60, px + 56, py - 16, px + 48, py + 20); // chest curve
+  ctx.lineTo(px + 44, py + 56);
+  ctx.lineTo(px - 36, py + 56);
+  ctx.closePath();
+  ctx.fill();
+
+  // Shoulder shadow (folds where the arm meets the torso)
+  ctx.fillStyle = sweaterShadow;
+  ctx.beginPath();
+  ctx.moveTo(px + 14, py - 94);
+  ctx.bezierCurveTo(px + 22, py - 70, px + 28, py - 40, px + 22, py - 16);
+  ctx.bezierCurveTo(px + 14, py - 40, px + 8, py - 72, px + 8, py - 92);
+  ctx.closePath(); ctx.fill();
+  // Spine shadow line down the back
+  ctx.beginPath();
+  ctx.moveTo(px - 38, py + 30);
+  ctx.bezierCurveTo(px - 46, py - 10, px - 48, py - 50, px - 30, py - 86);
+  ctx.lineWidth = 1.5; ctx.strokeStyle = sweaterShadow; ctx.stroke();
+
+  // ── Neck ─────────────────────────────────────────────────────
+  ctx.fillStyle = skin;
+  ctx.beginPath();
+  ctx.moveTo(px + 4, py - 96);
+  ctx.bezierCurveTo(px + 4, py - 104, px + 26, py - 106, px + 28, py - 96);
+  ctx.lineTo(px + 28, py - 84);
+  ctx.lineTo(px + 4, py - 84);
+  ctx.closePath(); ctx.fill();
+  // Neck shadow under the jaw
+  ctx.fillStyle = skinShadow;
+  ctx.fillRect(px + 4, py - 88, 24, 4);
+
+  // ── Left arm (camera-side): rests on the table, holding the mug ─
+  // Upper arm tucked against the torso, forearm extending forward
+  ctx.fillStyle = sweater;
+  ctx.beginPath();
+  ctx.moveTo(px + 38, py - 88);
+  ctx.bezierCurveTo(px + 58, py - 78, px + 70, py - 50, px + 70, py - 18);
+  ctx.lineTo(px + 80, py - 16);
+  ctx.bezierCurveTo(px + 76, py - 52, px + 64, py - 82, px + 46, py - 96);
+  ctx.closePath(); ctx.fill();
+  // Forearm reaching forward
+  ctx.beginPath();
+  ctx.moveTo(px + 66, py - 22);
+  ctx.bezierCurveTo(px + 96, py - 22, px + 124, py - 26, px + 142, py - 30);
+  ctx.lineTo(px + 142, py - 18);
+  ctx.bezierCurveTo(px + 122, py - 14, px + 92, py - 10, px + 68, py - 12);
+  ctx.closePath(); ctx.fill();
+  // Cuff line
+  ctx.fillStyle = sweaterShadow;
+  ctx.fillRect(px + 138, py - 30, 4, 14);
+  // Hand resting on table — visible knuckles
+  ctx.fillStyle = skin;
+  ctx.beginPath();
+  ctx.ellipse(px + 152, py - 22, 12, 7, 0, 0, Math.PI * 2); ctx.fill();
+  // Thumb
+  ctx.beginPath();
+  ctx.ellipse(px + 148, py - 14, 3, 4, 0.2, 0, Math.PI * 2); ctx.fill();
+  // Knuckle creases
+  ctx.fillStyle = skinShadow;
+  ctx.fillRect(px + 150, py - 26, 8, 1);
+  ctx.fillRect(px + 150, py - 22, 8, 1);
+
+  // ── Right arm (raised, holding the phone close to face) ──────
+  // Upper arm — shoulder out, elbow bent up
+  ctx.fillStyle = sweater;
+  ctx.beginPath();
+  ctx.moveTo(px - 4, py - 100);
+  ctx.bezierCurveTo(px - 16, py - 116, px - 16, py - 130, px - 8, py - 142);
+  ctx.bezierCurveTo(px + 4, py - 138, px + 14, py - 122, px + 14, py - 104);
+  ctx.closePath(); ctx.fill();
+  // Forearm — angles up toward face
+  ctx.beginPath();
+  ctx.moveTo(px - 10, py - 138);
+  ctx.bezierCurveTo(px - 6, py - 154, px + 4, py - 162, px + 16, py - 162);
+  ctx.lineTo(px + 22, py - 150);
+  ctx.bezierCurveTo(px + 12, py - 148, px + 4, py - 142, px + 2, py - 130);
+  ctx.closePath(); ctx.fill();
+  // Wrist + hand gripping the phone
+  ctx.fillStyle = skin;
+  ctx.beginPath();
+  ctx.ellipse(px + 18, py - 158, 10, 6, -0.1, 0, Math.PI * 2); ctx.fill();
+
+  // ── Phone (rotated, glowing screen, pulsing alert) ───────────
+  ctx.save();
+  ctx.translate(px + 26, py - 162);
+  ctx.rotate(-0.18);
+  // Bezel
+  ctx.fillStyle = '#0a0a0a';
+  ctx.fillRect(-14, -28, 28, 56);
+  // Screen
+  ctx.fillStyle = '#1a4ccc';
+  ctx.fillRect(-12, -26, 24, 52);
+  // Pulsing red alert banner
+  ctx.fillStyle = `rgba(220,30,30,${0.6 + pulse * 0.35})`;
+  ctx.fillRect(-12, -26, 24, 11);
   ctx.fillStyle = '#fff'; ctx.font = 'bold 4px monospace'; ctx.textAlign = 'center';
-  ctx.fillText('CITY ALERT', 0, -27);
+  ctx.fillText('CITY ALERT', 0, -19);
   ctx.font = '3.5px monospace';
-  ctx.fillText('SHELTER IN', 0, -17);
-  ctx.fillText('PLACE NOW', 0, -10);
+  ctx.fillText('SHELTER IN', 0, -10);
+  ctx.fillText('PLACE NOW', 0, -4);
+  // Camera bump
+  ctx.fillStyle = '#0a0a0a';
+  ctx.beginPath(); ctx.arc(0, -32, 2, 0, Math.PI * 2); ctx.fill();
   ctx.textAlign = 'left';
   ctx.restore();
-  // Face — partial profile, lit by the phone glow
-  ctx.fillStyle = '#bf8a6a';
+
+  // ── Head ─────────────────────────────────────────────────────
+  // Jaw line — egg-shaped, slightly tilted toward the phone
+  const hx = px + 14, hy = py - 110;
+  ctx.fillStyle = skin;
   ctx.beginPath();
-  ctx.arc(px + 14, py - 152, 22, 0, Math.PI * 2);
-  ctx.fill();
-  // Hair (short, dark)
-  ctx.fillStyle = '#2a1a14';
-  ctx.beginPath();
-  ctx.moveTo(px - 6, py - 168);
-  ctx.lineTo(px + 24, py - 174);
-  ctx.lineTo(px + 36, py - 162);
-  ctx.lineTo(px + 32, py - 152);
-  ctx.lineTo(px - 6, py - 156);
+  ctx.moveTo(hx - 18, hy - 4);
+  ctx.bezierCurveTo(hx - 22, hy - 28, hx - 12, hy - 42, hx + 4, hy - 42);
+  ctx.bezierCurveTo(hx + 20, hy - 42, hx + 30, hy - 30, hx + 30, hy - 10);
+  ctx.bezierCurveTo(hx + 30, hy + 4,  hx + 26, hy + 14, hx + 14, hy + 18);
+  ctx.bezierCurveTo(hx + 2, hy + 22, hx - 12, hy + 16, hx - 18, hy + 6);
   ctx.closePath(); ctx.fill();
-  // Eye looking at phone (worried)
-  ctx.fillStyle = '#1a1a1a';
-  ctx.fillRect(px + 10, py - 154, 4, 2);
-  // Eyebrow furrowed
-  ctx.fillRect(px + 8, py - 158, 8, 1.5);
-  // Mouth slightly open (apprehensive)
-  ctx.fillStyle = '#3a1a1a';
-  ctx.fillRect(px + 16, py - 144, 6, 2);
-  // Cool blue light spill on face from phone
-  ctx.fillStyle = `rgba(40,80,200,${0.18 + pulse * 0.12})`;
+  // Jaw shadow
+  ctx.fillStyle = skinShadow;
   ctx.beginPath();
-  ctx.arc(px + 18, py - 150, 26, 0, Math.PI * 2); ctx.fill();
+  ctx.moveTo(hx - 14, hy + 8);
+  ctx.bezierCurveTo(hx + 4, hy + 22, hx + 24, hy + 14, hx + 28, hy + 4);
+  ctx.lineTo(hx + 28, hy + 8);
+  ctx.bezierCurveTo(hx + 22, hy + 18, hx + 0, hy + 24, hx - 16, hy + 12);
+  ctx.closePath(); ctx.fill();
+  // Ear (small, partial — back side of head)
+  ctx.fillStyle = skin;
+  ctx.beginPath(); ctx.ellipse(hx - 18, hy - 8, 3, 6, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = skinShadow;
+  ctx.fillRect(hx - 19, hy - 6, 2, 3);
+  // Hair — short, dark, with a forward fringe
+  ctx.fillStyle = '#1f140e';
+  ctx.beginPath();
+  ctx.moveTo(hx - 22, hy - 6);
+  ctx.bezierCurveTo(hx - 24, hy - 36, hx - 8, hy - 50, hx + 8, hy - 50);
+  ctx.bezierCurveTo(hx + 26, hy - 50, hx + 34, hy - 36, hx + 32, hy - 18);
+  ctx.bezierCurveTo(hx + 28, hy - 26, hx + 14, hy - 30, hx + 0, hy - 26);
+  ctx.bezierCurveTo(hx - 10, hy - 22, hx - 18, hy - 16, hx - 22, hy - 6);
+  ctx.closePath(); ctx.fill();
+  // Fringe accent (lighter strands)
+  ctx.fillStyle = '#2e1f14';
+  ctx.beginPath();
+  ctx.ellipse(hx + 4, hy - 32, 14, 5, -0.1, 0, Math.PI * 2); ctx.fill();
+  // Eyebrow (furrowed, slightly slanted)
+  ctx.fillStyle = '#1a120c';
+  ctx.beginPath();
+  ctx.moveTo(hx + 12, hy - 16); ctx.lineTo(hx + 26, hy - 14);
+  ctx.lineTo(hx + 26, hy - 12); ctx.lineTo(hx + 12, hy - 13);
+  ctx.closePath(); ctx.fill();
+  // Eye socket shadow + eye
+  ctx.fillStyle = skinShadow;
+  ctx.fillRect(hx + 14, hy - 11, 12, 3);
+  ctx.fillStyle = '#0a0a0a';
+  ctx.fillRect(hx + 18, hy - 10, 4, 2);
+  // Nose bridge (subtle shadow) + nostril
+  ctx.fillStyle = skinShadow;
+  ctx.beginPath();
+  ctx.moveTo(hx + 28, hy - 8);
+  ctx.lineTo(hx + 32, hy - 4);
+  ctx.lineTo(hx + 30, hy);
+  ctx.lineTo(hx + 28, hy - 4);
+  ctx.closePath(); ctx.fill();
+  // Mouth — slightly parted (worried)
+  ctx.fillStyle = '#3a1f1a';
+  ctx.fillRect(hx + 18, hy + 8, 8, 2);
+  ctx.fillStyle = '#5a3026';
+  ctx.fillRect(hx + 18, hy + 7, 8, 1);
+  // Cool blue light spill on face from phone (above + foreground)
+  ctx.fillStyle = `rgba(40,90,210,${0.18 + pulse * 0.14})`;
+  ctx.beginPath();
+  ctx.arc(hx + 18, hy - 4, 28, 0, Math.PI * 2); ctx.fill();
+  // Highlight on the cheek closest to the phone
+  ctx.fillStyle = `rgba(150,180,230,${0.10 + pulse * 0.06})`;
+  ctx.beginPath();
+  ctx.ellipse(hx + 22, hy - 2, 10, 6, -0.2, 0, Math.PI * 2); ctx.fill();
 
   // The half-finished coffee mug + newspaper on the table beside him
   const mx = 700, my = CH - 110;
