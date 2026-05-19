@@ -72,6 +72,55 @@ export function dTransmissionScene(ctx, t, now) {
   }
   ctx.stroke();
 
+  // Supply crate animation in the last seconds of the cinematic:
+  // chopper passes high overhead, releases a crate with a parachute
+  // that drifts down to ground level on the bottom of the panel.
+  if (typeof t.data.dropAt === 'number' && off >= t.data.dropAt) {
+    const fall = Math.max(0, off - t.data.dropAt);
+    const span = Math.max(800, (t.data.landAt ?? (t.data.dropAt + 4000)) - t.data.dropAt);
+    const p = Math.min(1, fall / span);
+    // Side panel framing the drop so it doesn't fight the waveform.
+    const px = CW - 120;
+    const groundY = CH - 60;
+    const startY = 110;
+    // Parachute lines visible while airborne
+    const cy = startY + (groundY - startY) * p;
+    if (p < 0.98) {
+      ctx.fillStyle = '#cccccc';
+      ctx.beginPath();
+      ctx.moveTo(px - 18, cy - 22);
+      ctx.quadraticCurveTo(px, cy - 42, px + 18, cy - 22);
+      ctx.lineTo(px + 22, cy - 18);
+      ctx.quadraticCurveTo(px, cy - 36, px - 22, cy - 18);
+      ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = '#888';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(px - 18, cy - 22); ctx.lineTo(px - 6, cy - 6);
+      ctx.moveTo(px,      cy - 32); ctx.lineTo(px,    cy - 6);
+      ctx.moveTo(px + 18, cy - 22); ctx.lineTo(px + 6, cy - 6);
+      ctx.stroke();
+    }
+    // Crate
+    ctx.fillStyle = '#5a3e18'; ctx.fillRect(px - 10, cy - 6, 20, 14);
+    ctx.fillStyle = '#3e2810'; ctx.fillRect(px - 10, cy - 2, 20, 2); ctx.fillRect(px - 10, cy + 4, 20, 2);
+    ctx.fillStyle = '#cc8800'; ctx.font = 'bold 6px monospace'; ctx.textAlign = 'center';
+    ctx.fillText('US', px, cy + 4);
+    ctx.textAlign = 'left';
+    // Dust kicks up on landing
+    if (p >= 0.98) {
+      const dustT = Math.min(1, (p - 0.98) * 50);
+      ctx.fillStyle = `rgba(200,180,140,${0.5 * (1 - dustT)})`;
+      ctx.beginPath();
+      ctx.ellipse(px, cy + 10, 22 + dustT * 6, 4, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // Small "INBOUND" label so the player notices
+    ctx.fillStyle = '#88ee99'; ctx.font = 'bold 9px monospace'; ctx.textAlign = 'center';
+    ctx.fillText(p < 1 ? '◇ CRATE INBOUND' : '◇ CRATE LANDED', px, 100);
+    ctx.textAlign = 'left';
+  }
+
   // Subtitle band
   if (line) {
     ctx.font = '14px monospace'; ctx.textAlign = 'center';

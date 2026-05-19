@@ -147,6 +147,26 @@ export default function DeadPerimeter() {
     const tr = transmissionRef.current;
     if (gs && tr && !gs.transmissionsDone.includes(tr.wave)) {
       gs.transmissionsDone.push(tr.wave);
+      // Apply the supply drop payload Central Command promised in the
+      // transmission. The management screen surfaces a banner showing
+      // what was received via gs.lastSupplyDrop.
+      const drop = tr.data.supplyDrop;
+      if (drop && gs) {
+        const breakdown = {};
+        const apply = (k, cap) => {
+          if (!drop[k]) return;
+          const before = gs.resources[k] || 0;
+          gs.resources[k] = Math.min(cap, before + drop[k]);
+          breakdown[k] = gs.resources[k] - before;
+        };
+        apply('ammo', 999);
+        apply('food', 999);
+        apply('medicine', 999);
+        apply('materials', 999);
+        apply('sniperAmmo', 99);
+        apply('turretAmmo', 999);
+        gs.lastSupplyDrop = { wave: tr.wave, breakdown };
+      }
     }
     if (gs) { gs.pendingTransmission = null; saveGame(gs); }
     try { window.speechSynthesis?.cancel(); } catch {}
@@ -1107,6 +1127,23 @@ export default function DeadPerimeter() {
                 </div>
                 <div style={{ color: C.txt, fontSize: '10px', marginTop: '4px', lineHeight: '1.5' }}>
                   Survivor gangs spotted in the perimeter. Knifemen rush the wall; gunmen open fire from a distance. They drop ammo when killed.
+                </div>
+              </div>
+            )}
+            {/* Supply drop received from Central Command (wave 10/20/25) */}
+            {gs.lastSupplyDrop && gs.lastSupplyDrop.wave === gs.wave && (
+              <div style={{ background: 'rgba(20,60,40,0.92)', border: `1px solid #44aa66`, padding: '10px 14px', marginTop: '8px' }}>
+                <div style={{ color: '#88ee99', fontWeight: 'bold', fontSize: '13px', letterSpacing: '.05em' }}>
+                  📦 SUPPLY DROP RECEIVED — DAY {gs.day}
+                </div>
+                <div style={{ color: C.txt, fontSize: '11px', marginTop: '4px', lineHeight: '1.5' }}>
+                  Central Command parachuted a crate to your perimeter:
+                  {' '}
+                  {Object.entries(gs.lastSupplyDrop.breakdown).map(([k, v], i, arr) => {
+                    const icon = k === 'ammo' ? '🔫' : k === 'food' ? '🥫' : k === 'medicine' ? '💊'
+                              : k === 'materials' ? '🔧' : k === 'sniperAmmo' ? '🎯' : k === 'turretAmmo' ? '🟠' : '?';
+                    return <span key={k} style={{ color: '#88ee99', fontWeight: 'bold' }}>+{v} {icon}{i < arr.length - 1 ? '  ' : ''}</span>;
+                  })}
                 </div>
               </div>
             )}
