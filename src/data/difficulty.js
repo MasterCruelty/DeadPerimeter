@@ -46,8 +46,7 @@ export const BALANCE = {
 
   // Expeditions
   expeditionsPerDay: 2,             // max sorties before the next wave (= one day)
-  maxExpeditionParty: 3,            // soldiers per auto-dispatch run (playable still 1)
-  partyRewardDiminish: 0.80,        // 2nd soldier contributes 80%, 3rd 64% to rewards
+  maxExpeditionParty: 3,            // soldiers per playable sortie (lead + up to 2 AI followers)
 
   // Turrets (machine-gun fixed emplacements)
   maxTurrets: 2,
