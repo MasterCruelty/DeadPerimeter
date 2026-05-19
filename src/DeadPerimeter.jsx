@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 
-import { C, CW, CH, WX, laneY, clickToLane, rng } from './constants.js';
+import { C, CW, CH, GY, WX, WORLD_W, laneY, clickToLane, rng } from './constants.js';
 import { WPN } from './data/weapons.js';
 import { rollDestinations, RECRUIT_NAMES, RECRUIT_WEAPONS } from './data/expeditions.js';
 import { isHumanWaveNumber } from './data/humans.js';
@@ -35,9 +35,7 @@ import { initRadioVoice, isRadioVoiceEnabled, isRadioVoiceAvailable, setRadioVoi
 import { update } from './update/siege.js';
 import { mkMission, updateMission, dMissionWorld, dMissionHUD } from './update/mission.js';
 
-import { resolveExpedition, resolvePartyExpedition } from './expedition/auto.js';
 import { finishMission } from './expedition/missionFinish.js';
-import { genEvents } from './expedition/events.js';
 
 export default function DeadPerimeter() {
   const cvs = useRef(null), gsRef = useRef(null), rafId = useRef(null), prevT = useRef(0), mutedR = useRef(false);
@@ -47,6 +45,7 @@ export default function DeadPerimeter() {
   const defeatRef = useRef(null);              // game-over cinematic state, if any
   const transmissionRef = useRef(null);        // intermediate radio cinematic (waves 10/20/25)
   const extractionRef = useRef(null);          // wave-30 convoy finale cinematic
+  const placementRef = useRef(null);           // active build-placement, if any: { kind, validRange, mouseWorldX }
   const inputRef = useRef({ left: false, right: false, shoot: false });
   const pausedRef = useRef(false);
   const [scr, setScr] = useState('menu'), [ui, setUi] = useState(null), [muted, setMuted] = useState(false);
@@ -136,6 +135,7 @@ export default function DeadPerimeter() {
   const finishDefeat = useCallback(() => {
     const am = getAM();
     if (am) { am.windStop(); am.heliStop(); am.cityHumStop(); }
+    try { window.speechSynthesis?.cancel(); } catch {}
     defeatRef.current = null;
     setScr('gameover');
   }, []);
@@ -147,6 +147,26 @@ export default function DeadPerimeter() {
     const tr = transmissionRef.current;
     if (gs && tr && !gs.transmissionsDone.includes(tr.wave)) {
       gs.transmissionsDone.push(tr.wave);
+      // Apply the supply drop payload Central Command promised in the
+      // transmission. The management screen surfaces a banner showing
+      // what was received via gs.lastSupplyDrop.
+      const drop = tr.data.supplyDrop;
+      if (drop && gs) {
+        const breakdown = {};
+        const apply = (k, cap) => {
+          if (!drop[k]) return;
+          const before = gs.resources[k] || 0;
+          gs.resources[k] = Math.min(cap, before + drop[k]);
+          breakdown[k] = gs.resources[k] - before;
+        };
+        apply('ammo', 999);
+        apply('food', 999);
+        apply('medicine', 999);
+        apply('materials', 999);
+        apply('sniperAmmo', 99);
+        apply('turretAmmo', 999);
+        gs.lastSupplyDrop = { wave: tr.wave, breakdown };
+      }
     }
     if (gs) { gs.pendingTransmission = null; saveGame(gs); }
     try { window.speechSynthesis?.cancel(); } catch {}
@@ -222,53 +242,6 @@ export default function DeadPerimeter() {
     setScr('siege'); setExpResult(null);
   }, []);
 
-  const sendExpedition = useCallback(() => {
-    const idxs = expSolsRef.current, di = expDstRef.current;
-    if (!idxs || idxs.length === 0 || di === null) return;
-    const gs = gsRef.current;
-    if ((gs.expeditionsToday || 0) >= BALANCE.expeditionsPerDay) return;
-    const soldiers = idxs.map(i => gs.soldiers[i]).filter(s => s && s.state !== 'dead');
-    if (soldiers.length === 0) return;
-    const dest = expDestsRef.current[di];
-
-    const result = soldiers.length === 1
-      ? resolveExpedition(soldiers[0], dest, gs)
-      : resolvePartyExpedition(soldiers, dest, gs);
-
-    if (result.reward.ammo)       gs.resources.ammo       = Math.min(999, gs.resources.ammo + result.reward.ammo);
-    if (result.reward.medicine)   gs.resources.medicine   = Math.min(999, gs.resources.medicine + result.reward.medicine);
-    if (result.reward.food)       gs.resources.food       = Math.min(999, gs.resources.food + result.reward.food);
-    if (result.reward.materials)  gs.resources.materials  = Math.min(999, gs.resources.materials + result.reward.materials);
-    if (result.reward.sniperAmmo) gs.resources.sniperAmmo = Math.min(99,  (gs.resources.sniperAmmo || 0) + result.reward.sniperAmmo);
-    if (result.reward.turretAmmo) gs.resources.turretAmmo = Math.min(999, (gs.resources.turretAmmo || 0) + result.reward.turretAmmo);
-
-    if (result.recruit) {
-      const r = result.recruit;
-      const activeCount = gs.soldiers.filter(s => s.state !== 'dead').length;
-      if (activeCount < BALANCE.maxActiveSoldiers) {
-        const ns = mkSoldier(r.name, r.weapon, 270, r.hp, Math.floor(Math.random() * 3), !!r.civilian, false, { veteran: !!r.veteran });
-        ns.ammo = 0; gs.soldiers.push(ns);
-      } else if ((gs.reserve?.length || 0) < BALANCE.maxReserveSoldiers) {
-        gs.reserve = gs.reserve || [];
-        gs.reserve.push({ name: r.name, weapon: r.weapon, civilian: !!r.civilian, veteran: !!r.veteran, hp: r.hp });
-      }
-    }
-
-    gs.expeditionsToday = (gs.expeditionsToday || 0) + 1;
-
-    // Use the (single) soldier's narrative log; for a party we use the first.
-    const lead = soldiers[0];
-    const events = genEvents(lead.name, dest, result.outcome, result.dmgTaken, result.recruit);
-    if (result.party && result.party.length > 1) {
-      events.unshift({ icon: '🛡', text: `Party of ${result.party.length}: ${result.soldierNames.join(', ')}.`, delay: 700, col: C.acc });
-      if (result.kiaNames && result.kiaNames.length > 0) {
-        events.push({ icon: '💀', text: `Lost in action: ${result.kiaNames.join(', ')}.`, delay: 1200, col: C.dng });
-      }
-    }
-    setExpEvents(events); setExpVisible(0); setExpResult(result); setExpPhase('running');
-    setUi({ ...gs, soldiers: gs.soldiers.map(s => ({ ...s })) });
-  }, []);
-
   const playMission = useCallback(() => {
     const idxs = expSolsRef.current, di = expDstRef.current;
     if (!idxs || idxs.length === 0 || di === null) return;
@@ -322,14 +295,19 @@ export default function DeadPerimeter() {
     setUi({ ...gs, soldiers: gs.soldiers.map(s => ({ ...s })) });
   }, []);
 
+  // Enter placement mode for a new barricade. The actual mkBarricade
+  // + resource deduction runs in confirmPlacement once the player
+  // clicks a valid spot on the siege view.
   const buildBarricade = useCallback(() => {
     const gs = gsRef.current;
     if (gs.resources.materials < 15 || gs.barricades.length >= BALANCE.maxBarricades) return;
-    gs.resources.materials -= 15;
-    const x = WX + 160 + rng(0, 3) * 70;
-    gs.barricades.push(mkBarricade(x));
-    saveGame(gs); setHasSave(true);
-    setUi({ ...gs });
+    placementRef.current = {
+      kind: 'barricade',
+      cost: { materials: 15 },
+      validRange: [WX + 70, WX + 480],
+      mouseWorldX: WX + 200,
+    };
+    setScr('placement');
   }, []);
 
   // Repair the perimeter wall: spend wallRepairCost materials for
@@ -455,12 +433,43 @@ export default function DeadPerimeter() {
       (gs.resources.turretAmmo || 0) < BALANCE.turretCostAmmo ||
       (gs.turrets?.length || 0) >= BALANCE.maxTurrets
     ) return;
-    gs.resources.materials  -= BALANCE.turretCostMaterials;
-    gs.resources.turretAmmo  = (gs.resources.turretAmmo || 0) - BALANCE.turretCostAmmo;
-    gs.turrets = gs.turrets || [];
-    gs.turrets.push(mkTurret(gs.turrets.length));
+    placementRef.current = {
+      kind: 'turret',
+      cost: { materials: BALANCE.turretCostMaterials, turretAmmo: BALANCE.turretCostAmmo },
+      // Turrets mount on the wall (inner side). Allow a small strip
+      // either side of WX so two turrets don't have to overlap.
+      validRange: [WX - 12, WX + 60],
+      mouseWorldX: WX + 20,
+    };
+    setScr('placement');
+  }, []);
+
+  // Confirm a build placement at the current mouseWorldX. Deducts
+  // cost, inserts the new entity, persists, returns to management.
+  const confirmPlacement = useCallback(() => {
+    const gs = gsRef.current;
+    const p = placementRef.current;
+    if (!gs || !p) return;
+    const [minX, maxX] = p.validRange;
+    const x = Math.max(minX, Math.min(maxX, p.mouseWorldX));
+    if (p.kind === 'barricade') {
+      gs.resources.materials -= p.cost.materials;
+      gs.barricades.push(mkBarricade(x));
+    } else if (p.kind === 'turret') {
+      gs.resources.materials -= p.cost.materials;
+      gs.resources.turretAmmo = (gs.resources.turretAmmo || 0) - p.cost.turretAmmo;
+      gs.turrets = gs.turrets || [];
+      gs.turrets.push(mkTurret(gs.turrets.length, x));
+    }
+    placementRef.current = null;
     saveGame(gs); setHasSave(true);
     setUi({ ...gs });
+    setScr('management');
+  }, []);
+
+  const cancelPlacement = useCallback(() => {
+    placementRef.current = null;
+    setScr('management');
   }, []);
 
   const healSoldier = useCallback(idx => {
@@ -511,6 +520,15 @@ export default function DeadPerimeter() {
       if (extractionRef.current)   { finishExtraction();   return; }
       const r = canvas.getBoundingClientRect();
       const mx = (e.clientX - r.left) * (CW / r.width), my = (e.clientY - r.top) * (CH / r.height);
+      // Build placement: click in the green zone to confirm.
+      const pl = placementRef.current;
+      if (pl) {
+        const [minX, maxX] = pl.validRange;
+        // Header band swallows clicks (could be a cancel-button area later)
+        if (my < 38) return;
+        if (pl.mouseWorldX >= minX && pl.mouseWorldX <= maxX) confirmPlacement();
+        return;
+      }
       // Intro SKIP button.
       const intro = introRef.current;
       if (intro && intro._skipBtn) {
@@ -543,19 +561,25 @@ export default function DeadPerimeter() {
       const gs = gsRef.current;
       if (!gs || gs.phase !== 'siege' || my <= 38) return;
 
+      // The world is wider than the viewport (WORLD_W vs CW) and the
+      // siege view scrolls. Translate the click into world coordinates
+      // so entity-hit tests and target placement line up with what the
+      // player sees regardless of cameraX.
+      const worldX = mx + (gs.cameraX || 0);
+
       const clickedSol = gs.soldiers.find(s => {
         if (s.state === 'dead' || s.onExpedition || s.onRoof) return false;
         const sly = laneY(s.lane);
-        return Math.abs(s.x - mx) < 22 && my > sly - 58 && my < sly + 10;
+        return Math.abs(s.x - worldX) < 22 && my > sly - 58 && my < sly + 10;
       });
       if (clickedSol) {
         gs.selectedSoldierId = (gs.selectedSoldierId === clickedSol.id) ? null : clickedSol.id;
         return;
       }
 
-      if (mx > WX + 40) {
+      if (worldX > WX + 40) {
         const clickedLane = clickToLane(my);
-        const targetX = Math.max(WX + 40, Math.min(CW - 80, mx));
+        const targetX = Math.max(WX + 40, Math.min(CW - 80, worldX));
         if (gs.selectedSoldierId !== null) {
           const s = gs.soldiers.find(s => s.id === gs.selectedSoldierId);
           if (s && s.state !== 'dead' && !s.onExpedition && !s.onRoof && s.state !== 'reload') {
@@ -584,6 +608,8 @@ export default function DeadPerimeter() {
         return;
       }
       if (e.key === 'Escape' || e.key === 'Esc') {
+        // Cancel build placement if active.
+        if (placementRef.current) { cancelPlacement(); e.preventDefault(); return; }
         // Pause/resume only during siege. Missions and menus ignore Esc.
         const gs = gsRef.current;
         if (gs && gs.phase === 'siege' && !missionRef.current) {
@@ -597,11 +623,18 @@ export default function DeadPerimeter() {
         if (e.key === 'ArrowUp'    || e.key === 'w' || e.key === 'W') { inputRef.current.up = true;    e.preventDefault(); }
         if (e.key === 'ArrowDown'  || e.key === 's' || e.key === 'S') { inputRef.current.down = true;  e.preventDefault(); }
         if (e.key === ' ' || e.key === 'Spacebar') { inputRef.current.shoot = true; e.preventDefault(); }
+      } else {
+        // Siege phase: arrow keys pan the camera across the wider WORLD_W.
+        const gs = gsRef.current;
+        if (gs && gs.phase === 'siege' && !missionRef.current) {
+          if (e.key === 'ArrowLeft'  || e.key === 'a' || e.key === 'A') { inputRef.current.panLeft  = true; e.preventDefault(); }
+          if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') { inputRef.current.panRight = true; e.preventDefault(); }
+        }
       }
     };
     const onKeyUp = e => {
-      if (e.key === 'ArrowLeft'  || e.key === 'a' || e.key === 'A') inputRef.current.left = false;
-      if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') inputRef.current.right = false;
+      if (e.key === 'ArrowLeft'  || e.key === 'a' || e.key === 'A') { inputRef.current.left = false; inputRef.current.panLeft = false; }
+      if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') { inputRef.current.right = false; inputRef.current.panRight = false; }
       if (e.key === 'ArrowUp'    || e.key === 'w' || e.key === 'W') inputRef.current.up = false;
       if (e.key === 'ArrowDown'  || e.key === 's' || e.key === 'S') inputRef.current.down = false;
       if (e.key === ' ' || e.key === 'Spacebar') inputRef.current.shoot = false;
@@ -634,6 +667,14 @@ export default function DeadPerimeter() {
         }
         return;
       }
+      // Build placement: tap = move cursor + confirm if inside range.
+      if (placementRef.current) {
+        e.preventDefault();
+        const t = e.changedTouches[0]; if (!t) return;
+        onMouseMove({ clientX: t.clientX, clientY: t.clientY });
+        onClick({ clientX: t.clientX, clientY: t.clientY });
+        return;
+      }
       // Siege / other phases: translate to a synthetic click on touch start
       const gs = gsRef.current;
       if (gs && gs.phase === 'siege') {
@@ -654,8 +695,33 @@ export default function DeadPerimeter() {
       }
     };
 
+    // Mouse move tracks cursor world-X for build placement so the
+    // ghost preview follows the pointer.
+    const onMouseMove = e => {
+      const pl = placementRef.current;
+      if (!pl) return;
+      const r = canvas.getBoundingClientRect();
+      const mx = (e.clientX - r.left) * (CW / r.width);
+      // Placement view centers on the valid-range midpoint; mirror the
+      // same camera math so screenX → worldX.
+      const [minX, maxX] = pl.validRange;
+      const focusX = (minX + maxX) / 2;
+      const camX = Math.max(0, Math.min(WORLD_W - CW, focusX - CW / 2));
+      pl.mouseWorldX = mx + camX;
+    };
+
+    // Right-click during placement cancels.
+    const onContextMenu = e => {
+      if (placementRef.current) {
+        e.preventDefault();
+        cancelPlacement();
+      }
+    };
+
     canvas.addEventListener('click', onClick);
     canvas.addEventListener('mousedown', onMouseDown);
+    canvas.addEventListener('mousemove', onMouseMove);
+    canvas.addEventListener('contextmenu', onContextMenu);
     canvas.addEventListener('touchstart', onTouchStart, { passive: false });
     canvas.addEventListener('touchend', onTouchEnd, { passive: false });
     canvas.addEventListener('touchcancel', onTouchEnd, { passive: false });
@@ -751,6 +817,63 @@ export default function DeadPerimeter() {
         return;
       }
 
+      // Build-placement view: static siege backdrop + soldiers + wall +
+      // existing barricades/turrets, plus a ghost preview at the cursor
+      // and a green/red overlay marking the valid placement strip.
+      const pl = placementRef.current;
+      if (pl) {
+        ctx.save(); ctx.clearRect(0, 0, CW, CH);
+        // Center the camera roughly on the valid range so the player
+        // can see the whole zone without scrolling.
+        const [minX, maxX] = pl.validRange;
+        const focusX = (minX + maxX) / 2;
+        const camX = Math.max(0, Math.min(WORLD_W - CW, focusX - CW / 2));
+        ctx.save();
+        ctx.translate(-camX, 0);
+        dBg(ctx); dBase(ctx, gs.baseHp, gs.baseMaxHp);
+        // Draw the existing fort: soldiers, barricades, turrets
+        for (let lane = 2; lane >= 0; lane--) {
+          gs.soldiers.filter(s => (s.lane || 0) === lane && !s.onExpedition && s.state !== 'dead').forEach(s => dSoldier(ctx, s, now, false));
+          if (lane === 2) gs.barricades.forEach(b => dBarricade(ctx, b));
+        }
+        (gs.turrets || []).forEach(t => dTurret(ctx, t, now));
+        // Valid-zone strip on the front lane
+        ctx.fillStyle = 'rgba(100, 220, 120, 0.18)';
+        ctx.fillRect(minX, GY - 30, maxX - minX, 30);
+        ctx.strokeStyle = 'rgba(100, 220, 120, 0.6)'; ctx.lineWidth = 1;
+        ctx.strokeRect(minX + 0.5, GY - 30, maxX - minX - 1, 30);
+        // Ghost preview at cursor position, clamped to the valid range
+        const gx = Math.max(minX, Math.min(maxX, pl.mouseWorldX));
+        const inRange = pl.mouseWorldX >= minX && pl.mouseWorldX <= maxX;
+        ctx.globalAlpha = 0.7;
+        if (pl.kind === 'barricade') {
+          dBarricade(ctx, { x: gx, hp: 140, maxHp: 140 });
+        } else {
+          dTurret(ctx, { x: gx, y: GY - 50, lane: 0, lastShot: 0, hp: 200, maxHp: 200 }, now);
+        }
+        ctx.globalAlpha = 1;
+        // Out-of-range hint: red cross at cursor
+        if (!inRange) {
+          ctx.strokeStyle = '#dd3333'; ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(pl.mouseWorldX - 10, GY - 10); ctx.lineTo(pl.mouseWorldX + 10, GY + 10);
+          ctx.moveTo(pl.mouseWorldX - 10, GY + 10); ctx.lineTo(pl.mouseWorldX + 10, GY - 10);
+          ctx.stroke();
+        }
+        ctx.restore();
+        // Header banner (screen space)
+        ctx.fillStyle = 'rgba(10, 16, 8, 0.92)';
+        ctx.fillRect(0, 0, CW, 36);
+        ctx.fillStyle = C.acc; ctx.font = 'bold 13px monospace'; ctx.textAlign = 'center';
+        ctx.fillText(`PLACE ${pl.kind === 'barricade' ? '🪵 BARRICADE' : '🛠 MG TURRET'} — click in green zone`, CW / 2, 18);
+        ctx.fillStyle = C.txt; ctx.font = '10px monospace';
+        ctx.fillText('[ESC] or right-click to cancel', CW / 2, 31);
+        ctx.textAlign = 'left';
+        ctx.restore();
+        rafId.current = requestAnimationFrame(loop);
+        return;
+      }
+
       const m = missionRef.current;
       if (m) {
         m.inputUp    = inputRef.current.up;
@@ -772,6 +895,15 @@ export default function DeadPerimeter() {
         if (!pausedRef.current) {
           update(gs, now, dt);
           processSounds(gs.soundQ, getAM(), mutedR);
+        }
+        // Camera pan from arrow-key input. 0.55 px/ms ≈ 33 px/frame at
+        // 60 FPS, clamped to [0, WORLD_W - CW].
+        if (inputRef.current.panLeft || inputRef.current.panRight) {
+          const panSpd = 0.55 * dt;
+          let cx = gs.cameraX || 0;
+          if (inputRef.current.panLeft)  cx -= panSpd;
+          if (inputRef.current.panRight) cx += panSpd;
+          gs.cameraX = Math.max(0, Math.min(WORLD_W - CW, cx));
         }
         if (gs.phase !== 'siege') {
           const am = getAM(); if (am) am.stopBg();
@@ -806,6 +938,12 @@ export default function DeadPerimeter() {
         } else {
           ctx.save(); ctx.clearRect(0, 0, CW, CH);
           if (gs.shakeTimer > 0) ctx.translate((Math.random() - 0.5) * 5, (Math.random() - 0.5) * 3);
+          // Camera scroll: pan the world coordinate system left by
+          // gs.cameraX so the 900-wide viewport maps to a slice of the
+          // wider WORLD_W. HUD is drawn after ctx.restore() so it stays
+          // in screen-space and never scrolls.
+          ctx.save();
+          ctx.translate(-(gs.cameraX || 0), 0);
           dBg(ctx); dBase(ctx, gs.baseHp, gs.baseMaxHp);
           for (let lane = 2; lane >= 0; lane--) {
             gs.zombies.filter(z => z.state === 'dead' && z.lane === lane).forEach(z => dZombie(ctx, z, now));
@@ -819,6 +957,8 @@ export default function DeadPerimeter() {
           gs.effects.forEach(e => dFx(ctx, e, now));
           gs.bullets.forEach(b => dBlt(ctx, b));
           dSquadMarker(ctx, gs.squadTarget, gs.squadLane, now);
+          ctx.restore();
+          // HUD lives in screen-space.
           dHUD(ctx, gs, now, mutedR.current);
           if (pausedRef.current) {
             ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(0, 0, CW, CH);
@@ -839,6 +979,8 @@ export default function DeadPerimeter() {
       cancelAnimationFrame(rafId.current);
       canvas.removeEventListener('click', onClick);
       canvas.removeEventListener('mousedown', onMouseDown);
+      canvas.removeEventListener('mousemove', onMouseMove);
+      canvas.removeEventListener('contextmenu', onContextMenu);
       canvas.removeEventListener('touchstart', onTouchStart);
       canvas.removeEventListener('touchend', onTouchEnd);
       canvas.removeEventListener('touchcancel', onTouchEnd);
@@ -940,16 +1082,10 @@ export default function DeadPerimeter() {
                 style={btn('#1a3a18')}
                 disabled={!partyValid || expDestIdx === null || !canSortie}
                 onClick={playMission}
-              >🎮 PLAY LIVE</button>
-              <button
-                style={btn('#2a3018', '#558844')}
-                disabled={!partyValid || expDestIdx === null || !canSortie}
-                onClick={sendExpedition}
-              >🗺 AUTO-DISPATCH</button>
+              >🎮 LAUNCH SORTIE</button>
             </div>
             <div style={{ fontSize: '9px', color: C.txt, opacity: 0.5, marginTop: '8px', lineHeight: '1.5' }}>
-              <b style={{ color: C.acc }}>PLAY LIVE</b>: control the first picked soldier; the others follow as AI (auto-shoot in range, knife on dry mag). Lead death = mission failed.<br />
-              <b style={{ color: C.txt }}>AUTO-DISPATCH</b>: text-based; up to {BALANCE.maxExpeditionParty} soldiers, rewards stack with diminishing returns.
+              You control the first picked soldier; the others follow as AI (auto-shoot in range, knife on dry mag). Lead death = mission failed — but a surviving follower takes point.
               {!expeditionsUnlocked && <><br /><b style={{ color: C.dng }}>LOCKED</b>: expeditions unlock from wave 2 onward.</>}
               {expeditionsUnlocked && sortiesLeft <= 0 && <><br /><b style={{ color: C.dng }}>NIGHTFALL</b>: no more sorties today — survive the next wave to dispatch again.</>}
             </div>
@@ -1003,7 +1139,7 @@ export default function DeadPerimeter() {
 
   return (
     <div style={{ background: '#030504', minHeight: '100vh', fontFamily: F, color: C.txt }}>
-      <div style={{ display: (scr === 'siege' || scr === 'mission' || scr === 'evac' || scr === 'intro' || scr === 'defeat' || scr === 'transmission' || scr === 'extraction') ? 'flex' : 'none', flexDirection: 'column', alignItems: 'center', padding: '10px 0' }}>
+      <div style={{ display: (scr === 'siege' || scr === 'mission' || scr === 'evac' || scr === 'intro' || scr === 'defeat' || scr === 'transmission' || scr === 'extraction' || scr === 'placement') ? 'flex' : 'none', flexDirection: 'column', alignItems: 'center', padding: '10px 0' }}>
         <canvas ref={cvs} width={CW} height={CH} style={{ border: `1px solid ${C.uib}`, maxWidth: '100%', cursor: scr === 'mission' ? 'crosshair' : 'crosshair', display: 'block', outline: 'none' }} tabIndex={0} />
         {scr === 'siege' && (
           <div style={{ display: 'flex', gap: '7px', marginTop: '7px', flexWrap: 'wrap', justifyContent: 'center', alignItems: 'center', width: '100%', maxWidth: CW }}>
@@ -1107,6 +1243,23 @@ export default function DeadPerimeter() {
                 </div>
                 <div style={{ color: C.txt, fontSize: '10px', marginTop: '4px', lineHeight: '1.5' }}>
                   Survivor gangs spotted in the perimeter. Knifemen rush the wall; gunmen open fire from a distance. They drop ammo when killed.
+                </div>
+              </div>
+            )}
+            {/* Supply drop received from Central Command (wave 10/20/25) */}
+            {gs.lastSupplyDrop && gs.lastSupplyDrop.wave === gs.wave && (
+              <div style={{ background: 'rgba(20,60,40,0.92)', border: `1px solid #44aa66`, padding: '10px 14px', marginTop: '8px' }}>
+                <div style={{ color: '#88ee99', fontWeight: 'bold', fontSize: '13px', letterSpacing: '.05em' }}>
+                  📦 SUPPLY DROP RECEIVED — DAY {gs.day}
+                </div>
+                <div style={{ color: C.txt, fontSize: '11px', marginTop: '4px', lineHeight: '1.5' }}>
+                  Central Command parachuted a crate to your perimeter:
+                  {' '}
+                  {Object.entries(gs.lastSupplyDrop.breakdown).map(([k, v], i, arr) => {
+                    const icon = k === 'ammo' ? '🔫' : k === 'food' ? '🥫' : k === 'medicine' ? '💊'
+                              : k === 'materials' ? '🔧' : k === 'sniperAmmo' ? '🎯' : k === 'turretAmmo' ? '🟠' : '?';
+                    return <span key={k} style={{ color: '#88ee99', fontWeight: 'bold' }}>+{v} {icon}{i < arr.length - 1 ? '  ' : ''}</span>;
+                  })}
                 </div>
               </div>
             )}

@@ -1,4 +1,4 @@
-import { C, CW, CH, GY, WX } from '../constants.js';
+import { C, CW, CH, GY, WX, LANES, laneY } from '../constants.js';
 import { dBg } from './background.js';
 import { dBase } from './base.js';
 import { dSoldier } from './soldier.js';
@@ -6,6 +6,7 @@ import { dZombie } from './zombie.js';
 import { ZTP } from '../data/zombies.js';
 import { pushRadio, RADIO_LINES } from '../audio/radio.js';
 import { dRadioSubtitle } from './hud.js';
+import { speakRadio } from '../audio/radioVoice.js';
 
 // Sprite scaling + reuse helpers (mirrors the intro module's versions
 // so dSoldier / dZombie can be rendered at arbitrary scale + foot Y).
@@ -49,15 +50,17 @@ function mkZom(opts = {}) {
   };
 }
 
-// Game-over cinematic. ~24 seconds, four chained beats that show
-// Fort Omega being overrun. Skippable like the intro.
-export const DEFEAT_DURATION = 24000;
+// Game-over cinematic. Five chained beats that show Fort Omega being
+// overrun, then a Central Command coda where HQ realises the outpost
+// has gone dark. Skippable like the intro.
+export const DEFEAT_DURATION = 36000;
 
 const PHASES = {
   breach:    { start: 0,     end: 5000  },
   overrun:   { start: 5000,  end: 12000 },
   lastStand: { start: 12000, end: 19000 },
-  silence:   { start: 19000, end: 24000 },
+  silence:   { start: 19000, end: 23000 },
+  command:   { start: 23000, end: 36000 },
 };
 
 function phaseAt(t) {
@@ -68,64 +71,67 @@ function phaseAt(t) {
 }
 
 // ── Scripted defenders ─────────────────────────────────────────
-// Deployed IN FRONT of the wall, facing right (toward the horde
-// pressing in). Charlie is the forward man and falls first; Alpha
-// is dug in near the wall and fights to the very end.
+// Deployed IN FRONT of the wall across the three lanes (front /
+// mid / back) so the line has visible depth. Charlie is the
+// forward man on the front lane and falls first; Alpha is dug in
+// near the wall and fights to the very end.
 // fallAt / hurtAt are CUMULATIVE ms from the start of the cinematic.
 const DEFENDERS = [
-  { name: 'Alpha',   x: WX + 14,  weapon: 'rifle',   fallAt: 17500, hurtAt: 16800, line: 'For Fort Omega!',  urgent: true, hero: true },
-  { name: 'Delta',   x: WX + 70,  weapon: 'pistol',  fallAt: 14000, hurtAt: 13300, line: "They're everywhere!", urgent: true },
-  { name: 'Bravo',   x: WX + 140, weapon: 'rifle',   fallAt:  9500, hurtAt:  8700, line: 'Mag dry!' },
-  { name: 'Charlie', x: WX + 220, weapon: 'shotgun', fallAt:  6500, hurtAt:  5700, line: "I'm hit!" },
+  { name: 'Alpha',   x: WX + 14,  lane: 0, weapon: 'rifle',   fallAt: 17500, hurtAt: 16800, line: 'For Fort Omega!',     urgent: true, hero: true },
+  { name: 'Bravo',   x: WX + 110, lane: 1, weapon: 'rifle',   fallAt:  9500, hurtAt:  8700, line: 'Mag dry!' },
+  { name: 'Delta',   x: WX + 80,  lane: 2, weapon: 'sniper',  fallAt: 14000, hurtAt: 13300, line: "They're everywhere!", urgent: true },
+  { name: 'Charlie', x: WX + 220, lane: 0, weapon: 'shotgun', fallAt:  6500, hurtAt:  5700, line: "I'm hit!" },
 ];
 
 // Killer zombies — each appears next to its assigned defender just
 // before that defender's hurtAt and stays there in 'attack' state,
-// mauling the body. This is the "physics" the player was missing:
-// a defender doesn't just topple, they're EATEN.
+// mauling the body. dx/dy now also respect the defender's lane so
+// the killer renders at the matching depth.
 const KILLERS = [
-  // Charlie — overrun first by a fast runner
+  // Charlie — overrun first by a fast runner (front lane)
   { defenderIdx: 3, type: 'runner', dx:  28, appearAt:  5300, walkPhase: 0.0 },
-  // Bravo — flanked by a walker
-  { defenderIdx: 2, type: 'walker', dx:  28, appearAt:  8300, walkPhase: 0.5 },
-  // Delta — pinned by a walker
-  { defenderIdx: 1, type: 'walker', dx:  28, appearAt: 12900, walkPhase: 1.0 },
-  // Alpha — surrounded, three zombies converging
+  // Bravo — flanked by a walker (mid lane)
+  { defenderIdx: 1, type: 'walker', dx:  28, appearAt:  8300, walkPhase: 0.5 },
+  // Delta — pinned by a walker (back lane)
+  { defenderIdx: 2, type: 'walker', dx:  28, appearAt: 12900, walkPhase: 1.0 },
+  // Alpha — surrounded, three zombies converging (front lane)
   { defenderIdx: 0, type: 'walker', dx:  30, appearAt: 16300, walkPhase: 0.0 },
   { defenderIdx: 0, type: 'runner', dx: -26, appearAt: 16500, walkPhase: 0.7 },
   { defenderIdx: 0, type: 'walker', dx:  46, appearAt: 16800, walkPhase: 1.4 },
 ];
 
 // Foreground dead zombies on the ground — killed by defender fire
-// before reaching the line. Each appears at killedAt and stays.
+// before reaching the line. Spread across all three lanes so the
+// scene has visible depth.
 const DEAD_ZOMBIES = [
-  { x: WX + 320, killedAt: 1400 },
-  { x: WX + 260, killedAt: 2300 },
-  { x: WX + 380, killedAt: 3100 },
-  { x: WX + 290, killedAt: 4000 },
-  { x: WX + 350, killedAt: 4800 },
-  { x: WX + 200, killedAt: 7200 },
-  { x: WX + 270, killedAt: 8400 },
-  { x: WX + 160, killedAt: 10500 },
-  { x: WX + 180, killedAt: 11800 },
+  { x: WX + 320, lane: 0, killedAt: 1400 },
+  { x: WX + 260, lane: 1, killedAt: 2300 },
+  { x: WX + 380, lane: 0, killedAt: 3100 },
+  { x: WX + 290, lane: 2, killedAt: 4000 },
+  { x: WX + 350, lane: 1, killedAt: 4800 },
+  { x: WX + 200, lane: 0, killedAt: 7200 },
+  { x: WX + 270, lane: 2, killedAt: 8400 },
+  { x: WX + 160, lane: 1, killedAt: 10500 },
+  { x: WX + 180, lane: 0, killedAt: 11800 },
 ];
 
 // ── Actor renderers using the real in-game sprites ────────────
 function dDefeatSoldier(ctx, d, elapsed, now) {
   const dead = elapsed >= d.fallAt;
   const dying = !dead && elapsed >= d.hurtAt;
-  // Feet at true ground level (in front of the wall, not on top).
-  const footY = GY;
+  const lane = d.lane || 0;
+  const footY = laneY(lane);
+  const sc = LANES[lane].sc;
 
   if (dead) {
     const sol = mkSold({
       name: d.name, weapon: d.weapon, facing: 1, state: 'dead',
       deadAt: d.fallAt,
     });
-    dSpriteAt(dSoldier, ctx, sol, d.x, footY, 1.0, now);
-    // Pool of blood on the road
+    dSpriteAt(dSoldier, ctx, sol, d.x, footY, sc, now);
+    // Pool of blood on the road, scaled to the lane depth
     ctx.fillStyle = 'rgba(110,5,5,0.55)';
-    ctx.beginPath(); ctx.ellipse(d.x, footY + 4, 16, 4, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(d.x, footY + 4 * sc, 16 * sc, 4 * sc, 0, 0, Math.PI * 2); ctx.fill();
     return;
   }
 
@@ -142,60 +148,64 @@ function dDefeatSoldier(ctx, d, elapsed, now) {
     lastShot: now - 30,
     walkPhase: d.x * 0.05,
   });
-  dSpriteAt(dSoldier, ctx, sol, d.x, footY, 1.0, now);
+  dSpriteAt(dSoldier, ctx, sol, d.x, footY, sc, now);
   if (firing) {
-    // Muzzle flash overlay tuned for 1.0x scale rifle barrel tip.
-    const fx = d.x + 26, fy = footY - 40;
+    // Muzzle flash overlay, scaled by lane depth.
+    const fx = d.x + 26 * sc, fy = footY - 40 * sc;
     ctx.fillStyle = 'rgba(255,210,80,0.95)';
     ctx.beginPath();
-    ctx.moveTo(fx, fy); ctx.lineTo(fx + 14, fy - 5);
-    ctx.lineTo(fx + 14, fy + 5); ctx.closePath(); ctx.fill();
+    ctx.moveTo(fx, fy); ctx.lineTo(fx + 14 * sc, fy - 5 * sc);
+    ctx.lineTo(fx + 14 * sc, fy + 5 * sc); ctx.closePath(); ctx.fill();
     ctx.fillStyle = 'rgba(255,230,140,0.85)';
-    ctx.fillRect(fx + 16, fy - 0.7, 28 + (d.x % 20), 1.4);
+    ctx.fillRect(fx + 16 * sc, fy - 0.7, (28 + (d.x % 20)) * sc, 1.4);
     // Ejecting brass casing
     const ejT = (now / cadence) % 1;
-    const ecx = d.x - 4 + ejT * 18;
-    const ecy = fy - 12 - ejT * 12 + ejT * ejT * 30;
+    const ecx = d.x - 4 * sc + ejT * 18 * sc;
+    const ecy = fy - 12 * sc - ejT * 12 * sc + ejT * ejT * 30 * sc;
     ctx.fillStyle = '#c4a850';
-    ctx.fillRect(ecx, ecy, 4, 2);
+    ctx.fillRect(ecx, ecy, 4 * sc, 2 * sc);
   }
   // Blood spatter on dying soldier
   if (dying) {
     ctx.fillStyle = 'rgba(120,4,4,0.7)';
-    ctx.fillRect(d.x - 4, footY - 36, 8, 4);
+    ctx.fillRect(d.x - 4 * sc, footY - 36 * sc, 8 * sc, 4 * sc);
   }
 }
 
 // Killer zombies (mauling a downed defender). Drawn AFTER the
-// defenders so they layer on top.
+// defenders so they layer on top. Respects the defender's lane so
+// the killer sits at the same depth.
 function dKiller(ctx, k, elapsed, now) {
   if (elapsed < k.appearAt) return;
   const def = DEFENDERS[k.defenderIdx];
+  const lane = def.lane || 0;
+  const ly = laneY(lane);
+  const sc = LANES[lane].sc;
   const facing = k.dx > 0 ? -1 : 1;
   const z = mkZom({
     type: k.type, facing, state: 'attack',
     walkPhase: k.walkPhase + now * 0.001,
   });
-  // Light jitter so they look like they're actively biting
   const j = Math.sin(now / 140 + k.dx) * 1.4;
-  dSpriteAt(dZombie, ctx, z, def.x + k.dx + j, GY, 1.0, now);
+  dSpriteAt(dZombie, ctx, z, def.x + k.dx * sc + j, ly, sc, now);
 }
 
 // Dead zombies on the foreground street. Each was killed at killedAt
 // (cumulative ms), then renders as a fallen body from there on.
+// Lane-aware so the corpse sits at the correct depth.
 function dGroundDeadZombie(ctx, dz, elapsed, now) {
   if (elapsed < dz.killedAt) return;
-  // Time since death — long enough that dZombie's rotate-into-dead
-  // animation has fully resolved.
+  const lane = dz.lane || 0;
+  const ly = laneY(lane);
+  const sc = LANES[lane].sc;
   const z = mkZom({
     type: 'walker', facing: (dz.x % 2 === 0) ? -1 : 1, state: 'dead',
     walkPhase: 0,
   });
   z.deadAt = now - Math.min(1500, elapsed - dz.killedAt);
-  dSpriteAt(dZombie, ctx, z, dz.x, GY, 1.0, now);
-  // Pool
+  dSpriteAt(dZombie, ctx, z, dz.x, ly, sc, now);
   ctx.fillStyle = 'rgba(110,5,5,0.5)';
-  ctx.beginPath(); ctx.ellipse(dz.x, GY + 2, 16, 3.5, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(dz.x, ly + 2 * sc, 16 * sc, 3.5 * sc, 0, 0, Math.PI * 2); ctx.fill();
 }
 
 function dFire(ctx, x, y, now, size = 1) {
@@ -357,42 +367,44 @@ function dInnerFires(ctx, elapsed, now) {
 }
 
 // Background advancing horde — count grows with time, types harden
-// as the fight wears on.
+// as the fight wears on. Distributed across all 3 lanes so the
+// wave reads as a wall of bodies converging, not a single line.
 function dHordeWave(ctx, elapsed, now) {
   const tNorm = Math.min(1, elapsed / 16000);
-  const total = Math.floor(8 + tNorm * 18);
-  for (let i = 0; i < total; i++) {
-    // Stagger their start times so they trickle in
-    const startTime = (i * 800) % 6000;
-    if (elapsed < startTime) continue;
-    const tWalk = (elapsed - startTime) / 1000;
-    const baseStartX = CW + 40 + (i * 18) % 200;
-    const speed = 12 + (i % 5) * 4;
-    const zx = baseStartX - tWalk * speed + Math.sin(now / 400 + i) * 2;
-    // Don't draw past the defender line (those are mauling killer
-    // zombies, handled separately)
-    if (zx < WX + 240) continue;
-    if (zx > CW + 20) continue;
-    const ztype = (i % 7 === 0) && elapsed > 8000 ? 'tank'
-                : (i % 4 === 0) ? 'runner'
-                : 'walker';
-    const z = mkZom({
-      type: ztype, facing: -1, state: 'walk', walkPhase: i * 0.3,
-    });
-    dSpriteAt(dZombie, ctx, z, zx, GY, 1.0, now);
+  const total = Math.floor(14 + tNorm * 28);
+  // Draw back-to-front so closer zombies layer on top.
+  for (let lane = 2; lane >= 0; lane--) {
+    for (let i = lane; i < total; i += 3) {
+      const startTime = (i * 500) % 5000;
+      if (elapsed < startTime) continue;
+      const tWalk = (elapsed - startTime) / 1000;
+      const baseStartX = CW + 40 + (i * 22) % 220;
+      const speed = 12 + (i % 5) * 4;
+      const zx = baseStartX - tWalk * speed + Math.sin(now / 400 + i) * 2;
+      if (zx < WX + 240) continue;
+      if (zx > CW + 20) continue;
+      const ztype = (i % 7 === 0) && elapsed > 8000 ? 'tank'
+                  : (i % 4 === 0) ? 'runner'
+                  : 'walker';
+      const z = mkZom({
+        type: ztype, facing: -1, state: 'walk', walkPhase: i * 0.3,
+      });
+      dSpriteAt(dZombie, ctx, z, zx, laneY(lane), LANES[lane].sc, now);
+    }
   }
   // After overrun, additional zombies INSIDE the perimeter (came
-  // through the breach).
+  // through the breach) — also spread across lanes.
   if (elapsed > 6500) {
     const inside = Math.floor(((elapsed - 6500) / 600));
-    for (let i = 0; i < Math.min(inside, 8); i++) {
+    for (let i = 0; i < Math.min(inside, 10); i++) {
+      const lane = i % 3;
       const zx = WX - 30 - i * 22 + Math.sin(now / 300 + i) * 2;
       if (zx < 30) continue;
       const z = mkZom({
         type: i % 4 === 0 ? 'runner' : 'walker',
         facing: 1, state: 'walk', walkPhase: i * 0.4,
       });
-      dSpriteAt(dZombie, ctx, z, zx, GY, 1.0, now);
+      dSpriteAt(dZombie, ctx, z, zx, laneY(lane), LANES[lane].sc, now);
     }
   }
 }
@@ -520,17 +532,175 @@ function dSilence(ctx, defeat, ph, now) {
   ctx.globalAlpha = 1;
 }
 
+// ── Coda: Central Command operations room ─────────────────────
+// HQ tries to raise Fort Omega. The radio is dead. Four scripted
+// transmissions, voiced via TTS, end with an officer accepting
+// the loss. Background: dim CRT-green ops room with a wall map.
+const COMMAND_LINES = [
+  { at:  1200, speaker: 'Command', pitch: 'low', text: 'Fort Omega, this is Central Command. Report your status.' },
+  { at:  5000, speaker: 'Command', pitch: 'low', text: 'Fort Omega, do you copy. Over.' },
+  { at:  8500, speaker: 'Command', pitch: 'low', text: 'All callsigns be advised — Fort Omega has gone dark.' },
+  { at: 12000, speaker: 'Command', pitch: 'low', text: 'God help them.' },
+];
+
+function dCommandRoom(ctx, defeat, ph, now) {
+  const local = ph.local;
+  // Dim concrete bunker palette
+  ctx.fillStyle = '#080a08'; ctx.fillRect(0, 0, CW, CH);
+  // CRT phosphor scanlines
+  ctx.fillStyle = 'rgba(40,140,80,0.05)';
+  for (let y = 22; y < CH - 22; y += 3) ctx.fillRect(0, y, CW, 1);
+  // Wall map of the city (rectangle with grid + Fort Omega marker)
+  const mx = 80, my = 60, mw = 360, mh = 200;
+  ctx.fillStyle = '#0e1610'; ctx.fillRect(mx, my, mw, mh);
+  ctx.strokeStyle = '#22441c'; ctx.lineWidth = 2; ctx.strokeRect(mx + 0.5, my + 0.5, mw - 1, mh - 1);
+  // Grid
+  ctx.strokeStyle = 'rgba(40,140,80,0.18)'; ctx.lineWidth = 1;
+  for (let x = mx + 30; x < mx + mw; x += 30) {
+    ctx.beginPath(); ctx.moveTo(x, my); ctx.lineTo(x, my + mh); ctx.stroke();
+  }
+  for (let y = my + 30; y < my + mh; y += 30) {
+    ctx.beginPath(); ctx.moveTo(mx, y); ctx.lineTo(mx + mw, y); ctx.stroke();
+  }
+  // City silhouettes inside the map
+  ctx.fillStyle = '#1a2a18';
+  [50, 110, 165, 220, 290].forEach((bx, i) => {
+    ctx.fillRect(mx + bx, my + 90 + (i * 11) % 30, 22 + (i * 7) % 18, 50 + (i * 13) % 40);
+  });
+  // Fort Omega marker (pulsing red dot, then turns to X after 5s)
+  const lost = local > 8500;
+  const fx = mx + 60, fy = my + 150;
+  if (!lost) {
+    const pulse = 0.5 + 0.5 * Math.sin(now / 320);
+    ctx.fillStyle = `rgba(255,${60 + pulse * 50},${30 + pulse * 30},0.95)`;
+    ctx.beginPath(); ctx.arc(fx, fy, 6 + pulse * 2, 0, Math.PI * 2); ctx.fill();
+  } else {
+    ctx.strokeStyle = '#aa2222'; ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(fx - 9, fy - 9); ctx.lineTo(fx + 9, fy + 9);
+    ctx.moveTo(fx - 9, fy + 9); ctx.lineTo(fx + 9, fy - 9);
+    ctx.stroke();
+  }
+  ctx.fillStyle = '#cccccc'; ctx.font = 'bold 9px monospace';
+  ctx.fillText('FORT OMEGA', fx + 12, fy + 3);
+  // Map label
+  ctx.fillStyle = '#22cc44'; ctx.font = 'bold 10px monospace';
+  ctx.fillText('SECTOR 7-W  /  TACTICAL OVERLAY', mx + 8, my - 6);
+  // Other outpost labels (already dark by now)
+  ctx.fillStyle = '#553030'; ctx.font = '8px monospace';
+  ctx.fillText('SITE BRAVO — LOST', mx + 200, my + 60);
+  ctx.fillText('SITE ECHO — LOST', mx + 200, my + 84);
+  ctx.fillText('SITE NOVA — LOST',  mx + 200, my + 108);
+
+  // Right console panel: comms terminal
+  const px = mx + mw + 20, py = my, pw = CW - px - 60, ph_ = mh;
+  ctx.fillStyle = '#0a0e0a'; ctx.fillRect(px, py, pw, ph_);
+  ctx.strokeStyle = '#22441c'; ctx.lineWidth = 2; ctx.strokeRect(px + 0.5, py + 0.5, pw - 1, ph_ - 1);
+  ctx.fillStyle = '#22cc44'; ctx.font = 'bold 11px monospace';
+  ctx.fillText('COMMS', px + 8, py + 16);
+  // Waveform animation (alive while a line is being voiced)
+  const speakLine = COMMAND_LINES.slice().reverse().find(l => local >= l.at && local < l.at + 4000);
+  const speaking = !!speakLine;
+  ctx.strokeStyle = speaking ? '#22cc44' : '#1a4a22'; ctx.lineWidth = 1.5;
+  const wfY = py + 50;
+  ctx.beginPath();
+  let first = true;
+  for (let x = px + 8; x < px + pw - 8; x += 3) {
+    const amp = speaking
+      ? Math.sin(x * 0.06 + now * 0.012) * 12 + Math.sin(x * 0.14 + now * 0.02) * 6
+      : Math.sin(x * 0.04 + now * 0.002) * 1.5;
+    if (first) { ctx.moveTo(x, wfY + amp); first = false; }
+    else ctx.lineTo(x, wfY + amp);
+  }
+  ctx.stroke();
+  // Log lines: each transmission shows up after its at-offset
+  ctx.fillStyle = '#88ee99'; ctx.font = '9px monospace';
+  let logY = py + 84;
+  COMMAND_LINES.forEach(l => {
+    if (local < l.at) return;
+    const txt = `> ${l.text}`;
+    const a = Math.min(1, (local - l.at) / 800);
+    ctx.globalAlpha = a;
+    // Soft wrap
+    const max = 36;
+    let s = txt;
+    while (s.length > max) {
+      const cut = s.lastIndexOf(' ', max) > 0 ? s.lastIndexOf(' ', max) : max;
+      ctx.fillText(s.slice(0, cut), px + 8, logY); logY += 12;
+      s = s.slice(cut).trimStart();
+    }
+    ctx.fillText(s, px + 8, logY); logY += 14;
+    ctx.globalAlpha = 1;
+  });
+
+  // Officer silhouette at the console (bottom-right desk)
+  const ox = CW - 130, oy = CH - 40;
+  ctx.fillStyle = '#1a1a14';
+  ctx.fillRect(ox - 18, oy - 6, 36, 8); // desk
+  ctx.fillStyle = '#0a1410';
+  ctx.fillRect(ox - 8, oy - 26, 16, 20); // torso
+  ctx.fillStyle = '#101a14';
+  ctx.beginPath(); ctx.arc(ox, oy - 32, 8, 0, Math.PI * 2); ctx.fill(); // head
+  // Headphones
+  ctx.fillStyle = '#3a3a30';
+  ctx.beginPath(); ctx.arc(ox - 8, oy - 32, 3, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(ox + 8, oy - 32, 3, 0, Math.PI * 2); ctx.fill();
+  // CRT screen reflection on the officer's face
+  ctx.fillStyle = 'rgba(40,180,80,0.18)';
+  ctx.beginPath(); ctx.arc(ox, oy - 34, 9, 0, Math.PI * 2); ctx.fill();
+
+  // Black bar top + bottom (letterbox)
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, CW, 22);
+  ctx.fillRect(0, CH - 22, CW, 22);
+
+  // Header band on the top letterbox
+  ctx.fillStyle = '#22cc44'; ctx.font = 'bold 11px monospace'; ctx.textAlign = 'center';
+  ctx.fillText('CENTRAL COMMAND  /  OPERATIONS ROOM', CW / 2, 15);
+  ctx.textAlign = 'left';
+
+  // Title that lands at the end
+  const fadeA = Math.min(1, Math.max(0, (local - 11500) / 1200));
+  if (fadeA > 0) {
+    ctx.globalAlpha = fadeA;
+    ctx.fillStyle = 'rgba(0,0,0,0.78)';
+    ctx.fillRect(60, CH - 110, CW - 120, 60);
+    ctx.fillStyle = '#e8d0a0'; ctx.font = 'bold 18px monospace'; ctx.textAlign = 'center';
+    ctx.fillText('SECTOR 7-W — DARK', CW / 2, CH - 84);
+    ctx.fillStyle = '#cc6644'; ctx.font = '11px monospace';
+    ctx.fillText('all units, all callsigns, no contact', CW / 2, CH - 66);
+    ctx.textAlign = 'left';
+    ctx.globalAlpha = 1;
+  }
+}
+
+// TTS firing for the command coda — fires each line once when its
+// at-offset becomes active.
+function scheduleCommandVoices(defeat, ph) {
+  if (!defeat._cvfired) defeat._cvfired = new Set();
+  if (ph.name !== 'command') return;
+  const local = ph.local;
+  COMMAND_LINES.forEach((l, i) => {
+    if (defeat._cvfired.has(i)) return;
+    if (local < l.at) return;
+    defeat._cvfired.add(i);
+    speakRadio(l.text, { pitch: l.pitch });
+  });
+}
+
 export function dDefeatScene(ctx, defeat, now) {
   const elapsed = now - (defeat.startedAt || now);
   scheduleDefeatAudio(defeat, elapsed);
   scheduleDefenderVoices(defeat, elapsed);
 
   const ph = phaseAt(Math.min(elapsed, DEFEAT_DURATION));
+  scheduleCommandVoices(defeat, ph);
   ctx.save(); ctx.clearRect(0, 0, CW, CH);
   if      (ph.name === 'breach')    dBreach(ctx, defeat, ph, now);
   else if (ph.name === 'overrun')   dOverrun(ctx, defeat, ph, now);
   else if (ph.name === 'lastStand') dLastStand(ctx, defeat, ph, now);
-  else                              dSilence(ctx, defeat, ph, now);
+  else if (ph.name === 'silence')   dSilence(ctx, defeat, ph, now);
+  else                              dCommandRoom(ctx, defeat, ph, now);
 
   // Letterboxing
   ctx.fillStyle = '#000';
