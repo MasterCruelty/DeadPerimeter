@@ -1,4 +1,4 @@
-import { C, CW, CH, GY, WX } from '../constants.js';
+import { C, CW, CH, GY, WX, LANES, laneY } from '../constants.js';
 import { dBase } from './base.js';
 import { dSoldier } from './soldier.js';
 import { dZombie } from './zombie.js';
@@ -2177,23 +2177,27 @@ function dShotFortWide(ctx, t, now) {
   // The actual game wall
   dBase(ctx, 200, 200);
 
-  // ── Soldiers deployed at ground level IN FRONT of the wall ──────
-  // They stand on the killzone road facing right — Fort Omega behind
-  // them, the city horizon ahead. Spread out, irregular positions,
-  // mix of poses so it reads as a defensive line rather than a row.
-  // Feet at GY (true ground), full 1x scale so they're foreground.
+  // ── Soldiers deployed in defensive depth across all 3 lanes ─────
+  // The team is staggered front/mid/back so the line has visible
+  // depth — front-line riflemen, mid-lane support, back-lane snipers.
+  // Each soldier renders at their lane scale (back-lane soldiers
+  // read smaller / farther via LANES[lane].sc).
   const deployed = [
-    { x: WX + 60,  weapon: 'rifle',   pose: 'idle' },               // standing rifle
-    { x: WX + 130, weapon: 'shotgun', pose: 'idle' },               // standing shotgun
-    { x: WX + 210, weapon: 'rifle',   pose: 'walk' },               // walking forward
-    { x: WX + 300, weapon: 'sniper',  pose: 'idle' },               // sniper
-    { x: WX + 380, weapon: 'rifle',   pose: 'idle' },               // rear flank
+    // Front lane (closest, 1.0× scale) — front-line riflemen
+    { x: WX + 60,  weapon: 'rifle',   pose: 'shoot', lane: 0 },
+    { x: WX + 180, weapon: 'shotgun', pose: 'idle',  lane: 0 },
+    { x: WX + 310, weapon: 'rifle',   pose: 'shoot', lane: 0 },
+    // Mid lane (0.80× scale) — flanking support
+    { x: WX + 110, weapon: 'rifle',   pose: 'idle',  lane: 1 },
+    { x: WX + 260, weapon: 'sniper',  pose: 'shoot', lane: 1 },
+    // Back lane (0.64× scale) — overwatch snipers + rifleman
+    { x: WX + 160, weapon: 'sniper',  pose: 'idle',  lane: 2 },
+    { x: WX + 340, weapon: 'rifle',   pose: 'shoot', lane: 2 },
   ];
-  // Knee-pad sandbags scattered at their feet — small piles of
-  // dirt/cover (not the full wall sandbag emplacement).
-  deployed.forEach((d, i) => {
+  // Sandbag emplacements at the feet of the front-lane soldiers (the
+  // mid/back lanes don't need them — they're set back from the line).
+  deployed.filter(d => d.lane === 0).forEach((d, i) => {
     if (i % 2 === 0) {
-      // Small forward sandbag in front of every other soldier
       ctx.fillStyle = '#5a4828';
       ctx.beginPath(); ctx.ellipse(d.x + 18, GY - 2, 12, 6, 0, 0, Math.PI * 2); ctx.fill();
       ctx.fillStyle = '#705836';
@@ -2202,52 +2206,61 @@ function dShotFortWide(ctx, t, now) {
       ctx.fillRect(d.x + 2, GY - 4, 22, 2);
     }
   });
-  deployed.forEach((d, i) => {
-    const wob = Math.sin(now / 420 + i * 1.3) * 0.4;
-    const sol = mkIntroSoldier({
-      name: 'R' + i, weapon: d.weapon, facing: 1,
-      state: d.pose, walkPhase: i * 0.7 + wob,
+  // Render farthest lane first so closer soldiers layer on top.
+  [2, 1, 0].forEach(lane => {
+    deployed.filter(d => d.lane === lane).forEach((d, i) => {
+      const wob = Math.sin(now / 420 + i * 1.3 + lane * 0.5) * 0.4;
+      const sc = LANES[lane].sc;
+      const ly = laneY(lane);
+      const sol = mkIntroSoldier({
+        name: 'R' + lane + '_' + i, weapon: d.weapon, facing: 1,
+        state: d.pose, walkPhase: i * 0.7 + wob,
+        lastShot: now - 30,
+      });
+      dSpriteAt(dSoldier, ctx, sol, d.x, ly + wob, sc, now);
+      // Muzzle flash for shooting poses
+      if (d.pose === 'shoot' && Math.floor(now / 120 + d.x) % 2 === 0) {
+        const fx = d.x + 22 * sc, fy = ly - 40 * sc;
+        ctx.fillStyle = 'rgba(255,210,80,0.9)';
+        ctx.beginPath();
+        ctx.moveTo(fx, fy); ctx.lineTo(fx + 11 * sc, fy - 4 * sc);
+        ctx.lineTo(fx + 11 * sc, fy + 4 * sc); ctx.closePath(); ctx.fill();
+      }
     });
-    dSpriteAt(dSoldier, ctx, sol, d.x, GY + wob, 1.0, now);
   });
 
-  // ── Distant zombie horde, approaching slowly from the horizon ───
-  // Camera time t∈[0,1]. Zombies start far in the background (small
-  // scale ~0.45 at near-horizon) and creep closer over the shot
-  // length. They never reach the soldiers in the cinematic — the
-  // tension is in the wait.
-  const ZSCALE_FAR = 0.42;
-  const Z_COUNT = 22;
-  // Approach velocity (px over the full shot duration). Slow.
-  const totalCreep = 120;
+  // ── Mass zombie horde, spread across all 3 lanes ────────────────
+  // Camera time t∈[0,1]. Zombies start at the right edge and creep
+  // closer as the shot progresses. Distributed across front/mid/back
+  // lanes so the wave has visible depth — the player sees the
+  // entire mass converging on the defensive line.
+  const Z_COUNT = 38;
+  const totalCreep = 240;
   for (let i = 0; i < Z_COUNT; i++) {
-    // Stagger start positions across the right half of the screen
-    const startX = CW - 30 + (i % 5) * 18 + Math.floor(i / 5) * 36;
-    // Per-zombie speed variation
+    const lane = i % 3;
+    const sc = LANES[lane].sc;
+    const ly = laneY(lane);
+    const startX = CW - 30 + (i % 7) * 22 + Math.floor(i / 7) * 42;
     const speedJitter = 0.7 + (i * 0.13 % 0.6);
     const zx = startX - t * totalCreep * speedJitter
                       + Math.sin(now / 700 + i * 0.7) * 1.5;
-    // Off the right side? Skip (kept in case some random ones start
-    // further out)
-    if (zx > CW + 30 || zx < WX + 480) continue;
-    const ztype = i % 8 === 0 ? 'tank'
-                : i % 5 === 0 ? 'runner'
+    if (zx > CW + 40 || zx < WX + 360) continue;
+    const ztype = i % 9 === 0 ? 'tank'
+                : i % 4 === 0 ? 'runner'
                 : 'walker';
     const z = mkIntroZombie({
       type: ztype, facing: -1, state: 'walk',
       walkPhase: i * 0.4,
     });
-    // Y-stagger so they don't all sit on the exact horizon line
-    const yJit = (i % 3) * 1.5;
-    dSpriteAt(dZombie, ctx, z, zx, GY + yJit, ZSCALE_FAR, now);
+    dSpriteAt(dZombie, ctx, z, zx, ly, sc, now);
   }
-  // Faint dust haze on the horizon to soften the distant zombies
-  const dust = ctx.createLinearGradient(0, GY - 14, 0, GY + 6);
+  // Faint dust haze across all 3 lanes on the horizon
+  const dust = ctx.createLinearGradient(0, GY - 80, 0, GY + 6);
   dust.addColorStop(0, 'rgba(40,35,30,0)');
-  dust.addColorStop(0.5, 'rgba(60,50,40,0.18)');
+  dust.addColorStop(0.5, 'rgba(60,50,40,0.16)');
   dust.addColorStop(1, 'rgba(0,0,0,0)');
   ctx.fillStyle = dust;
-  ctx.fillRect(WX + 480, GY - 14, CW - WX - 480, 20);
+  ctx.fillRect(WX + 360, GY - 80, CW - WX - 360, 86);
 
   // Search light sweep from the watchtower over the killzone (over the
   // soldiers' heads, going outward toward the horde).
