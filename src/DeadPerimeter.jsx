@@ -135,6 +135,7 @@ export default function DeadPerimeter() {
   const finishDefeat = useCallback(() => {
     const am = getAM();
     if (am) { am.windStop(); am.heliStop(); am.cityHumStop(); }
+    try { window.speechSynthesis?.cancel(); } catch {}
     defeatRef.current = null;
     setScr('gameover');
   }, []);
