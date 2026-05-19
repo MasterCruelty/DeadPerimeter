@@ -297,15 +297,21 @@ export default function DeadPerimeter() {
 
   // Enter placement mode for a new barricade. The actual mkBarricade
   // + resource deduction runs in confirmPlacement once the player
-  // clicks a valid spot on the siege view.
+  // clicks a valid spot on the siege view. The placement camera
+  // (pl.cameraX) follows the cursor so the player can roam the full
+  // valid range without bumping into the viewport edge.
   const buildBarricade = useCallback(() => {
     const gs = gsRef.current;
     if (gs.resources.materials < 15 || gs.barricades.length >= BALANCE.maxBarricades) return;
+    const mouseWorldX = WX + 240;
     placementRef.current = {
       kind: 'barricade',
       cost: { materials: 15 },
-      validRange: [WX + 70, WX + 480],
-      mouseWorldX: WX + 200,
+      // Anywhere from just past the inner wall out to most of the
+      // killbox — barricades are physical obstacles for the zombies.
+      validRange: [WX + 50, WORLD_W - 100],
+      mouseWorldX,
+      cameraX: Math.max(0, Math.min(WORLD_W - CW, mouseWorldX - CW / 2)),
     };
     setScr('placement');
   }, []);
@@ -433,13 +439,16 @@ export default function DeadPerimeter() {
       (gs.resources.turretAmmo || 0) < BALANCE.turretCostAmmo ||
       (gs.turrets?.length || 0) >= BALANCE.maxTurrets
     ) return;
+    const mouseWorldX = WX + 60;
     placementRef.current = {
       kind: 'turret',
       cost: { materials: BALANCE.turretCostMaterials, turretAmmo: BALANCE.turretCostAmmo },
-      // Turrets mount on the wall (inner side). Allow a small strip
-      // either side of WX so two turrets don't have to overlap.
-      validRange: [WX - 12, WX + 60],
-      mouseWorldX: WX + 20,
+      // Turrets can mount along the wall OR be set forward into the
+      // killbox as an advance emplacement. Wider strip than barricade
+      // gives the player real tactical choice (forward vs anchored).
+      validRange: [WX - 40, WX + 600],
+      mouseWorldX,
+      cameraX: Math.max(0, Math.min(WORLD_W - CW, mouseWorldX - CW / 2)),
     };
     setScr('placement');
   }, []);
@@ -696,17 +705,15 @@ export default function DeadPerimeter() {
     };
 
     // Mouse move tracks cursor world-X for build placement so the
-    // ghost preview follows the pointer.
+    // ghost preview follows the pointer. Uses the same pl.cameraX
+    // the renderer uses (the camera follows the cursor) so screen→
+    // world conversion stays consistent frame to frame.
     const onMouseMove = e => {
       const pl = placementRef.current;
       if (!pl) return;
       const r = canvas.getBoundingClientRect();
       const mx = (e.clientX - r.left) * (CW / r.width);
-      // Placement view centers on the valid-range midpoint; mirror the
-      // same camera math so screenX → worldX.
-      const [minX, maxX] = pl.validRange;
-      const focusX = (minX + maxX) / 2;
-      const camX = Math.max(0, Math.min(WORLD_W - CW, focusX - CW / 2));
+      const camX = pl.cameraX ?? 0;
       pl.mouseWorldX = mx + camX;
     };
 
@@ -823,11 +830,15 @@ export default function DeadPerimeter() {
       const pl = placementRef.current;
       if (pl) {
         ctx.save(); ctx.clearRect(0, 0, CW, CH);
-        // Center the camera roughly on the valid range so the player
-        // can see the whole zone without scrolling.
         const [minX, maxX] = pl.validRange;
-        const focusX = (minX + maxX) / 2;
-        const camX = Math.max(0, Math.min(WORLD_W - CW, focusX - CW / 2));
+        // Camera follows the cursor smoothly so the whole valid range
+        // is reachable no matter how wide. Smoothing avoids jitter
+        // when the cursor moves fast. Clamped so we never scroll off
+        // the world.
+        const targetCam = Math.max(0, Math.min(WORLD_W - CW, pl.mouseWorldX - CW / 2));
+        pl.cameraX = (pl.cameraX ?? targetCam)
+                   + (targetCam - (pl.cameraX ?? targetCam)) * 0.18;
+        const camX = pl.cameraX;
         ctx.save();
         ctx.translate(-camX, 0);
         dBg(ctx); dBase(ctx, gs.baseHp, gs.baseMaxHp);
@@ -861,13 +872,38 @@ export default function DeadPerimeter() {
           ctx.stroke();
         }
         ctx.restore();
+        // Off-screen wall indicator: arrow + "FORT OMEGA" hint when the
+        // wall (at WX) has scrolled out of view on the left so the
+        // player keeps their bearings while panning far out.
+        if (camX > WX + 20) {
+          ctx.fillStyle = 'rgba(10, 16, 8, 0.78)';
+          ctx.fillRect(6, CH / 2 - 22, 86, 44);
+          ctx.strokeStyle = C.acc; ctx.strokeRect(6.5, CH / 2 - 22, 86, 44);
+          ctx.fillStyle = C.acc; ctx.font = 'bold 11px monospace'; ctx.textAlign = 'left';
+          ctx.fillText('◀ FORT', 14, CH / 2 - 5);
+          ctx.fillText('  OMEGA', 14, CH / 2 + 8);
+          ctx.fillStyle = '#88ee99'; ctx.font = '9px monospace';
+          ctx.fillText(`${Math.round(camX - WX)}px`, 14, CH / 2 + 18);
+        }
+        // Off-screen far-edge indicator: when there's more world to
+        // the right that the player can reach with the cursor.
+        if (camX < WORLD_W - CW - 20) {
+          ctx.fillStyle = 'rgba(10, 16, 8, 0.78)';
+          ctx.fillRect(CW - 92, CH / 2 - 22, 86, 44);
+          ctx.strokeStyle = C.acc; ctx.strokeRect(CW - 91.5, CH / 2 - 22, 86, 44);
+          ctx.fillStyle = C.acc; ctx.font = 'bold 11px monospace'; ctx.textAlign = 'right';
+          ctx.fillText('PERIMETER ▶', CW - 12, CH / 2 - 5);
+          ctx.fillStyle = '#88ee99'; ctx.font = '9px monospace';
+          ctx.fillText(`${Math.round(WORLD_W - CW - camX)}px`, CW - 12, CH / 2 + 8);
+        }
+        ctx.textAlign = 'left';
         // Header banner (screen space)
         ctx.fillStyle = 'rgba(10, 16, 8, 0.92)';
         ctx.fillRect(0, 0, CW, 36);
         ctx.fillStyle = C.acc; ctx.font = 'bold 13px monospace'; ctx.textAlign = 'center';
         ctx.fillText(`PLACE ${pl.kind === 'barricade' ? '🪵 BARRICADE' : '🛠 MG TURRET'} — click in green zone`, CW / 2, 18);
         ctx.fillStyle = C.txt; ctx.font = '10px monospace';
-        ctx.fillText('[ESC] or right-click to cancel', CW / 2, 31);
+        ctx.fillText('move cursor freely · [ESC] or right-click to cancel', CW / 2, 31);
         ctx.textAlign = 'left';
         ctx.restore();
         rafId.current = requestAnimationFrame(loop);
