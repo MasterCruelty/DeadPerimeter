@@ -257,13 +257,15 @@ export function update(gs, now, dt) {
         }
         return;
       }
-      // Target picker: furthest zombie or human in range. WORLD_W is
-      // the right boundary so the rooftop sniper can see (and pick)
-      // targets across the whole battlefield, not just the legacy
-      // 900-wide viewport.
+      // Target picker: furthest zombie or human IN WEAPON RANGE.
+      // Previously this only filtered by world bounds (z.x < WORLD_W),
+      // so the sniper happily picked targets across the entire 1980-px
+      // battlefield and the bullet-life math (range = distance-to-tgt
+      // below) gave it effectively infinite reach. Now the same range
+      // gate that the ground soldiers use applies here too.
       const pool = gs.isHumanWave
-        ? gs.humans.filter(z => z.state !== 'dead' && z.x > WX && z.x < WORLD_W)
-        : gs.zombies.filter(z => z.state !== 'dead' && z.x > WX && z.x < WORLD_W);
+        ? gs.humans.filter(z => z.state !== 'dead' && z.x > WX && Math.abs(z.x - s.x) <= w.range)
+        : gs.zombies.filter(z => z.state !== 'dead' && z.x > WX && Math.abs(z.x - s.x) <= w.range);
       if (pool.length === 0) return;
       const tgt = pool.sort((a, b) => b.x - a.x)[0];
       s.facing = 1;
@@ -272,11 +274,17 @@ export function update(gs, now, dt) {
         gs.soundQ.push({ t: 'shot', w: 'rifle' });
         const sx = s.x, sy = GY - 160;
         const by1 = laneY(tgt.lane) - Math.round(24 * laneSc(tgt.lane));
-        const range = Math.max(40, Math.abs(tgt.x - sx));
+        // Bullet life is capped by the WEAPON range, not the distance
+        // to the picked target. Previously a distant target (filtered
+        // only by world bounds) made the bullet live long enough to
+        // cross the whole map — that was the "sniper reaches the end
+        // of the world" bug the player reported.
+        const distToTgt = Math.max(40, Math.abs(tgt.x - sx));
+        const travelDist = Math.min(distToTgt, w.range);
         gs.bullets.push({
           id: uid(), x: sx + 24, y: sy - 2,
-          dx: w.spd, dy: (by1 - (sy - 2)) / (range / w.spd),
-          dmg: w.dmg, life: Math.ceil(range / w.spd * 1.2),
+          dx: w.spd, dy: (by1 - (sy - 2)) / (distToTgt / w.spd),
+          dmg: w.dmg, life: Math.ceil(travelDist / w.spd * 1.2),
           targetLane: tgt.lane, shooterId: s.id,
         });
         gs.effects.push({ type: 'shell', x: sx - 4, y: sy - 2, vx: -1.6, at: now, dur: 780 });
