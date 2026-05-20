@@ -547,8 +547,13 @@ export default function DeadPerimeter() {
     const movables = gs.selectedSoldierId
       ? gs.soldiers.filter(s => s.id === gs.selectedSoldierId && s.state !== 'dead' && !s.onExpedition && !s.onRoof && s.state !== 'reload')
       : gs.soldiers.filter(s => s.state !== 'dead' && !s.onExpedition && !s.onRoof && s.state !== 'reload');
+    // Per-soldier destX clamp uses the same advanceMax (WORLD_W - 700)
+    // as gs.squadTarget. The old CW - 70 (= 830) clamp would silently
+    // truncate the destination so soldiers visually stopped at the
+    // legacy viewport edge even when the squad target was further
+    // out in the wider world.
     movables.forEach((s, i) => {
-      s.destX = Math.max(WX + 35, Math.min(CW - 70, gs.squadTarget + (i - 1) * 22));
+      s.destX = Math.max(WX + 35, Math.min(WORLD_W - 700, gs.squadTarget + (i - 1) * 22));
       s.state = 'walk';
     });
     if (movables.length > 0) {
@@ -651,7 +656,7 @@ export default function DeadPerimeter() {
           gs.soldiers.forEach((s, i) => {
             if (s.state === 'dead' || s.onExpedition || s.onRoof || s.state === 'reload') return;
             s.lane = clickedLane;
-            s.destX = Math.max(WX + 35, Math.min(CW - 70, targetX + (i - 1) * 22));
+            s.destX = Math.max(WX + 35, Math.min(WORLD_W - 700, targetX + (i - 1) * 22));
             s.state = 'walk';
           });
         }

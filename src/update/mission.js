@@ -743,8 +743,16 @@ export function updateMission(m, now, dt) {
         }
       }
     }
-    // Hit ground (jumpY clamped at 0 only when standingY is 0)
-    if ((s.standingY || 0) === 0 && s.jumpY >= 0) { s.jumpY = 0; s.vy = 0; }
+    // Hit ground — works from BOTH a ground jump (standingY === 0)
+    // AND a fall from a platform (standingY < 0, soldier walked off
+    // the edge mid-jump). Previously the clamp only triggered when
+    // standingY === 0, so falling off a platform horizontally let
+    // jumpY grow without bound and the soldier rendered below the
+    // floor (invisible bug reported by the player).
+    const footY = (s.standingY || 0) + (s.jumpY || 0);
+    if (s.vy >= 0 && footY >= 0) {
+      s.standingY = 0; s.jumpY = 0; s.vy = 0;
+    }
   }
   // Walked off a platform edge? Don't trigger while climbing — the
   // ladder is the "surface" then, not the platform.
