@@ -146,26 +146,9 @@ export function mkMission(soldier, dest, wave = 1, magsPerSoldier = 2) {
       : rng(3, 5);
     pickups.push({ id: uid(), x, type, value: base + waveBonus, collected: false, lane: 0 });
   }
-  // Elevate ~30% of the resource pickups to the upper floor when
-  // there's a building, with a value bump (exploration reward). The
-  // player has to climb the stairs to grab them — riskier but more
-  // payoff. Only applies to pickups that fall inside the building's
-  // upper-floor x range.
-  if (buildings.length > 0) {
-    const upperPlat = platforms.find(p => p.type === 'floor');
-    if (upperPlat) {
-      const candidates = pickups.filter(p =>
-        p.x > upperPlat.x + 20 && p.x < upperPlat.x + upperPlat.w - 20,
-      );
-      const elevateCount = Math.floor(candidates.length * 0.35);
-      for (let i = 0; i < elevateCount; i++) {
-        const p = candidates[i];
-        if (!p) break;
-        p.standingY = upperPlat.y - MGY;        // negative
-        p.value = Math.round((p.value || 1) * 1.4);  // exploration bonus
-      }
-    }
-  }
+  // (Pickup-elevation pass runs AFTER buildings + platforms are
+  // generated, further below — buildings/platforms are still in the
+  // temporal dead zone here.)
   // 'civilian' / 'lostSoldier' are flagged via the loot table when the
   // location can yield them, with risk-modulated base chance.
   const lootHas = t => (dest.loot || []).includes(t);
@@ -349,6 +332,27 @@ export function mkMission(soldier, dest, wave = 1, magsPerSoldier = 2) {
         type: 'ladder',
         slopeDir: onLeft ? 1 : -1,
       });
+    }
+  }
+
+  // Now that buildings + platforms exist, elevate ~35% of the
+  // resource pickups inside the building's x range to the upper
+  // floor with a 1.4× value bonus. Exploration reward — the
+  // player has to climb the stairs to grab them.
+  if (buildings.length > 0) {
+    const upperPlat = platforms.find(p => p.type === 'floor');
+    if (upperPlat) {
+      const candidates = pickups.filter(p =>
+        !p.standingY && !p.fork
+        && p.x > upperPlat.x + 20 && p.x < upperPlat.x + upperPlat.w - 20,
+      );
+      const elevateCount = Math.floor(candidates.length * 0.35);
+      for (let i = 0; i < elevateCount; i++) {
+        const p = candidates[i];
+        if (!p) break;
+        p.standingY = upperPlat.y - MGY;        // negative
+        p.value = Math.round((p.value || 1) * 1.4);
+      }
     }
   }
 
