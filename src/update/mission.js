@@ -304,6 +304,27 @@ export function mkMission(soldier, dest, wave = 1, magsPerSoldier = 2) {
     });
   }
 
+  // Sprinkle a few zombies on the platforms so the player has a
+  // reason to look up. Only for indoor / multi-segment indoor
+  // sections (outdoor missions keep the horde on the street as
+  // before). Up to ~20% of the wave can start elevated.
+  if ((biome.indoor || indoorBiome) && platforms.length > 0) {
+    const candidates = zombies.filter(z =>
+      z.type === 'walker' || z.type === 'runner' || z.type === 'spitter',
+    );
+    const elevateCount = Math.floor(candidates.length * 0.18);
+    for (let i = 0; i < elevateCount; i++) {
+      const z = candidates[i];
+      if (!z) break;
+      const p = platforms[Math.floor(Math.random() * platforms.length)];
+      // Skip placing on the very first platform near the start so
+      // the player isn't ambushed at spawn.
+      if (p.x < 200) continue;
+      z.x = p.x + 12 + Math.random() * Math.max(8, p.w - 24);
+      z.standingY = p.y - MGY;  // negative
+    }
+  }
+
   // Hazards: mines (one-shot AoE) + acid pools (slow + dot).
   // Density scales with risk so HIGH runs feel actively dangerous.
   const hazards = [];
@@ -1494,6 +1515,30 @@ function dIndoorBackdrop(ctx, m, biome) {
     grad.addColorStop(1, 'rgba(0,0,0,0)');
     ctx.fillStyle = grad;
     ctx.fillRect(lx - 140, 0, 280, 200);
+    // Volumetric cone: a trapezoid of soft light from the fixture
+    // down to roughly floor level. Sells the "dust motes in the
+    // beam" feel without needing actual particles.
+    const cone = ctx.createLinearGradient(lx, 12, lx, MGY - 20);
+    cone.addColorStop(0, biome.lightColor);
+    cone.addColorStop(0.6, 'rgba(0,0,0,0)');
+    cone.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = cone;
+    ctx.globalAlpha = 0.35;
+    ctx.beginPath();
+    ctx.moveTo(lx - 14, 12);
+    ctx.lineTo(lx + 14, 12);
+    ctx.lineTo(lx + 60, MGY - 6);
+    ctx.lineTo(lx - 60, MGY - 6);
+    ctx.closePath();
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    // Small pool of light on the floor directly below
+    ctx.fillStyle = biome.lightColor;
+    ctx.globalAlpha = 0.18;
+    ctx.beginPath();
+    ctx.ellipse(lx, MGY - 1, 36, 4, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
   }
 }
 
@@ -1956,11 +2001,21 @@ function dDoorway(ctx, x, indoor) {
   const innerColour = indoor && indoor.ceiling ? indoor.ceiling[1] : '#0a0a0a';
   ctx.fillStyle = innerColour;
   ctx.fillRect(fx, fy, doorW, doorH);
-  // Subtle indoor light spilling out
+  // Indoor light spilling INTO the doorway (top-down gradient)
   const spill = ctx.createLinearGradient(fx, fy, fx, fy + doorH);
   spill.addColorStop(0, 'rgba(220,200,140,0.18)');
   spill.addColorStop(1, 'rgba(220,200,140,0)');
   ctx.fillStyle = spill; ctx.fillRect(fx, fy, doorW, doorH);
+  // Warm pool of light on the threshold + a fan reaching out onto
+  // the outdoor sidewalk so the entrance reads as a clear "go in
+  // here" marker from a distance.
+  ctx.fillStyle = 'rgba(255,210,130,0.30)';
+  ctx.beginPath();
+  ctx.moveTo(fx - 4, MGY);
+  ctx.lineTo(fx + doorW + 4, MGY);
+  ctx.lineTo(fx + doorW + 28, MGY + 16);
+  ctx.lineTo(fx - 28, MGY + 16);
+  ctx.closePath(); ctx.fill();
   // Threshold step
   ctx.fillStyle = '#1a1410';
   ctx.fillRect(fx - 4, MGY - 3, doorW + 8, 6);
