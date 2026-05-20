@@ -1195,11 +1195,26 @@ export default function DeadPerimeter() {
             <div style={{ fontWeight: 'bold', fontSize: '13px', color: expResult.outcome === 'success' ? C.acc : expResult.outcome === 'injured' ? C.wrn : C.dng }}>
               {expResult.outcome === 'success' ? '✦ MISSION SUCCESS' : expResult.outcome === 'injured' ? '⚠ RETURNED INJURED' : '✖ SOLDIER LOST'}
             </div>
-            {Object.keys(expResult.reward || {}).length > 0 && (
-              <div style={{ fontSize: '11px', color: C.acc, marginTop: '5px' }}>
-                Recovered: {Object.entries(expResult.reward).map(([k, v]) => `${k} +${v}`).join('  ·  ')}
-              </div>
-            )}
+            {Object.keys(expResult.reward || {}).length > 0 && (() => {
+              // Split positive recoveries from the foodCost line so the
+              // log reads "Recovered: ammo +N  ·  Eaten: 9 food" rather
+              // than burying the deduction in the same comma-list.
+              const { foodCost, ...gained } = expResult.reward;
+              return (
+                <>
+                  {Object.keys(gained).length > 0 && (
+                    <div style={{ fontSize: '11px', color: C.acc, marginTop: '5px' }}>
+                      Recovered: {Object.entries(gained).map(([k, v]) => `${k} +${v}`).join('  ·  ')}
+                    </div>
+                  )}
+                  {foodCost > 0 && (
+                    <div style={{ fontSize: '11px', color: C.wrn, marginTop: '3px' }}>
+                      Eaten on the road: −{foodCost} 🥫
+                    </div>
+                  )}
+                </>
+              );
+            })()}
             {expResult.recruit && (
               <div style={{ fontSize: '11px', color: '#88ddff', marginTop: '4px' }}>
                 👤 <b>{expResult.recruit.name}</b> rescued — reporting for duty ({expResult.recruit.weapon})

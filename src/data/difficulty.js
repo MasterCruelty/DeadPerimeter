@@ -82,5 +82,12 @@ export const BALANCE = {
   // from holding the wall. Ammo bonus stays so combat stays sustainable.
   waveClearAmmo: 25,
   waveClearFood: 0,
+
+  // Per-sortie fatigue: each surviving party member eats this much
+  // food when they return from an expedition (lunch on the road,
+  // post-action calories). Counters the food-inflation problem where
+  // the stash kept growing because expeditions only added food but
+  // never spent it.
+  sortieFoodCostPerSoldier: 3,
 };
 

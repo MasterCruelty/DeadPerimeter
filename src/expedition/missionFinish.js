@@ -25,7 +25,16 @@ export function finishMission(m, gs) {
   let outcome = m.state === 'won' ? 'success' : 'kia';
   if (m.state === 'lost') outcome = 'kia';
 
+  // Per-sortie food cost (fatigue / rations on the road). Each
+  // surviving party member eats sortieFoodCostPerSoldier food on
+  // return. Stamped on the result so the post-mission log can
+  // surface the deduction.
+  const survivors = partyMission.filter(ms => ms.hp > 0 && ms.state !== 'dead').length;
+  const foodCost = Math.min(gs.resources.food || 0, survivors * BALANCE.sortieFoodCostPerSoldier);
+  gs.resources.food = Math.max(0, (gs.resources.food || 0) - foodCost);
+
   const reward = {};
+  if (foodCost > 0) reward.foodCost = foodCost;
   if (m.collected.ammo)      { gs.resources.ammo      = Math.min(999, gs.resources.ammo + m.collected.ammo);           reward.ammo = m.collected.ammo; }
   if (m.collected.medicine)  { gs.resources.medicine  = Math.min(999, gs.resources.medicine + m.collected.medicine);   reward.medicine = m.collected.medicine; }
   if (m.collected.food)      { gs.resources.food      = Math.min(999, gs.resources.food + m.collected.food);           reward.food = m.collected.food; }

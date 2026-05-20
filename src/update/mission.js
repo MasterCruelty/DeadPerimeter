@@ -69,10 +69,12 @@ export function mkMission(soldier, dest, wave = 1) {
   const spitDmgScaled = Math.max(3, Math.round(ZTP.spitter.dmg * (0.7 + waveAbove * 0.10)));
   const spitRateScaled = Math.max(1500, 2800 - waveAbove * 130);
 
-  // Mission zombie count: rebalanced down from `8 * zSpawn + 0-4` after
-  // playtest feedback that mid-tier sorties were a net resource loss.
-  // LOW ≈ 3-6, MED ≈ 6-9, HIGH ≈ 10-13 (was 5-9 / 9-13 / 14-18).
-  const totalZ = Math.floor(6 * dest.zSpawn + rng(0, 3));
+  // Mission zombie count: another step down after playtest feedback
+  // ("ancora elevato"). LOW ≈ 2-5, MED ≈ 4-7, HIGH ≈ 6-9 (was 3-6 /
+  // 6-9 / 10-13). The playable mission already supports up to 3
+  // party members shooting + auto-reload, so smaller crowds keep
+  // sorties feeling like raids, not survival ordeals.
+  const totalZ = Math.floor(4 * dest.zSpawn + rng(0, 3));
   for (let i = 0; i < totalZ; i++) {
     const x = 400 + Math.random() * (MISSION_W - 700);
     let types;
@@ -115,24 +117,28 @@ export function mkMission(soldier, dest, wave = 1) {
       : dest.risk === 'MED' ? ['ammo', 'materials']
       : ['ammo', 'medicine', 'materials']));
   }
-  // Pickup count bumped (was 4/5/7) so a successful sortie actually
-  // pays for the ammo + medicine you spent getting there.
+  // Pickup count: keep the previous bump (sorties have to pay back)
+  // but trim food / materials values so the stash doesn't snowball.
+  // After 15+ days the user was sitting on 500 food / 300 materials.
   const pkCount = dest.risk === 'LOW' ? 6 : dest.risk === 'MED' ? 7 : 9;
-  // Pickup values scale modestly with wave so late-game runs reward
-  // proportional to their increased threat.
-  const waveBonus = Math.floor(Math.max(0, wave - 1) / 2);
+  // Wave-bonus curve flattened from /2 to /3 so late-game pickups
+  // don't drift into "every crate is +10 of everything" territory.
+  const waveBonus = Math.floor(Math.max(0, wave - 1) / 3);
   for (let i = 0; i < pkCount; i++) {
     const x = 300 + Math.floor(MISSION_W / (pkCount + 1)) * (i + 1) + rng(-60, 60);
     const type = pkOptions[Math.floor(Math.random() * pkOptions.length)];
-    // Pickup values bumped after playtest: ammo 8-15 → 12-22, food
-    // 5-10 → 8-14, medicine 4-8 → 6-12. Keeps proportions across types
-    // but turns sorties from break-even into a real income source.
-    const base = type === 'medicine' ? rng(6, 12)
-      : type === 'ammo' ? rng(12, 22)
-      : type === 'food' ? rng(8, 14)
+    // Per-pickup base values (post-second-rebalance):
+    //   ammo 12-22 (unchanged — combat consumable, still fair)
+    //   medicine 6-12 (unchanged — heals are an ongoing cost)
+    //   food 8-14 → 5-9 (avg 7 — was inflating into hundreds)
+    //   materials 4-8 → 3-5 (avg 4 — same problem)
+    //   sniperAmmo 2-5, turretAmmo 8-16 (unchanged — niche)
+    const base = type === 'medicine'   ? rng(6, 12)
+      : type === 'ammo'       ? rng(12, 22)
+      : type === 'food'       ? rng(5, 9)
       : type === 'sniperAmmo' ? rng(2, 5)
       : type === 'turretAmmo' ? rng(8, 16)
-      : rng(4, 8);
+      : rng(3, 5);
     pickups.push({ id: uid(), x, type, value: base + waveBonus, collected: false, lane: 0 });
   }
   // 'civilian' / 'lostSoldier' are flagged via the loot table when the
@@ -538,6 +544,15 @@ export function updateMission(m, now, dt) {
     else if (s.state === 'walk') s.state = 'idle';
   }
   s.x = Math.max(40, Math.min(MISSION_W - 40, s.x));
+  // Defend objective: once the hold has started, the lead can't
+  // retreat past the anchor — they planted the flag, they hold the
+  // line. Prevents the "pace back and forth and let AI followers
+  // tank for you" exploit. They can still push forward to meet the
+  // horde, just can't run away from it.
+  if (m.objective === 'defend' && m.defendStartedAt) {
+    const minX = m.defendAnchor - 30;
+    if (s.x < minX) s.x = minX;
+  }
   m.cameraX = Math.max(0, Math.min(MISSION_W - MISSION_VIEW, s.x - MISSION_VIEW / 2));
 
   // ── FORK LANE SWITCHING ──────────────────────────────────────
@@ -825,6 +840,68 @@ export function updateMission(m, now, dt) {
     if (!h.activated && h.hostile && h.state !== 'dead' && Math.abs(s.x - h.x) < 280) {
       h.activated = true;
       m.activatedCount++;
+    }
+  });
+
+  // Friendly survivors (non-bandit encounter humans) auto-wake when
+  // zombies get within sight, then fire at the nearest active zombie
+  // with their scavenged pistol/shotgun. Fixes the asymmetry where
+  // zombies happily chewed on a passive armed survivor and the
+  // survivor just stood there — now they actually shoot back.
+  (m.humans || []).forEach(h => {
+    if (h.state === 'dead' || h.hostile) return;
+    if (!h.activated) {
+      // Wake when a zombie is within ~240 px so the survivor doesn't
+      // randomly start firing across the whole map.
+      const nearZ = m.zombies.find(z =>
+        z.state !== 'dead' && z.activated && Math.abs(z.x - h.x) < 240,
+      );
+      if (nearZ) {
+        h.activated = true;
+        m.activatedCount++;
+      } else {
+        return;
+      }
+    }
+    // Pick the closest active zombie within weapon range.
+    const wMeta = WPN[h.weapon];
+    const tgt = m.zombies
+      .filter(z => z.state !== 'dead' && z.activated && Math.abs(z.x - h.x) <= (wMeta.range || 220))
+      .sort((a, b) => Math.abs(a.x - h.x) - Math.abs(b.x - h.x))[0];
+    if (!tgt) {
+      // No zombie in range — drop back to idle but keep activated.
+      if (h.state === 'shoot' && now - h.lastShot > 200) h.state = 'idle';
+      return;
+    }
+    h.facing = tgt.x > h.x ? 1 : -1;
+    if (h.state === 'reload') {
+      if (now - h.reloadStart >= wMeta.rl) { h.state = 'idle'; h.ammo = h.maxAmmo; }
+      return;
+    }
+    if (h.ammo <= 0) { h.state = 'reload'; h.reloadStart = now; return; }
+    // Friendly fire cadence: same 1.6× slowdown as bandits (these are
+    // panicked civilians too) and 0.55× per-shot damage — they're
+    // supportive backup, not pro shooters. Their bullets are NOT
+    // hostile (b.hostile = false) so they only damage zombies.
+    if (now - h.lastShot > wMeta.rate * 1.6) {
+      h.lastShot = now; h.state = 'shoot'; h.ammo--;
+      const pellets = wMeta.pel || 1;
+      const baseDmg = (wMeta.pel ? wMeta.dmg / wMeta.pel : wMeta.dmg) * 0.55;
+      for (let p = 0; p < pellets; p++) {
+        const spread = (Math.random() - 0.5) * ((wMeta.spread || 0.04) * 2.2);
+        m.bullets.push({
+          id: uid(),
+          x: h.x + h.facing * 10, y: MGY - 26,
+          dx: h.facing * wMeta.spd * Math.cos(spread),
+          dy: wMeta.spd * Math.sin(spread),
+          dmg: baseDmg,
+          life: Math.ceil(wMeta.range / wMeta.spd * 1.15),
+          // Not hostile — these bullets damage zombies via the same
+          // path as party bullets, not the player.
+          friendlyHuman: true,
+        });
+      }
+      m.soundQ.push({ t: 'fire', w: h.weapon });
     }
   });
 
