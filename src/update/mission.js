@@ -55,7 +55,12 @@ function promoteLeadOnDeath(m, now) {
   return true;
 }
 
-export function mkMission(soldier, dest, wave = 1) {
+// magsPerSoldier: how many magazines each party member carries into
+// the mission. 1 = only the loaded mag (no reloads possible). 2 =
+// loaded + 1 spare. Etc. Tunable from the expedition loadout UI.
+// Mission soldiers carry a finite ammo budget now — no more infinite
+// auto-reload — so the player has to weigh stash spend vs mission risk.
+export function mkMission(soldier, dest, wave = 1, magsPerSoldier = 2) {
   const zombies = [], pickups = [], obstacles = [];
 
   // Spitters are the most punishing zombie kind (ranged + chip damage).
@@ -69,10 +74,12 @@ export function mkMission(soldier, dest, wave = 1) {
   const spitDmgScaled = Math.max(3, Math.round(ZTP.spitter.dmg * (0.7 + waveAbove * 0.10)));
   const spitRateScaled = Math.max(1500, 2800 - waveAbove * 130);
 
-  // Mission zombie count: rebalanced down from `8 * zSpawn + 0-4` after
-  // playtest feedback that mid-tier sorties were a net resource loss.
-  // LOW ≈ 3-6, MED ≈ 6-9, HIGH ≈ 10-13 (was 5-9 / 9-13 / 14-18).
-  const totalZ = Math.floor(6 * dest.zSpawn + rng(0, 3));
+  // Mission zombie count: another step down after playtest feedback
+  // ("ancora elevato"). LOW ≈ 2-5, MED ≈ 4-7, HIGH ≈ 6-9 (was 3-6 /
+  // 6-9 / 10-13). The playable mission already supports up to 3
+  // party members shooting + auto-reload, so smaller crowds keep
+  // sorties feeling like raids, not survival ordeals.
+  const totalZ = Math.floor(4 * dest.zSpawn + rng(0, 3));
   for (let i = 0; i < totalZ; i++) {
     const x = 400 + Math.random() * (MISSION_W - 700);
     let types;
@@ -115,24 +122,28 @@ export function mkMission(soldier, dest, wave = 1) {
       : dest.risk === 'MED' ? ['ammo', 'materials']
       : ['ammo', 'medicine', 'materials']));
   }
-  // Pickup count bumped (was 4/5/7) so a successful sortie actually
-  // pays for the ammo + medicine you spent getting there.
+  // Pickup count: keep the previous bump (sorties have to pay back)
+  // but trim food / materials values so the stash doesn't snowball.
+  // After 15+ days the user was sitting on 500 food / 300 materials.
   const pkCount = dest.risk === 'LOW' ? 6 : dest.risk === 'MED' ? 7 : 9;
-  // Pickup values scale modestly with wave so late-game runs reward
-  // proportional to their increased threat.
-  const waveBonus = Math.floor(Math.max(0, wave - 1) / 2);
+  // Wave-bonus curve flattened from /2 to /3 so late-game pickups
+  // don't drift into "every crate is +10 of everything" territory.
+  const waveBonus = Math.floor(Math.max(0, wave - 1) / 3);
   for (let i = 0; i < pkCount; i++) {
     const x = 300 + Math.floor(MISSION_W / (pkCount + 1)) * (i + 1) + rng(-60, 60);
     const type = pkOptions[Math.floor(Math.random() * pkOptions.length)];
-    // Pickup values bumped after playtest: ammo 8-15 → 12-22, food
-    // 5-10 → 8-14, medicine 4-8 → 6-12. Keeps proportions across types
-    // but turns sorties from break-even into a real income source.
-    const base = type === 'medicine' ? rng(6, 12)
-      : type === 'ammo' ? rng(12, 22)
-      : type === 'food' ? rng(8, 14)
+    // Per-pickup base values (post-second-rebalance):
+    //   ammo 12-22 (unchanged — combat consumable, still fair)
+    //   medicine 6-12 (unchanged — heals are an ongoing cost)
+    //   food 8-14 → 5-9 (avg 7 — was inflating into hundreds)
+    //   materials 4-8 → 3-5 (avg 4 — same problem)
+    //   sniperAmmo 2-5, turretAmmo 8-16 (unchanged — niche)
+    const base = type === 'medicine'   ? rng(6, 12)
+      : type === 'ammo'       ? rng(12, 22)
+      : type === 'food'       ? rng(5, 9)
       : type === 'sniperAmmo' ? rng(2, 5)
       : type === 'turretAmmo' ? rng(8, 16)
-      : rng(4, 8);
+      : rng(3, 5);
     pickups.push({ id: uid(), x, type, value: base + waveBonus, collected: false, lane: 0 });
   }
   // 'civilian' / 'lostSoldier' are flagged via the loot table when the
@@ -221,10 +232,30 @@ export function mkMission(soldier, dest, wave = 1) {
   // missions don't have an identical-looking street.
   const biomeKey = dest.biome || DEFAULT_BIOME;
   const biome = BIOMES[biomeKey] || BIOMES[DEFAULT_BIOME];
+
+  // Multi-segment missions: a MED/HIGH outdoor destination has a
+  // ~55% chance of an "enter the building" transition halfway
+  // through. The right half of the world swaps to an indoor biome
+  // (police_interior / armory_interior / office_interior) and a
+  // doorway prop marks the entry point. Already-indoor destinations
+  // (Police Station, Gun Shop, Office Tower) stay single-biome.
+  const INDOOR_POOL = ['police_interior', 'armory_interior', 'office_interior'];
+  let indoorBiomeKey = null;
+  let entranceX = 0;
+  if (!biome.indoor && dest.risk !== 'LOW' && Math.random() < 0.55) {
+    indoorBiomeKey = INDOOR_POOL[Math.floor(Math.random() * INDOOR_POOL.length)];
+    entranceX = Math.floor(MISSION_W * (0.38 + Math.random() * 0.08));
+  }
+  const indoorBiome = indoorBiomeKey ? BIOMES[indoorBiomeKey] : null;
   const obsCount = rng(4, 9);
   for (let i = 0; i < obsCount; i++) {
     const ox = 200 + i * MISSION_W / (obsCount + 1) + rng(-50, 50);
-    const otype = biome.obstacles[Math.floor(Math.random() * biome.obstacles.length)];
+    // Multi-segment missions: obstacles past the entrance use the
+    // indoor pool (desks, lockers, etc.) so the building interior
+    // doesn't feel like an outdoor street with brick walls.
+    const useIndoor = indoorBiome && ox >= entranceX;
+    const pool = useIndoor ? indoorBiome.obstacles : biome.obstacles;
+    const otype = pool[Math.floor(Math.random() * pool.length)];
     obstacles.push({ x: ox, type: otype });
   }
   // Decorative props every biome.propsPerStep along the road
@@ -232,7 +263,66 @@ export function mkMission(soldier, dest, wave = 1) {
   // renderer can layer them behind/around the obstacles.
   const props = [];
   for (let px = biome.propsPerStep; px < MISSION_W - 50; px += biome.propsPerStep) {
-    props.push({ x: px + rng(-30, 30), type: biome.propType });
+    // Multi-segment: outdoor props only in the outdoor half; indoor
+    // gets its own decor type past the entrance.
+    if (indoorBiome && px >= entranceX) {
+      props.push({ x: px + rng(-30, 30), type: indoorBiome.propType });
+    } else {
+      props.push({ x: px + rng(-30, 30), type: biome.propType });
+    }
+  }
+
+  // Platforms — elevated ledges/balconies the lead can jump onto OR
+  // reach via the attached ladder. y is the platform TOP (MGY - 70
+  // means 70 px above the floor). w is the platform width. Indoor
+  // biomes get more platforms to feel like a multi-level interior,
+  // outdoor biomes get fewer (fire-escape style).
+  const platforms = [];
+  const ladders = [];
+  const platCount = biome.indoor ? rng(4, 6) : rng(2, 4);
+  for (let i = 0; i < platCount; i++) {
+    // Distribute roughly evenly across the mission, with jitter.
+    const segW = (MISSION_W - 400) / platCount;
+    const px = 280 + i * segW + rng(-40, 80);
+    const py = MGY - rng(45, 65);   // 45..65 px above ground
+    const pw = rng(120, 200);
+    // Platform type depends on whether it sits in the outdoor or
+    // indoor section of a multi-segment mission. Single-biome
+    // missions just use the biome's flavour.
+    const inIndoorSection = !!indoorBiome && px >= entranceX;
+    const isIndoor = biome.indoor || inIndoorSection;
+    platforms.push({ x: px, y: py, w: pw, type: isIndoor ? 'floor' : 'ledge' });
+    // Every platform gets a ladder (or stairs for indoor) at one of
+    // its ends so the player can reliably climb up / down without
+    // having to time a jump.
+    const ladderAtLeft = (i % 2 === 0);
+    const lx = ladderAtLeft ? px + 10 : px + pw - 14;
+    ladders.push({
+      x: lx, yTop: py, yBot: MGY,
+      type: isIndoor ? 'stairs' : 'ladder',
+      slopeDir: ladderAtLeft ? 1 : -1,
+    });
+  }
+
+  // Sprinkle a few zombies on the platforms so the player has a
+  // reason to look up. Only for indoor / multi-segment indoor
+  // sections (outdoor missions keep the horde on the street as
+  // before). Up to ~20% of the wave can start elevated.
+  if ((biome.indoor || indoorBiome) && platforms.length > 0) {
+    const candidates = zombies.filter(z =>
+      z.type === 'walker' || z.type === 'runner' || z.type === 'spitter',
+    );
+    const elevateCount = Math.floor(candidates.length * 0.18);
+    for (let i = 0; i < elevateCount; i++) {
+      const z = candidates[i];
+      if (!z) break;
+      const p = platforms[Math.floor(Math.random() * platforms.length)];
+      // Skip placing on the very first platform near the start so
+      // the player isn't ambushed at spawn.
+      if (p.x < 200) continue;
+      z.x = p.x + 12 + Math.random() * Math.max(8, p.w - 24);
+      z.standingY = p.y - MGY;  // negative
+    }
   }
 
   // Hazards: mines (one-shot AoE) + acid pools (slow + dot).
@@ -269,6 +359,19 @@ export function mkMission(soldier, dest, wave = 1) {
     x: 80 - offset * 30, lane: 0, hp: orig.hp, maxHp: orig.maxHp,
     ammo: Math.max(0, orig.ammo | 0),
     maxAmmo: orig.maxAmmo,
+    // Spare magazines beyond the one already loaded. When the loaded
+    // mag goes empty, one spare gets consumed by the reload. When
+    // spare and loaded are both 0, knifeReady stays true and the
+    // soldier visually holsters their firearm + brandishes a knife.
+    // playMission's loadout step sets orig._sortieMags = actual mags
+    // issued (capped by stash). Falls back to magsPerSoldier for any
+    // soldier that wasn't pre-loaded.
+    magsLeft: Math.max(0, ((orig._sortieMags ?? magsPerSoldier) | 0) - 1),
+    knifeReady: false,
+    // Jump physics: jumpY is the render-only y-offset (negative =
+    // above ground), vy is vertical velocity. Followers don't jump,
+    // only the lead reacts to inputUp.
+    jumpY: 0, vy: 0,
     civilian: !!orig.civilian,
     state: 'idle', facing: 1,
     lastShot: 0, reloadStart: 0, shootAt: 0, knifeTimer: 0,
@@ -373,7 +476,7 @@ export function mkMission(soldier, dest, wave = 1) {
     soldier: msol, followers,
     origSoldier: lead,                   // back-compat: legacy field points to lead
     origSoldiers: partySoldiers,         // full original-soldiers list (for finishMission)
-    dest, biomeKey, fork,
+    dest, biomeKey, indoorBiomeKey, entranceX, fork,
     humans, encounter,
     dialog: null,                        // { type: 'trade', accept, refuse } when active
     objective, defendAnchor, defendDuration,
@@ -381,7 +484,7 @@ export function mkMission(soldier, dest, wave = 1) {
     // applies the same scaling as initial mkMission spawns.
     _spitDmgScaled: spitDmgScaled, _spitRateScaled: spitRateScaled,
     defendStartedAt: 0, defendNextSpawn: 0,
-    zombies, pickups, obstacles, props, hazards, rescuables,
+    zombies, pickups, obstacles, props, hazards, rescuables, platforms, ladders,
     bullets: [], effects: [], soundQ: [],
     inputUp: false, inputDown: false,
     cameraX: 0,
@@ -466,20 +569,29 @@ function aiShoot(m, who, now, dt) {
     who.state = 'shoot'; who.lastShot = now; who.shootAt = now; who.ammo--;
     m.soundQ.push({ t: 'shot', w: who.weapon }); m.soundQ.push({ t: 'shell' });
     const bx = who.x + who.facing * 24;
+    const shooterY = (who.standingY || 0);
+    const bulletY  = MGY - 26 + shooterY;
     for (let p = 0; p < (w.pel || 1); p++) {
       const sp2 = (Math.random() - 0.5) * w.sp * 2;
       m.bullets.push({
-        id: uid(), x: bx, y: MGY - 26,
+        id: uid(), x: bx, y: bulletY,
         dx: who.facing * w.spd * Math.cos(sp2),
         dy: w.spd * Math.sin(sp2),
         dmg: w.pel ? w.dmg / w.pel : w.dmg,
+        shooterY,
         life: Math.ceil(w.range / w.spd * 1.15),
       });
     }
     m.effects.push({ type: 'shell', x: who.x - who.facing * 8, y: MGY - 26, vx: -who.facing * (1.4 + Math.random()), at: now, dur: 780 });
     if (who.ammo === 0) {
-      who.state = 'reload'; who.reloadStart = now; who.ammo = who.maxAmmo;
-      m.soundQ.push({ t: 'reload', w: who.weapon, dur: w.rl });
+      if ((who.magsLeft || 0) > 0) {
+        who.state = 'reload'; who.reloadStart = now; who.ammo = who.maxAmmo;
+        who.magsLeft -= 1;
+        m.soundQ.push({ t: 'reload', w: who.weapon, dur: w.rl });
+      } else {
+        // No more mags — holster firearm, knife is ready.
+        who.knifeReady = true;
+      }
     }
   } else if (now - who.lastShot > w.rate * 0.5) {
     who.state = 'idle';
@@ -538,6 +650,114 @@ export function updateMission(m, now, dt) {
     else if (s.state === 'walk') s.state = 'idle';
   }
   s.x = Math.max(40, Math.min(MISSION_W - 40, s.x));
+  // Defend objective: once the hold has started, the lead can't
+  // retreat past the anchor — they planted the flag, they hold the
+  // line. Prevents the "pace back and forth and let AI followers
+  // tank for you" exploit. They can still push forward to meet the
+  // horde, just can't run away from it.
+  if (m.objective === 'defend' && m.defendStartedAt) {
+    const minX = m.defendAnchor - 30;
+    if (s.x < minX) s.x = minX;
+  }
+  // ── JUMP + PLATFORM + LADDER physics ─────────────────────────
+  // UP/W either climbs an adjacent ladder OR jumps if not on one.
+  // While climbing, gravity is off and standingY moves toward the
+  // platform top / ground. While airborne (vy !== 0) we apply
+  // gravity and check for platform collisions on descent.
+  const JUMP_GRAV = 0.55;
+  const JUMP_VEL  = -8.6;
+  const CLIMB_SPD = 2.2;
+  if (s.standingY === undefined) s.standingY = 0;
+  if (s.climbing === undefined) s.climbing = null;
+  const onSurface = (s.jumpY || 0) === 0 && (s.vy || 0) === 0;
+
+  // Ladder lookup: which ladder is the soldier "next to"?
+  const nearLadder = (m.ladders || []).find(l => Math.abs(s.x - l.x) < 18);
+
+  // Start a climb when pressing UP near a ladder while grounded,
+  // or DOWN at the top of a ladder while on the matching platform.
+  if (!s.climbing) {
+    if (nearLadder && m.inputUp && onSurface && (s.standingY || 0) > nearLadder.yTop - MGY) {
+      s.climbing = { ladder: nearLadder, dir: -1 };
+      s.state = 'walk';
+    } else if (nearLadder && m.inputDown && onSurface && (s.standingY || 0) < 0
+               && Math.abs((s.standingY || 0) - (nearLadder.yTop - MGY)) < 6) {
+      s.climbing = { ladder: nearLadder, dir: 1 };
+      s.state = 'walk';
+    }
+  }
+
+  // While climbing, ignore gravity, suppress jump, move along the
+  // ladder y. UP/DOWN reverse direction or accelerate. Reaching
+  // either end commits the soldier to that surface.
+  if (s.climbing) {
+    const l = s.climbing.ladder;
+    const topRel = l.yTop - MGY;  // negative
+    const botRel = 0;
+    // Snap soldier x to the ladder so the climb reads cleanly
+    s.x = l.x;
+    // Direction follows current input (UP=up, DOWN=down)
+    if (m.inputUp)   s.climbing.dir = -1;
+    if (m.inputDown) s.climbing.dir = 1;
+    s.standingY = (s.standingY || 0) + s.climbing.dir * CLIMB_SPD * (dt / 16);
+    s.jumpY = 0; s.vy = 0;
+    if (s.standingY <= topRel) {
+      s.standingY = topRel;
+      s.climbing = null;
+    } else if (s.standingY >= botRel) {
+      s.standingY = 0;
+      s.climbing = null;
+    }
+  } else if (m.inputUp && onSurface && s.state !== 'knife' && s.state !== 'reload') {
+    // No ladder under us — UP is a jump from the current surface.
+    s.vy = JUMP_VEL;
+    s.state = 'walk';
+  }
+  // Press DOWN to drop off a platform when there's no ladder to
+  // climb down (sets vy slightly positive so we fall through).
+  const wasOnPlatform = (s.standingY || 0) < 0 && onSurface;
+  if (!s.climbing && m.inputDown && wasOnPlatform && !nearLadder) {
+    s.standingY = 0;
+    s.vy = 1.2;
+  }
+  // Apply gravity + integrate position
+  if (!onSurface || (s.vy || 0) !== 0) {
+    s.vy = (s.vy || 0) + JUMP_GRAV * (dt / 16);
+    s.jumpY = (s.jumpY || 0) + s.vy * (dt / 16);
+    // Platform collision: only when DESCENDING (vy > 0). Check if
+    // the soldier's foot is crossing a platform top this tick. We
+    // ignore platforms above the current standingY (they're already
+    // above us — no upward catch).
+    if (s.vy > 0 && Array.isArray(m.platforms)) {
+      const footYNow  = (s.standingY || 0) + (s.jumpY || 0);
+      const footYPrev = footYNow - s.vy * (dt / 16);
+      for (const p of m.platforms) {
+        const platTopRelToGround = (p.y - MGY); // negative
+        if (s.x < p.x || s.x > p.x + p.w) continue;
+        // Was above the platform top last tick AND now at or below
+        if (footYPrev <= platTopRelToGround && footYNow >= platTopRelToGround) {
+          s.standingY = platTopRelToGround;
+          s.jumpY = 0;
+          s.vy = 0;
+          break;
+        }
+      }
+    }
+    // Hit ground (jumpY clamped at 0 only when standingY is 0)
+    if ((s.standingY || 0) === 0 && s.jumpY >= 0) { s.jumpY = 0; s.vy = 0; }
+  }
+  // Walked off a platform edge? Don't trigger while climbing — the
+  // ladder is the "surface" then, not the platform.
+  if (!s.climbing && (s.standingY || 0) < 0 && (s.jumpY || 0) === 0 && (s.vy || 0) === 0) {
+    const on = (m.platforms || []).some(p =>
+      s.x >= p.x && s.x <= p.x + p.w
+      && (p.y - MGY) === s.standingY,
+    );
+    if (!on) {
+      // No platform under us — start falling toward the ground.
+      s.vy = 0.6;
+    }
+  }
   m.cameraX = Math.max(0, Math.min(MISSION_W - MISSION_VIEW, s.x - MISSION_VIEW / 2));
 
   // ── FORK LANE SWITCHING ──────────────────────────────────────
@@ -617,6 +837,56 @@ export function updateMission(m, now, dt) {
     const tgt = targets.reduce((a, b) => Math.abs(a.x - z.x) < Math.abs(b.x - z.x) ? a : b);
     const dx = tgt.x - z.x;
     const meta = z.z;
+    const zStandingY = z.standingY || 0;
+    const tStandingY = tgt.standingY || 0;
+
+    // ── Vertical pursuit: climb ladders when the target is on a
+    // different level. Tanks are too heavy to climb (they shamble
+    // around on the ground); spitters keep their range game and
+    // don't need to chase. Walkers and runners CAN climb.
+    if (!meta.ranged && z.type !== 'tank') {
+      if (z.climbing) {
+        const l = z.climbing.ladder;
+        const topRel = l.yTop - MGY;
+        // Re-pick direction each tick so the climber tracks the
+        // target if they jump back down.
+        if (tStandingY < zStandingY - 2) z.climbing.dir = -1;
+        else if (tStandingY > zStandingY + 2) z.climbing.dir = 1;
+        z.x = l.x;
+        const climbSpd = z.type === 'runner' ? 1.6 : 1.1;
+        z.standingY = zStandingY + z.climbing.dir * climbSpd * (dt / 16);
+        z.state = 'walk';
+        if (z.standingY <= topRel) { z.standingY = topRel; z.climbing = null; }
+        else if (z.standingY >= 0)  { z.standingY = 0;      z.climbing = null; }
+        return;
+      }
+      // Target on a different surface? Seek a ladder that bridges
+      // our current level to the target's level.
+      const wantUp   = tStandingY < zStandingY - 5;
+      const wantDown = tStandingY > zStandingY + 5;
+      if (wantUp || wantDown) {
+        const ladder = (m.ladders || []).reduce((best, l) => {
+          // Skip ladders that don't reach the target level.
+          const tops = l.yTop - MGY;
+          if (wantUp   && Math.abs(tops - tStandingY) > 6) return best;
+          if (wantDown && Math.abs(tops - zStandingY) > 6) return best;
+          const d = Math.abs(l.x - z.x);
+          if (!best || d < best.d) return { ladder: l, d };
+          return best;
+        }, null);
+        if (ladder && ladder.d < 400) {
+          const ldx = ladder.ladder.x - z.x;
+          z.facing = ldx > 0 ? 1 : -1;
+          if (Math.abs(ldx) > 6) {
+            z.x += z.spd * z.facing * (dt / 16);
+            z.state = 'walk';
+            return;
+          }
+          z.climbing = { ladder: ladder.ladder, dir: wantUp ? -1 : 1 };
+          return;
+        }
+      }
+    }
 
     // ── Ranged zombies (spitters) keep their distance and lob acid ──
     if (meta.ranged) {
@@ -658,14 +928,22 @@ export function updateMission(m, now, dt) {
       return;
     }
 
+    // Vertical separation between zombie and target. If they're on
+    // different levels (platform vs ground), melee can't connect —
+    // the zombie has to find a ladder first (handled above).
+    const dy = Math.abs(tStandingY - zStandingY);
+    const sameLevel = dy < 18;
+
     if (z.state === 'idle' || z.state === 'walk') {
       z.facing = dx > 0 ? 1 : -1;
-      if (Math.abs(dx) > 40) { z.x += z.spd * z.facing * (dt / 16); if (z.state === 'idle') z.state = 'walk'; }
-      else { z.state = 'attack'; }
+      if (Math.abs(dx) > 40 || !sameLevel) {
+        z.x += z.spd * z.facing * (dt / 16);
+        if (z.state === 'idle') z.state = 'walk';
+      } else { z.state = 'attack'; }
     } else if (z.state === 'attack') {
       z.atkTimer += dt;
       z.facing = dx > 0 ? 1 : -1;
-      if (Math.abs(dx) > 50) { z.state = 'walk'; z.atkTimer = 0; return; }
+      if (Math.abs(dx) > 50 || !sameLevel) { z.state = 'walk'; z.atkTimer = 0; return; }
       if (z.atkTimer > 1000) {
         z.atkTimer = 0;
         tgt.hp -= z.z.dmg; tgt.hurtTimer = 320;
@@ -687,17 +965,37 @@ export function updateMission(m, now, dt) {
       s.state = 'shoot'; s.lastShot = now; s.shootAt = now; s.ammo--;
       m.soundQ.push({ t: 'shot', w: s.weapon }); m.soundQ.push({ t: 'shell' });
       const bx = s.x + s.facing * 24;
+      // Bullet origin Y rides the soldier's platform — if the lead
+      // is up on a ledge / second floor, their muzzle is up there
+      // too. shooterY is tracked on each bullet so the collision
+      // pass can match them with zombies on the same level.
+      const shooterY = (s.standingY || 0);
+      const bulletY  = MGY - 26 + shooterY;
       for (let p = 0; p < (w.pel || 1); p++) {
         const sp2 = (Math.random() - 0.5) * w.sp * 2;
         m.bullets.push({
-          id: uid(), x: bx, y: MGY - 26,
+          id: uid(), x: bx, y: bulletY,
           dx: s.facing * w.spd * Math.cos(sp2), dy: w.spd * Math.sin(sp2),
           dmg: w.pel ? w.dmg / w.pel : w.dmg,
           life: Math.ceil(w.range / w.spd * 1.15),
+          shooterY,
         });
       }
-      m.effects.push({ type: 'shell', x: s.x - s.facing * 8, y: MGY - 26, vx: -s.facing * (1.4 + Math.random()), at: now, dur: 780 });
-      if (s.ammo === 0) { s.state = 'reload'; s.reloadStart = now; s.ammo = s.maxAmmo; m.soundQ.push({ t: 'reload', w: s.weapon, dur: w.rl }); pushRadio(m, 'reload', { speaker: s }); }
+      m.effects.push({ type: 'shell', x: s.x - s.facing * 8, y: bulletY, vx: -s.facing * (1.4 + Math.random()), at: now, dur: 780 });
+      if (s.ammo === 0) {
+        if ((s.magsLeft || 0) > 0) {
+          s.state = 'reload'; s.reloadStart = now; s.ammo = s.maxAmmo;
+          s.magsLeft -= 1;
+          m.soundQ.push({ t: 'reload', w: s.weapon, dur: w.rl });
+          pushRadio(m, 'reload', { speaker: s });
+        } else {
+          // Out of mags — holster the firearm. Knife is now the
+          // permanent ready-state until end of mission (or scavenged
+          // ammo from a future pickup, if we add that).
+          s.knifeReady = true;
+          pushRadio(m, 'lowAmmo', { line: 'Dry! Knife out!', urgent: true, speaker: s });
+        }
+      }
     } else if (now - s.lastShot > w.rate * 0.5) s.state = 'walk';
   }
   if (s.state === 'shoot' && now - s.shootAt > 200) s.state = m.inputLeft || m.inputRight ? 'walk' : 'idle';
@@ -828,6 +1126,68 @@ export function updateMission(m, now, dt) {
     }
   });
 
+  // Friendly survivors (non-bandit encounter humans) auto-wake when
+  // zombies get within sight, then fire at the nearest active zombie
+  // with their scavenged pistol/shotgun. Fixes the asymmetry where
+  // zombies happily chewed on a passive armed survivor and the
+  // survivor just stood there — now they actually shoot back.
+  (m.humans || []).forEach(h => {
+    if (h.state === 'dead' || h.hostile) return;
+    if (!h.activated) {
+      // Wake when a zombie is within ~240 px so the survivor doesn't
+      // randomly start firing across the whole map.
+      const nearZ = m.zombies.find(z =>
+        z.state !== 'dead' && z.activated && Math.abs(z.x - h.x) < 240,
+      );
+      if (nearZ) {
+        h.activated = true;
+        m.activatedCount++;
+      } else {
+        return;
+      }
+    }
+    // Pick the closest active zombie within weapon range.
+    const wMeta = WPN[h.weapon];
+    const tgt = m.zombies
+      .filter(z => z.state !== 'dead' && z.activated && Math.abs(z.x - h.x) <= (wMeta.range || 220))
+      .sort((a, b) => Math.abs(a.x - h.x) - Math.abs(b.x - h.x))[0];
+    if (!tgt) {
+      // No zombie in range — drop back to idle but keep activated.
+      if (h.state === 'shoot' && now - h.lastShot > 200) h.state = 'idle';
+      return;
+    }
+    h.facing = tgt.x > h.x ? 1 : -1;
+    if (h.state === 'reload') {
+      if (now - h.reloadStart >= wMeta.rl) { h.state = 'idle'; h.ammo = h.maxAmmo; }
+      return;
+    }
+    if (h.ammo <= 0) { h.state = 'reload'; h.reloadStart = now; return; }
+    // Friendly fire cadence: same 1.6× slowdown as bandits (these are
+    // panicked civilians too) and 0.55× per-shot damage — they're
+    // supportive backup, not pro shooters. Their bullets are NOT
+    // hostile (b.hostile = false) so they only damage zombies.
+    if (now - h.lastShot > wMeta.rate * 1.6) {
+      h.lastShot = now; h.state = 'shoot'; h.ammo--;
+      const pellets = wMeta.pel || 1;
+      const baseDmg = (wMeta.pel ? wMeta.dmg / wMeta.pel : wMeta.dmg) * 0.55;
+      for (let p = 0; p < pellets; p++) {
+        const spread = (Math.random() - 0.5) * ((wMeta.spread || 0.04) * 2.2);
+        m.bullets.push({
+          id: uid(),
+          x: h.x + h.facing * 10, y: MGY - 26,
+          dx: h.facing * wMeta.spd * Math.cos(spread),
+          dy: wMeta.spd * Math.sin(spread),
+          dmg: baseDmg,
+          life: Math.ceil(wMeta.range / wMeta.spd * 1.15),
+          // Not hostile — these bullets damage zombies via the same
+          // path as party bullets, not the player.
+          friendlyHuman: true,
+        });
+      }
+      m.soundQ.push({ t: 'fire', w: h.weapon });
+    }
+  });
+
   // ── HAZARDS ──────────────────────────────────────────────────
   // Mine detonation helper. Used by both the proximity trigger
   // (party member walks on it) and the bullet-shot trigger
@@ -948,7 +1308,17 @@ export function updateMission(m, now, dt) {
       return false;
     }
 
-    const hit = m.zombies.find(z => z.state !== 'dead' && Math.abs(z.x - b.x) < 20);
+    // Y-level check: a bullet fired from a platform must be on the
+    // same level as the zombie to hit. Otherwise a soldier shooting
+    // sideways from a ledge would clip ground-level walkers
+    // standing far below. Bullets without a shooterY (older entries)
+    // default to ground level for back-compat.
+    const hit = m.zombies.find(z => {
+      if (z.state === 'dead' || Math.abs(z.x - b.x) >= 20) return false;
+      const zStandingY = z.standingY || 0;
+      const shooterY = b.shooterY || 0;
+      return Math.abs(zStandingY - shooterY) < 22;
+    });
     if (hit) {
       hit.hp -= b.dmg; hit.hurtTimer = 210; m.soundQ.push({ t: 'hit', now });
       m.effects.push({ type: 'blood', x: b.x, y: b.y, drops: Array.from({ length: 6 }, () => ({ x: 0, y: 0, vx: (Math.random() - 0.5) * 3.5, vy: -Math.random() * 2.5 - 0.5, r: 1.5 + Math.random() * 3 })), at: now, dur: 600 });
@@ -1145,6 +1515,140 @@ function dIndoorBackdrop(ctx, m, biome) {
     grad.addColorStop(1, 'rgba(0,0,0,0)');
     ctx.fillStyle = grad;
     ctx.fillRect(lx - 140, 0, 280, 200);
+    // Volumetric cone: a trapezoid of soft light from the fixture
+    // down to roughly floor level. Sells the "dust motes in the
+    // beam" feel without needing actual particles.
+    const cone = ctx.createLinearGradient(lx, 12, lx, MGY - 20);
+    cone.addColorStop(0, biome.lightColor);
+    cone.addColorStop(0.6, 'rgba(0,0,0,0)');
+    cone.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = cone;
+    ctx.globalAlpha = 0.35;
+    ctx.beginPath();
+    ctx.moveTo(lx - 14, 12);
+    ctx.lineTo(lx + 14, 12);
+    ctx.lineTo(lx + 60, MGY - 6);
+    ctx.lineTo(lx - 60, MGY - 6);
+    ctx.closePath();
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    // Small pool of light on the floor directly below
+    ctx.fillStyle = biome.lightColor;
+    ctx.globalAlpha = 0.18;
+    ctx.beginPath();
+    ctx.ellipse(lx, MGY - 1, 36, 4, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+}
+
+// Ladders / stairs. Vertical traversal between ground and a
+// platform. 'ladder' = vertical metal rungs (outdoor fire-escape
+// style). 'stairs' = diagonal indoor staircase with a railing.
+function dLadder(ctx, l) {
+  const x = l.x, yTop = l.yTop, yBot = l.yBot;
+  if (l.type === 'stairs') {
+    // Indoor staircase — slope from ground (bottom of platform side)
+    // up to the platform top. Built from a series of stepped rectangles.
+    const dir = l.slopeDir; // +1 = up-and-to-the-right, -1 = up-left
+    const stepCount = 6;
+    const totalH = yBot - yTop;
+    const stepH = totalH / stepCount;
+    const stepW = 12;
+    for (let i = 0; i < stepCount; i++) {
+      const sx = x + dir * (i * stepW);
+      const sy = yBot - (i + 1) * stepH;
+      // Each step face
+      ctx.fillStyle = '#3a3530';
+      ctx.fillRect(Math.min(sx, sx + dir * stepW), sy, Math.abs(stepW) + 1, stepH + 1);
+      // Top tread highlight
+      ctx.fillStyle = '#5a554a';
+      ctx.fillRect(Math.min(sx, sx + dir * stepW), sy, Math.abs(stepW) + 1, 2);
+      // Riser shadow
+      ctx.fillStyle = '#1a1814';
+      ctx.fillRect(Math.min(sx, sx + dir * stepW), sy + stepH - 1, Math.abs(stepW) + 1, 1);
+    }
+    // Banister rail
+    ctx.strokeStyle = '#5a4030'; ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(x, yBot - 4);
+    ctx.lineTo(x + dir * stepCount * stepW, yTop - 4);
+    ctx.stroke();
+    // A few posts along the rail
+    ctx.strokeStyle = '#3a281c'; ctx.lineWidth = 1;
+    for (let i = 0; i < stepCount; i += 2) {
+      const sx = x + dir * (i * stepW + stepW / 2);
+      const sy = yBot - (i + 0.5) * stepH;
+      ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(sx, sy - 14); ctx.stroke();
+    }
+  } else {
+    // Outdoor vertical ladder — two side rails + horizontal rungs.
+    ctx.strokeStyle = '#3a3530'; ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(x - 5, yTop); ctx.lineTo(x - 5, yBot); ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x + 5, yTop); ctx.lineTo(x + 5, yBot); ctx.stroke();
+    ctx.fillStyle = '#5a554a';
+    const rungCount = Math.max(3, Math.floor((yBot - yTop) / 8));
+    for (let i = 0; i <= rungCount; i++) {
+      const ry = yTop + (i / rungCount) * (yBot - yTop);
+      ctx.fillRect(x - 6, ry, 12, 1.5);
+    }
+    // Rust streaks
+    ctx.fillStyle = 'rgba(140,60,20,0.4)';
+    ctx.fillRect(x - 6, yBot - 14, 1, 12);
+    ctx.fillRect(x + 5, yBot - 18, 1, 16);
+  }
+}
+
+// Platforms / ledges. Two visual styles depending on biome:
+//   'floor'  — indoor wooden/concrete second-storey floor with a
+//              steel-beam edge and a couple of support struts.
+//   'ledge'  — outdoor metal fire-escape with a railing.
+function dPlatform(ctx, p) {
+  const x = p.x, y = p.y, w = p.w;
+  if (p.type === 'floor') {
+    // Concrete slab top
+    ctx.fillStyle = '#3a3a36'; ctx.fillRect(x, y - 2, w, 6);
+    ctx.fillStyle = '#5a5a52'; ctx.fillRect(x, y - 2, w, 2);
+    // Underside dark band
+    ctx.fillStyle = '#1a1a16'; ctx.fillRect(x, y + 4, w, 4);
+    // Two support struts hanging from the underside down to ground
+    ctx.fillStyle = '#2a2a26';
+    const strut1X = x + 14, strut2X = x + w - 22;
+    ctx.fillRect(strut1X, y + 4, 8, MGY - y - 4);
+    ctx.fillRect(strut2X, y + 4, 8, MGY - y - 4);
+    // Strut top brackets
+    ctx.fillStyle = '#1a1a18';
+    ctx.fillRect(strut1X - 3, y + 4, 14, 3);
+    ctx.fillRect(strut2X - 3, y + 4, 14, 3);
+    // Subtle shadow on the ground under the floor
+    ctx.fillStyle = 'rgba(0,0,0,0.25)';
+    ctx.fillRect(x, MGY - 1, w, 2);
+  } else {
+    // Metal fire-escape ledge
+    ctx.fillStyle = '#3a3530'; ctx.fillRect(x, y - 2, w, 5);
+    // Top grating pattern
+    ctx.fillStyle = '#5a554a';
+    for (let gx = x + 3; gx < x + w - 3; gx += 6) ctx.fillRect(gx, y - 1, 3, 1);
+    // Vertical railing posts + horizontal bar
+    ctx.fillStyle = '#2a2520';
+    ctx.fillRect(x + 4, y - 22, 2, 22);
+    ctx.fillRect(x + w - 6, y - 22, 2, 22);
+    ctx.fillRect(x + 4, y - 22, w - 8, 2);
+    // Rust streaks running down the front
+    ctx.fillStyle = 'rgba(140,60,20,0.4)';
+    ctx.fillRect(x + 14, y + 3, 2, 12);
+    ctx.fillRect(x + w - 24, y + 3, 2, 16);
+    // Two diagonal support brackets to ground
+    ctx.strokeStyle = '#2a2520'; ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(x + 6,     y + 3); ctx.lineTo(x + 30,    MGY);
+    ctx.moveTo(x + w - 6, y + 3); ctx.lineTo(x + w - 30, MGY);
+    ctx.stroke();
+    // Ground shadow
+    ctx.fillStyle = 'rgba(0,0,0,0.20)';
+    ctx.fillRect(x + 10, MGY - 1, w - 20, 2);
   }
 }
 
@@ -1436,6 +1940,95 @@ function dObstacle(ctx, o) {
   }
 }
 
+// Outdoor backdrop helper — extracted from dMissionWorld so the
+// multi-segment branch can clip and reuse it.
+function dOutdoorBackdrop(ctx, m, biome) {
+  // Sky (biome-tinted gradient)
+  const sg = ctx.createLinearGradient(0, 0, 0, MGY - 80);
+  sg.addColorStop(0, biome.sky[0]); sg.addColorStop(1, biome.sky[1]);
+  ctx.fillStyle = sg; ctx.fillRect(0, 0, MISSION_W, MGY - 80);
+  // Stars / specks
+  for (let i = 0; i < 60; i++) {
+    const sx = ((i * 173 + m.cameraX * 0.2) % MISSION_W);
+    const sy = (i * 97 + 17) % (MGY - 100);
+    ctx.fillStyle = `rgba(255,255,255,${0.3 + (i % 4) * 0.18})`;
+    ctx.fillRect(sx, sy, 1.5, 1.5);
+  }
+  ctx.fillStyle = biome.accentLight;
+  ctx.beginPath(); ctx.arc(MISSION_W * 0.4, MGY - 120, 200, 0, Math.PI * 2); ctx.fill();
+  // Background buildings
+  const bldCount = biome.bldgCount;
+  const [hMin, hMax] = biome.bldgHRange;
+  for (let i = 0; i < bldCount; i++) {
+    const bx = (i * MISSION_W / bldCount) + 50 + (i % 3) * 30;
+    const bw = 40 + (i * 7) % 70;
+    const bh = hMin + ((i * 23) % (hMax - hMin));
+    ctx.fillStyle = biome.bldgFill; ctx.fillRect(bx, MGY - 80 - bh, bw, bh);
+    ctx.fillStyle = biome.bldgRoof; ctx.fillRect(bx, MGY - 80 - bh, bw, 4);
+    ctx.fillStyle = biome.bldgWindow;
+    for (let wx = bx + 8; wx < bx + bw - 5; wx += 14)
+      for (let wy = MGY - 80 - bh + 10; wy < MGY - 90; wy += 18)
+        if (Math.sin((bx + wx) * 0.1 + wy * 0.07) > 0.2) ctx.fillRect(wx, wy, 8, 10);
+  }
+  // Ground
+  const gg = ctx.createLinearGradient(0, MGY, 0, CH);
+  gg.addColorStop(0, biome.ground[0]); gg.addColorStop(1, biome.ground[1]);
+  ctx.fillStyle = gg; ctx.fillRect(0, MGY, MISSION_W, CH - MGY);
+  ctx.strokeStyle = biome.groundLine; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(0, MGY); ctx.lineTo(MISSION_W, MGY); ctx.stroke();
+}
+
+// Doorway prop drawn at the outdoor→indoor seam of multi-segment
+// missions. Sells the transition: a dark archway in a brick frame
+// with a hanging "ENTER" / hazard sign above it.
+function dDoorway(ctx, x, indoor) {
+  // Brick frame around a tall doorway
+  const doorW = 60, doorH = 110;
+  const fx = x - doorW / 2;
+  const fy = MGY - doorH;
+  // Outer frame
+  ctx.fillStyle = '#2a201a';
+  ctx.fillRect(fx - 14, fy - 18, doorW + 28, doorH + 18);
+  // Brick texture on the frame
+  ctx.fillStyle = '#3a2a1c';
+  for (let by = fy - 14; by < fy + doorH; by += 6) {
+    for (let bx = fx - 12; bx < fx + doorW + 12; bx += 14) {
+      const off = (Math.floor((by - (fy - 14)) / 6) % 2) * 7;
+      ctx.fillRect(bx + off, by, 12, 4);
+    }
+  }
+  // Door opening (dark interior visible through)
+  const innerColour = indoor && indoor.ceiling ? indoor.ceiling[1] : '#0a0a0a';
+  ctx.fillStyle = innerColour;
+  ctx.fillRect(fx, fy, doorW, doorH);
+  // Indoor light spilling INTO the doorway (top-down gradient)
+  const spill = ctx.createLinearGradient(fx, fy, fx, fy + doorH);
+  spill.addColorStop(0, 'rgba(220,200,140,0.18)');
+  spill.addColorStop(1, 'rgba(220,200,140,0)');
+  ctx.fillStyle = spill; ctx.fillRect(fx, fy, doorW, doorH);
+  // Warm pool of light on the threshold + a fan reaching out onto
+  // the outdoor sidewalk so the entrance reads as a clear "go in
+  // here" marker from a distance.
+  ctx.fillStyle = 'rgba(255,210,130,0.30)';
+  ctx.beginPath();
+  ctx.moveTo(fx - 4, MGY);
+  ctx.lineTo(fx + doorW + 4, MGY);
+  ctx.lineTo(fx + doorW + 28, MGY + 16);
+  ctx.lineTo(fx - 28, MGY + 16);
+  ctx.closePath(); ctx.fill();
+  // Threshold step
+  ctx.fillStyle = '#1a1410';
+  ctx.fillRect(fx - 4, MGY - 3, doorW + 8, 6);
+  // Hanging sign above the doorway
+  ctx.fillStyle = '#1a1410';
+  ctx.fillRect(fx + 6, fy - 26, doorW - 12, 14);
+  ctx.fillStyle = '#cc8800'; ctx.font = 'bold 8px monospace'; ctx.textAlign = 'center';
+  ctx.fillText('ENTER', x, fy - 16);
+  ctx.textAlign = 'left';
+  // Hinge bolts on the sign
+  ctx.fillStyle = '#2a2018'; ctx.fillRect(fx + 8, fy - 24, 2, 2); ctx.fillRect(fx + doorW - 10, fy - 24, 2, 2);
+}
+
 export function dMissionWorld(ctx, m, now) {
   ctx.save();
   ctx.translate(-m.cameraX, 0);
@@ -1443,45 +2036,25 @@ export function dMissionWorld(ctx, m, now) {
   const biome = BIOMES[m.biomeKey] || BIOMES[DEFAULT_BIOME];
 
   if (biome.indoor) {
+    // Single-biome indoor destination (police_interior, etc.)
     dIndoorBackdrop(ctx, m, biome, now);
+  } else if (m.indoorBiomeKey && m.entranceX > 0) {
+    // Multi-segment mission: outdoor approach → enter the building →
+    // indoor section. Clip the two backdrops to their respective
+    // halves of the world, then draw a doorway prop at the seam so
+    // the transition reads visually.
+    const indoor = BIOMES[m.indoorBiomeKey] || BIOMES[DEFAULT_BIOME];
+    ctx.save();
+    ctx.beginPath(); ctx.rect(0, 0, m.entranceX, CH); ctx.clip();
+    dOutdoorBackdrop(ctx, m, biome);
+    ctx.restore();
+    ctx.save();
+    ctx.beginPath(); ctx.rect(m.entranceX, 0, MISSION_W - m.entranceX, CH); ctx.clip();
+    dIndoorBackdrop(ctx, m, indoor, now);
+    ctx.restore();
+    dDoorway(ctx, m.entranceX, indoor);
   } else {
-    // Sky (biome-tinted gradient)
-    const sg = ctx.createLinearGradient(0, 0, 0, MGY - 80);
-    sg.addColorStop(0, biome.sky[0]); sg.addColorStop(1, biome.sky[1]);
-    ctx.fillStyle = sg; ctx.fillRect(0, 0, MISSION_W, MGY - 80);
-
-    // Stars / specks (always)
-    for (let i = 0; i < 60; i++) {
-      const sx = ((i * 173 + m.cameraX * 0.2) % MISSION_W);
-      const sy = (i * 97 + 17) % (MGY - 100);
-      ctx.fillStyle = `rgba(255,255,255,${0.3 + (i % 4) * 0.18})`;
-      ctx.fillRect(sx, sy, 1.5, 1.5);
-    }
-    // Biome accent glow (smear of color: clinical halo, sunset blaze, etc.)
-    ctx.fillStyle = biome.accentLight;
-    ctx.beginPath(); ctx.arc(MISSION_W * 0.4, MGY - 120, 200, 0, Math.PI * 2); ctx.fill();
-
-    // Background buildings: count + height range from biome
-    const bldCount = biome.bldgCount;
-    const [hMin, hMax] = biome.bldgHRange;
-    for (let i = 0; i < bldCount; i++) {
-      const bx = (i * MISSION_W / bldCount) + 50 + (i % 3) * 30;
-      const bw = 40 + (i * 7) % 70;
-      const bh = hMin + ((i * 23) % (hMax - hMin));
-      ctx.fillStyle = biome.bldgFill; ctx.fillRect(bx, MGY - 80 - bh, bw, bh);
-      ctx.fillStyle = biome.bldgRoof; ctx.fillRect(bx, MGY - 80 - bh, bw, 4);
-      ctx.fillStyle = biome.bldgWindow;
-      for (let wx = bx + 8; wx < bx + bw - 5; wx += 14)
-        for (let wy = MGY - 80 - bh + 10; wy < MGY - 90; wy += 18)
-          if (Math.sin((bx + wx) * 0.1 + wy * 0.07) > 0.2) ctx.fillRect(wx, wy, 8, 10);
-    }
-
-    // Ground
-    const gg = ctx.createLinearGradient(0, MGY, 0, CH);
-    gg.addColorStop(0, biome.ground[0]); gg.addColorStop(1, biome.ground[1]);
-    ctx.fillStyle = gg; ctx.fillRect(0, MGY, MISSION_W, CH - MGY);
-    ctx.strokeStyle = biome.groundLine; ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.moveTo(0, MGY); ctx.lineTo(MISSION_W, MGY); ctx.stroke();
+    dOutdoorBackdrop(ctx, m, biome);
   }
 
   // Branching path (high lane road)
@@ -1515,6 +2088,14 @@ export function dMissionWorld(ctx, m, now) {
   // Decorative props (lampposts, fences, neon poles)
   (m.props || []).forEach(p => dProp(ctx, p));
 
+  // Ladders / stairs first so the platform's solid top draws over
+  // the ladder top rung — gives the impression of climbing INTO the
+  // platform rather than past it.
+  (m.ladders || []).forEach(l => dLadder(ctx, l));
+  // Platforms / ledges — drawn before obstacles so a sandbag or
+  // wreck sitting near a platform pillar still renders on top.
+  (m.platforms || []).forEach(p => dPlatform(ctx, p));
+
   // Hazards (acid pools first so obstacles draw on top, then mines).
   (m.hazards || []).filter(h => h.type === 'acid').forEach(h => dHazard(ctx, h, now));
   // Foreground obstacles (biome-aware)
@@ -1543,7 +2124,16 @@ export function dMissionWorld(ctx, m, now) {
   });
 
   m.zombies.filter(z => z.state === 'dead').forEach(z => { z.lane = 0; dZombie(ctx, z, now); });
-  m.zombies.filter(z => z.state !== 'dead' && z.activated).forEach(z => { z.lane = 0; dZombie(ctx, z, now); });
+  // Living zombies — apply standingY offset so climbers and the
+  // ones standing on platforms render at the correct height. The
+  // dZombie helper draws at lane Y by default; ctx.translate
+  // shifts the whole sprite up to the platform-top.
+  m.zombies.filter(z => z.state !== 'dead' && z.activated).forEach(z => {
+    z.lane = 0;
+    const dy = z.standingY || 0;
+    if (dy !== 0) { ctx.save(); ctx.translate(0, dy); dZombie(ctx, z, now); ctx.restore(); }
+    else dZombie(ctx, z, now);
+  });
 
   // Rescuable civilians (drawn before the party so they read as on-stage)
   (m.rescuables || []).forEach(r => {
@@ -1599,7 +2189,13 @@ export function dMissionWorld(ctx, m, now) {
   });
 
   const sCopy = { ...m.soldier, lane: 0, onExpedition: false, state: m.soldier.state };
-  ctx.save(); ctx.translate(0, m.soldier._laneY || 0);
+  // Render y offset = fork-lane offset + jump arc + platform stand
+  // height. standingY is negative when on a platform (above ground).
+  ctx.save(); ctx.translate(0,
+    (m.soldier._laneY || 0)
+    + (m.soldier.jumpY || 0)
+    + (m.soldier.standingY || 0),
+  );
   dSoldier(ctx, sCopy, now, true); // pass selection ring to mark the lead
   ctx.restore();
 

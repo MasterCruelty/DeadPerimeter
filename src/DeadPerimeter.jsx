@@ -57,6 +57,11 @@ export default function DeadPerimeter() {
   // Multi-soldier picker: an array of soldier indices (max BALANCE.maxExpeditionParty)
   const [expSoldierIdxs, setExpSoldierIdxs] = useState([]);
   const [expDestIdx, setExpDestIdx] = useState(null);
+  // Magazines per soldier for the upcoming sortie. 1 = loaded only
+  // (no reloads possible during the mission), 2 = loaded + 1 spare,
+  // up to 4. The player picks the loadout before clicking LAUNCH.
+  const [magsPerSoldier, setMagsPerSoldier] = useState(2);
+  const magsRef = useRef(2);
   const [expResult, setExpResult] = useState(null);
   const [expPhase, setExpPhase] = useState(null);
   const [expEvents, setExpEvents] = useState([]);
@@ -279,16 +284,29 @@ export default function DeadPerimeter() {
     const dest = expDestsRef.current[di];
 
     // Issue ammo from Fort Omega's pool for every party member.
+    // Each soldier carries `mags` magazines total: 1 loaded + (mags-1)
+    // spare. mkMission reads each soldier's stored _sortieMags to seed
+    // its magsLeft field (= spare mags after the loaded one).
+    const mags = Math.max(1, Math.min(4, magsRef.current || 2));
     party.forEach(soldier => {
       const poolKey = soldier.weapon === 'sniper' ? 'sniperAmmo' : 'ammo';
-      const want = Math.max(0, soldier.maxAmmo - (soldier.ammo || 0));
-      const give = Math.min(want, gs.resources[poolKey] || 0);
-      gs.resources[poolKey] = (gs.resources[poolKey] || 0) - give;
-      soldier.ammo = (soldier.ammo || 0) + give;
+      // Top up the loaded mag first.
+      const wantLoaded = Math.max(0, soldier.maxAmmo - (soldier.ammo || 0));
+      const giveLoaded = Math.min(wantLoaded, gs.resources[poolKey] || 0);
+      gs.resources[poolKey] = (gs.resources[poolKey] || 0) - giveLoaded;
+      soldier.ammo = (soldier.ammo || 0) + giveLoaded;
+      // Then issue the requested spare mags (capped by the pool).
+      const wantSpare = (mags - 1) * soldier.maxAmmo;
+      const giveSpare = Math.min(wantSpare, gs.resources[poolKey] || 0);
+      gs.resources[poolKey] = (gs.resources[poolKey] || 0) - giveSpare;
+      soldier._sortieMags = 1 + Math.floor(giveSpare / soldier.maxAmmo);
       soldier.onExpedition = true;
     });
 
-    const m = mkMission(party, dest, gs.wave || 1);
+    // mkMission's buildMissionSoldier seeds magsLeft from
+    // orig._sortieMags - 1. Pass the requested mag count as the
+    // default for any soldier whose _sortieMags wasn't preset.
+    const m = mkMission(party, dest, gs.wave || 1, mags);
     missionRef.current = m;
     inputRef.current = { left: false, right: false, shoot: false, up: false, down: false };
     gs.expeditionsToday = (gs.expeditionsToday || 0) + 1;
@@ -520,7 +538,12 @@ export default function DeadPerimeter() {
   const moveSquad = useCallback(dir => {
     const gs = gsRef.current; if (!gs || gs.phase !== 'siege') return;
     const cur = gs.squadTarget ?? 270;
-    gs.squadTarget = dir === 'retreat' ? Math.max(WX + 40, cur - 80) : Math.min(CW - 80, cur + 80);
+    // Advance limit is well past the legacy viewport edge — the
+    // battlefield is WORLD_W wide and soldiers should be able to
+    // push forward into the killbox to meet the horde, not be
+    // clamped at x≈820 where bullets used to despawn.
+    const advanceMax = WORLD_W - 700;
+    gs.squadTarget = dir === 'retreat' ? Math.max(WX + 40, cur - 80) : Math.min(advanceMax, cur + 80);
     const movables = gs.selectedSoldierId
       ? gs.soldiers.filter(s => s.id === gs.selectedSoldierId && s.state !== 'dead' && !s.onExpedition && !s.onRoof && s.state !== 'reload')
       : gs.soldiers.filter(s => s.state !== 'dead' && !s.onExpedition && !s.onRoof && s.state !== 'reload');
@@ -614,7 +637,9 @@ export default function DeadPerimeter() {
 
       if (worldX > WX + 40) {
         const clickedLane = clickToLane(my);
-        const targetX = Math.max(WX + 40, Math.min(CW - 80, worldX));
+        // Click-target clamp matches the ADVANCE limit so the player
+        // can route the squad anywhere in the meaningful killbox.
+        const targetX = Math.max(WX + 40, Math.min(WORLD_W - 700, worldX));
         if (gs.selectedSoldierId !== null) {
           const s = gs.soldiers.find(s => s.id === gs.selectedSoldierId);
           if (s && s.state !== 'dead' && !s.onExpedition && !s.onRoof && s.state !== 'reload') {
@@ -1108,6 +1133,25 @@ export default function DeadPerimeter() {
   const canSortie = sortiesLeft > 0 && expeditionsUnlocked;
   const partyValid = expSoldierIdxs.length > 0 && expSoldierIdxs.length <= BALANCE.maxExpeditionParty;
 
+  // Total ammo this sortie would draw from the stash based on the
+  // currently-selected party + mags loadout. Used by the loadout UI
+  // to surface the cost before the player commits.
+  const sortieAmmoCost = (() => {
+    if (!gs || !partyValid) return { ammo: 0, sniperAmmo: 0 };
+    const totals = { ammo: 0, sniperAmmo: 0 };
+    expSoldierIdxs.forEach(i => {
+      const s = gs.soldiers[i]; if (!s || s.state === 'dead') return;
+      const key = s.weapon === 'sniper' ? 'sniperAmmo' : 'ammo';
+      const wantLoaded = Math.max(0, s.maxAmmo - (s.ammo || 0));
+      const wantSpare  = (magsPerSoldier - 1) * s.maxAmmo;
+      totals[key] += wantLoaded + wantSpare;
+    });
+    return totals;
+  })();
+  const sortieAmmoCovered = gs ?
+    (sortieAmmoCost.ammo <= (gs.resources.ammo || 0) && sortieAmmoCost.sniperAmmo <= (gs.resources.sniperAmmo || 0))
+    : false;
+
   const ExpeditionScreen = (
     <div style={wrap}>
       <div style={panel}>
@@ -1148,6 +1192,33 @@ export default function DeadPerimeter() {
                 <div style={{ color: '#88ddff', fontSize: '8px', marginTop: '2px' }}>{d.rewards}</div>
               </div>
             ))}</div>
+            {/* Loadout selector — how many magazines each soldier carries */}
+            <div style={{ marginTop: '10px', background: 'rgba(8,16,8,0.7)', border: `1px solid ${C.uib}`, padding: '8px 12px' }}>
+              <div style={{ fontSize: '11px', color: C.txt, marginBottom: '6px', letterSpacing: '.04em' }}>
+                LOADOUT — magazines per soldier
+              </div>
+              <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap' }}>
+                {[1, 2, 3, 4].map(n => (
+                  <button
+                    key={n}
+                    style={{
+                      ...btn(magsPerSoldier === n ? '#225522' : '#1a1a18', magsPerSoldier === n ? '#44aa44' : '#3a3a36'),
+                      fontSize: '11px', padding: '4px 14px',
+                    }}
+                    onClick={() => { setMagsPerSoldier(n); magsRef.current = n; }}
+                  >{n} MAG{n > 1 ? 'S' : ''}</button>
+                ))}
+              </div>
+              <div style={{ fontSize: '9px', marginTop: '6px', color: sortieAmmoCovered ? C.txt : C.dng, opacity: 0.9 }}>
+                Stash cost:{' '}
+                {sortieAmmoCost.ammo > 0       && <>🔫 {sortieAmmoCost.ammo}{sortieAmmoCost.sniperAmmo > 0 ? '  ·  ' : ''}</>}
+                {sortieAmmoCost.sniperAmmo > 0 && <>🎯 {sortieAmmoCost.sniperAmmo}</>}
+                {(sortieAmmoCost.ammo + sortieAmmoCost.sniperAmmo) === 0 && <span style={{ opacity: 0.5 }}>(pick a party first)</span>}
+                {!sortieAmmoCovered && (sortieAmmoCost.ammo + sortieAmmoCost.sniperAmmo) > 0 && (
+                  <span style={{ marginLeft: '8px' }}>⚠ stash short — soldiers will go in light</span>
+                )}
+              </div>
+            </div>
             <div style={{ marginTop: '10px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
               <button
                 style={btn('#1a3a18')}
@@ -1156,7 +1227,7 @@ export default function DeadPerimeter() {
               >🎮 LAUNCH SORTIE</button>
             </div>
             <div style={{ fontSize: '9px', color: C.txt, opacity: 0.5, marginTop: '8px', lineHeight: '1.5' }}>
-              You control the first picked soldier; the others follow as AI (auto-shoot in range, knife on dry mag). Lead death = mission failed — but a surviving follower takes point.
+              You control the first picked soldier; the others follow as AI (auto-shoot in range, knife on dry mag). Lead death = mission failed — but a surviving follower takes point. When a soldier burns through every magazine they holster the firearm and switch to a knife.
               {!expeditionsUnlocked && <><br /><b style={{ color: C.dng }}>LOCKED</b>: expeditions unlock from wave 2 onward.</>}
               {expeditionsUnlocked && sortiesLeft <= 0 && <><br /><b style={{ color: C.dng }}>NIGHTFALL</b>: no more sorties today — survive the next wave to dispatch again.</>}
             </div>
@@ -1188,11 +1259,26 @@ export default function DeadPerimeter() {
             <div style={{ fontWeight: 'bold', fontSize: '13px', color: expResult.outcome === 'success' ? C.acc : expResult.outcome === 'injured' ? C.wrn : C.dng }}>
               {expResult.outcome === 'success' ? '✦ MISSION SUCCESS' : expResult.outcome === 'injured' ? '⚠ RETURNED INJURED' : '✖ SOLDIER LOST'}
             </div>
-            {Object.keys(expResult.reward || {}).length > 0 && (
-              <div style={{ fontSize: '11px', color: C.acc, marginTop: '5px' }}>
-                Recovered: {Object.entries(expResult.reward).map(([k, v]) => `${k} +${v}`).join('  ·  ')}
-              </div>
-            )}
+            {Object.keys(expResult.reward || {}).length > 0 && (() => {
+              // Split positive recoveries from the foodCost line so the
+              // log reads "Recovered: ammo +N  ·  Eaten: 9 food" rather
+              // than burying the deduction in the same comma-list.
+              const { foodCost, ...gained } = expResult.reward;
+              return (
+                <>
+                  {Object.keys(gained).length > 0 && (
+                    <div style={{ fontSize: '11px', color: C.acc, marginTop: '5px' }}>
+                      Recovered: {Object.entries(gained).map(([k, v]) => `${k} +${v}`).join('  ·  ')}
+                    </div>
+                  )}
+                  {foodCost > 0 && (
+                    <div style={{ fontSize: '11px', color: C.wrn, marginTop: '3px' }}>
+                      Eaten on the road: −{foodCost} 🥫
+                    </div>
+                  )}
+                </>
+              );
+            })()}
             {expResult.recruit && (
               <div style={{ fontSize: '11px', color: '#88ddff', marginTop: '4px' }}>
                 👤 <b>{expResult.recruit.name}</b> rescued — reporting for duty ({expResult.recruit.weapon})
