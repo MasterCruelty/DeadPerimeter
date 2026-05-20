@@ -89,5 +89,130 @@ export const BALANCE = {
   // the stash kept growing because expeditions only added food but
   // never spent it.
   sortieFoodCostPerSoldier: 3,
+
+  // Workshop / Research lab one-time build costs.
+  workbenchCost:    { materials: 30 },
+  researchLabCost:  { materials: 50, medicine: 5 },
 };
+
+// Craft recipes — material conversion at the workbench. Each recipe
+// is "one click" and consumes the cost / produces the output. The
+// 'craftMultiplier' research bumps every output by 1.5×.
+export const CRAFT_RECIPES = [
+  { id: 'rifleMag',   icon: '🔫', name: 'Rifle mag',    cost: { materials: 4 }, output: { ammo:       30 } },
+  { id: 'pistolMag',  icon: '🔫', name: 'Pistol mag',   cost: { materials: 2 }, output: { ammo:       15 } },
+  { id: 'sniperBox',  icon: '🎯', name: 'Sniper rounds', cost: { materials: 8 }, output: { sniperAmmo:  5 } },
+  { id: 'turretBelt', icon: '🟠', name: 'Turret belt',  cost: { materials: 3 }, output: { turretAmmo: 15 } },
+  { id: 'firstAid',   icon: '💊', name: 'First aid',    cost: { materials: 6 }, output: { medicine:    3 } },
+];
+
+// Research nodes — each is one-shot, takes `waves` wave clears to
+// complete (auto-progress on each gs.wave++ tick), costs are
+// deducted on START. effects {} is applied globally via
+// getResearchEffect() lookups across the codebase.
+//
+// Only one research can be active at a time so the player has to
+// choose what to prioritise. Completed researches are persisted in
+// gs.research.completed (set of id strings).
+export const RESEARCHES = [
+  {
+    id: 'improvedMags', name: 'Improved Magazines',
+    desc: 'Crafted rounds: +50% output per recipe.',
+    cost: { materials: 20 }, waves: 3,
+    effects: { craftMultiplier: 1.5 },
+  },
+  {
+    id: 'reinforcedWalls', name: 'Reinforced Walls',
+    desc: 'Wall +50 HP, repair restores +20 HP per tick.',
+    cost: { materials: 25, medicine: 3 }, waves: 4,
+    effects: { baseHpBonus: 50, wallRepairBonus: 20 },
+  },
+  {
+    id: 'combatDrills', name: 'Combat Drills',
+    desc: 'All soldiers deal +20% damage.',
+    cost: { materials: 15, food: 10 }, waves: 5,
+    effects: { soldierDamageMul: 1.20 },
+  },
+  {
+    id: 'fieldMedicine', name: 'Field Medicine',
+    desc: 'Medicine heals 2× HP per use.',
+    cost: { materials: 20, medicine: 8 }, waves: 4,
+    effects: { medicineMul: 2 },
+  },
+  {
+    id: 'apRounds', name: 'Armor-Piercing Rounds',
+    desc: 'Rifle deals 1.5× damage to Tanks.',
+    cost: { materials: 30 }, waves: 6,
+    effects: { rifleVsTankMul: 1.5 },
+  },
+  {
+    id: 'marksmanship', name: 'Marksmanship',
+    desc: 'Sniper range +200 px.',
+    cost: { materials: 25, sniperAmmo: 5 }, waves: 5,
+    effects: { sniperRangeBonus: 200 },
+  },
+  {
+    id: 'reloadDrills', name: 'Reload Drills',
+    desc: 'All reload times −30%.',
+    cost: { materials: 18 }, waves: 4,
+    effects: { reloadMul: 0.70 },
+  },
+];
+
+// Per-soldier weapon perks. Bought at the workbench (requires
+// `gs.workbench.built`). Each soldier has a sparse `upgrades` map of
+// id → true. `weapons: 'all'` perks fit any soldier; otherwise the
+// listed weapon keys gate the buy button. Costs are paid once.
+//
+// One-shot effects (maxHp / maxAmmo bumps) are applied at purchase
+// time directly on the soldier. Per-shot multipliers (damageMul,
+// reloadMul) are read from the perk table at fire / reload time.
+export const PERKS = [
+  { id: 'vest',        name: 'Ballistic Vest', icon: '🦺', cost: { materials: 20 }, weapons: 'all',
+    desc: '+30 max HP and patches up to the new cap.', maxHpBonus: 30 },
+  { id: 'extMag',      name: 'Extended Mag',   icon: '📦', cost: { materials: 12 }, weapons: ['rifle', 'pistol'],
+    desc: '+10 rounds per magazine.',                  maxAmmoBonus: 10 },
+  { id: 'heavyBarrel', name: 'Heavy Barrel',   icon: '⚙', cost: { materials: 18 }, weapons: ['rifle'],
+    desc: '+25% damage.',                              damageMul: 1.25 },
+  { id: 'hollowPts',   name: 'Hollow Points',  icon: '🔴', cost: { materials: 14 }, weapons: ['pistol'],
+    desc: '+30% damage.',                              damageMul: 1.30 },
+  { id: 'bipod',       name: 'Bipod',          icon: '🦿', cost: { materials: 20, sniperAmmo: 3 }, weapons: ['sniper'],
+    desc: '+150 range.',                               rangeBonus: 150 },
+  { id: 'matchAmmo',   name: 'Match Ammo',     icon: '🎯', cost: { materials: 18, sniperAmmo: 5 }, weapons: ['sniper'],
+    desc: '+40% damage.',                              damageMul: 1.40 },
+  { id: 'quickReload', name: 'Quick Reload',   icon: '⚡', cost: { materials: 15 }, weapons: 'all',
+    desc: '−25% reload time.',                         reloadMul: 0.75 },
+];
+
+// Aggregate a per-soldier perk effect. Multipliers (keys ending in
+// 'Mul') compound; bonuses add. Used by siege.js at fire / reload time.
+export function getSoldierPerkEffect(sol, key, defaultValue) {
+  const owned = (sol && sol.upgrades) || null;
+  if (!owned) return defaultValue;
+  let v = defaultValue;
+  for (const p of PERKS) {
+    if (!owned[p.id]) continue;
+    if (!(key in p)) continue;
+    if (key.endsWith('Mul')) v *= p[key];
+    else v += p[key];
+  }
+  return v;
+}
+
+// Helper: read the active research-effect value for a given key,
+// returning the supplied default if no completed research touches it.
+// `gs.research.completed` is the source of truth (array of ids).
+export function getResearchEffect(gs, key, defaultValue) {
+  const completed = (gs && gs.research && gs.research.completed) || [];
+  let v = defaultValue;
+  for (const id of completed) {
+    const r = RESEARCHES.find(r => r.id === id);
+    if (!r || !r.effects || !(key in r.effects)) continue;
+    // Multipliers compound; bonuses add. Heuristic: keys ending in
+    // 'Mul' compound multiplicatively, everything else adds.
+    if (key.endsWith('Mul') || key.endsWith('Multiplier')) v *= r.effects[key];
+    else v += r.effects[key];
+  }
+  return v;
+}
 

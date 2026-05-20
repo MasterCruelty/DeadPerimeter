@@ -7,7 +7,10 @@
 // Save format version is bumped whenever the shape changes so old saves
 // are silently discarded rather than crashing.
 
-const STORAGE_KEY = 'dead-perimeter-save-v1';
+// v2 added workshop fields (workbench / researchLab / research).
+// v3 added per-soldier upgrades (PERKS). Older versions are silently
+// discarded — keeps the load path free of compatibility branches.
+const STORAGE_KEY = 'dead-perimeter-save-v3';
 
 export function hasSavedGame() {
   try {
@@ -21,7 +24,7 @@ export function saveGame(gs) {
   if (!gs) return false;
   try {
     const snapshot = {
-      v: 1, savedAt: Date.now(),
+      v: 3, savedAt: Date.now(),
       day: gs.day, wave: gs.wave,
       baseHp: gs.baseHp, baseMaxHp: gs.baseMaxHp,
       resources: { ...gs.resources },
@@ -34,6 +37,7 @@ export function saveGame(gs) {
         civilian: !!s.civilian, veteran: !!s.veteran,
         kind: s.kind,
         onRoof: !!s.onRoof,
+        upgrades: { ...(s.upgrades || {}) },
       })),
       barricades: gs.barricades.map(b => ({ id: b.id, x: b.x, hp: b.hp, maxHp: b.maxHp })),
       turrets: (gs.turrets || []).map(t => ({ id: t.id, x: t.x, lane: t.lane })),
@@ -49,6 +53,13 @@ export function saveGame(gs) {
       transmissionsDone: Array.isArray(gs.transmissionsDone) ? [...gs.transmissionsDone] : [],
       lastSupplyDrop: gs.lastSupplyDrop || null,
       usedNames: Array.from(gs.usedNames || []),
+      workbench: { built: !!(gs.workbench && gs.workbench.built) },
+      researchLab: { built: !!(gs.researchLab && gs.researchLab.built) },
+      research: {
+        activeId: gs.research?.activeId ?? null,
+        progress: gs.research?.progress ?? 0,
+        completed: Array.isArray(gs.research?.completed) ? [...gs.research.completed] : [],
+      },
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot));
     return true;
@@ -62,7 +73,7 @@ export function loadGame(mkGS) {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
     const data = JSON.parse(raw);
-    if (data.v !== 1) return null;
+    if (data.v !== 3) return null;
 
     const gs = mkGS();
     gs.day = data.day; gs.wave = data.wave;
@@ -83,6 +94,7 @@ export function loadGame(mkGS) {
         lastShot: 0, reloadStart: 0, shootAt: 0, knifeTimer: 0, recoil: 0,
         walkPhase: Math.random() * Math.PI * 2, hurtTimer: 0,
         reloadTriggered: false, onExpedition: false,
+        upgrades: { ...(s.upgrades || {}) },
       };
     });
     gs.barricades = data.barricades.map(b => ({ ...b }));
@@ -95,6 +107,13 @@ export function loadGame(mkGS) {
     gs.transmissionsDone = Array.isArray(data.transmissionsDone) ? [...data.transmissionsDone] : [];
     gs.lastSupplyDrop = data.lastSupplyDrop || null;
     gs.usedNames = new Set(data.usedNames || []);
+    gs.workbench = { built: !!(data.workbench && data.workbench.built) };
+    gs.researchLab = { built: !!(data.researchLab && data.researchLab.built) };
+    gs.research = {
+      activeId: data.research?.activeId ?? null,
+      progress: data.research?.progress ?? 0,
+      completed: Array.isArray(data.research?.completed) ? [...data.research.completed] : [],
+    };
     gs.phase = 'management';
     return gs;
   } catch (_e) {

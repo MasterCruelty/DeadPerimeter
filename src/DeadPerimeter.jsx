@@ -13,7 +13,7 @@ import { mkTurret } from './entities/turret.js';
 import { mkWave, mkHumanWave } from './entities/wave.js';
 import { mkGS } from './entities/gameState.js';
 import { hasSavedGame, saveGame, loadGame, clearSave } from './entities/persistence.js';
-import { BALANCE } from './data/difficulty.js';
+import { BALANCE, CRAFT_RECIPES, RESEARCHES, PERKS, getResearchEffect } from './data/difficulty.js';
 
 import { dBg } from './render/background.js';
 import { dBase } from './render/base.js';
@@ -53,6 +53,9 @@ export default function DeadPerimeter() {
   const voiceAvail = isRadioVoiceAvailable();
   const [paused, setPaused] = useState(false);
   const [hasSave, setHasSave] = useState(false);
+  // Which soldier card currently has its upgrade panel expanded (id).
+  // null = none. Toggled by the ⚙ UPGRADES button on each card.
+  const [upgOpenId, setUpgOpenId] = useState(null);
   const [, setMissionTick] = useState(0);
   // Multi-soldier picker: an array of soldier indices (max BALANCE.maxExpeditionParty)
   const [expSoldierIdxs, setExpSoldierIdxs] = useState([]);
@@ -369,7 +372,79 @@ export default function DeadPerimeter() {
     if (gs.resources.materials < BALANCE.wallRepairCost) return;
     if (gs.baseHp >= gs.baseMaxHp) return;
     gs.resources.materials -= BALANCE.wallRepairCost;
-    gs.baseHp = Math.min(gs.baseMaxHp, gs.baseHp + BALANCE.wallRepairHp);
+    const hpPerTick = BALANCE.wallRepairHp + getResearchEffect(gs, 'wallRepairBonus', 0);
+    gs.baseHp = Math.min(gs.baseMaxHp, gs.baseHp + hpPerTick);
+    saveGame(gs); setHasSave(true);
+    setUi({ ...gs });
+  }, []);
+
+  // Workshop — one-time build of the workbench. Unlocks the crafting
+  // panel (CRAFT_RECIPES) that converts 🔧 materials into combat consumables.
+  const buildWorkbench = useCallback(() => {
+    const gs = gsRef.current; if (!gs || gs.phase !== 'management') return;
+    if (gs.workbench?.built) return;
+    const cost = BALANCE.workbenchCost;
+    if ((gs.resources.materials || 0) < cost.materials) return;
+    gs.resources.materials -= cost.materials;
+    gs.workbench = { built: true };
+    saveGame(gs); setHasSave(true);
+    setUi({ ...gs });
+  }, []);
+
+  // Craft one batch of a recipe. Output is multiplied by the
+  // 'craftMultiplier' research effect (default 1×).
+  const craft = useCallback(recipeId => {
+    const gs = gsRef.current; if (!gs || !gs.workbench?.built) return;
+    const r = CRAFT_RECIPES.find(x => x.id === recipeId); if (!r) return;
+    for (const [k, v] of Object.entries(r.cost)) {
+      if ((gs.resources[k] || 0) < v) return;
+    }
+    for (const [k, v] of Object.entries(r.cost)) gs.resources[k] -= v;
+    const mul = getResearchEffect(gs, 'craftMultiplier', 1);
+    const caps = { food: 999, ammo: 999, medicine: 999, materials: 999, sniperAmmo: 99, turretAmmo: 999 };
+    for (const [k, v] of Object.entries(r.output)) {
+      const add = Math.max(1, Math.round(v * mul));
+      gs.resources[k] = Math.min(caps[k] ?? 999, (gs.resources[k] || 0) + add);
+    }
+    saveGame(gs); setHasSave(true);
+    setUi({ ...gs });
+  }, []);
+
+  const buildResearchLab = useCallback(() => {
+    const gs = gsRef.current; if (!gs || gs.phase !== 'management') return;
+    if (gs.researchLab?.built) return;
+    const cost = BALANCE.researchLabCost;
+    for (const [k, v] of Object.entries(cost)) {
+      if ((gs.resources[k] || 0) < v) return;
+    }
+    for (const [k, v] of Object.entries(cost)) gs.resources[k] -= v;
+    gs.researchLab = { built: true };
+    saveGame(gs); setHasSave(true);
+    setUi({ ...gs });
+  }, []);
+
+  // Start a research node. Cost is paid immediately; progress ticks
+  // up by 1 on each wave clear (see update/siege.js) and the effects
+  // are applied when progress reaches r.waves.
+  const startResearch = useCallback(id => {
+    const gs = gsRef.current; if (!gs || !gs.researchLab?.built) return;
+    if (gs.research?.activeId) return;
+    if ((gs.research?.completed || []).includes(id)) return;
+    const r = RESEARCHES.find(x => x.id === id); if (!r) return;
+    for (const [k, v] of Object.entries(r.cost)) {
+      if ((gs.resources[k] || 0) < v) return;
+    }
+    for (const [k, v] of Object.entries(r.cost)) gs.resources[k] -= v;
+    gs.research = { ...gs.research, activeId: id, progress: 0 };
+    saveGame(gs); setHasSave(true);
+    setUi({ ...gs });
+  }, []);
+
+  // Cancel the active research. The resources spent are forfeit
+  // (no refund) — meant for desperate pivots, not free re-rolls.
+  const cancelResearch = useCallback(() => {
+    const gs = gsRef.current; if (!gs?.research?.activeId) return;
+    gs.research = { ...gs.research, activeId: null, progress: 0 };
     saveGame(gs); setHasSave(true);
     setUi({ ...gs });
   }, []);
@@ -530,7 +605,30 @@ export default function DeadPerimeter() {
     if (gs.resources.medicine < 5) return;
     const s = gs.soldiers[idx]; if (!s || s.state === 'dead') return;
     gs.resources.medicine -= 5;
-    s.hp = Math.min(s.maxHp, s.hp + 40);
+    const heal = Math.round(40 * getResearchEffect(gs, 'medicineMul', 1));
+    s.hp = Math.min(s.maxHp, s.hp + heal);
+    saveGame(gs); setHasSave(true);
+    setUi({ ...gs, soldiers: gs.soldiers.map(s => ({ ...s })) });
+  }, []);
+
+  // Buy a perk for a specific soldier. Requires the workbench. One-shot
+  // bumps (maxHpBonus / maxAmmoBonus) are applied directly here so the
+  // soldier card immediately reflects the new caps. Per-shot multipliers
+  // are read by siege.js at fire time.
+  const upgradeSoldier = useCallback((idx, perkId) => {
+    const gs = gsRef.current;
+    if (!gs?.workbench?.built) return;
+    const s = gs.soldiers[idx]; if (!s || s.state === 'dead') return;
+    const p = PERKS.find(x => x.id === perkId); if (!p) return;
+    if (s.upgrades && s.upgrades[perkId]) return;
+    if (p.weapons !== 'all' && !p.weapons.includes(s.weapon)) return;
+    for (const [k, v] of Object.entries(p.cost)) {
+      if ((gs.resources[k] || 0) < v) return;
+    }
+    for (const [k, v] of Object.entries(p.cost)) gs.resources[k] -= v;
+    s.upgrades = { ...(s.upgrades || {}), [perkId]: true };
+    if (p.maxHpBonus)   { s.maxHp += p.maxHpBonus; s.hp = Math.min(s.maxHp, s.hp + p.maxHpBonus); }
+    if (p.maxAmmoBonus) { s.maxAmmo += p.maxAmmoBonus; }
     saveGame(gs); setHasSave(true);
     setUi({ ...gs, soldiers: gs.soldiers.map(s => ({ ...s })) });
   }, []);
@@ -1105,6 +1203,11 @@ export default function DeadPerimeter() {
   const row = { display: 'flex', gap: '7px', flexWrap: 'wrap', marginBottom: '5px' };
   const lbl = { color: C.txt, fontSize: '9px', opacity: 0.6, display: 'block', marginBottom: '2px', letterSpacing: '.04em' };
   const val = { color: C.acc, fontSize: '17px', fontWeight: 'bold' };
+  // Map resource keys to the icons used elsewhere in the HUD.
+  const resIcon = k => ({
+    food: '🥫', ammo: '🔫', sniperAmmo: '🎯',
+    turretAmmo: '🟠', medicine: '💊', materials: '🔧',
+  }[k] || k);
 
   const gs = ui || gsRef.current;
   const aliveSols = gs?.soldiers?.filter(s => s.state !== 'dead' && !s.onExpedition) || [];
@@ -1484,6 +1587,26 @@ export default function DeadPerimeter() {
                   disabled={!gs || gs.baseHp >= gs.baseMaxHp || (gs.resources?.materials || 0) < BALANCE.wallRepairCost}
                   onClick={repairWall}
                 >🧱 REPAIR WALL (🔧{BALANCE.wallRepairCost} → +{BALANCE.wallRepairHp} HP)</button>
+                {!gs?.workbench?.built && (
+                  <button
+                    style={{ ...btn('#2a2418', '#aa8833'), fontSize: '10px', padding: '4px 10px' }}
+                    disabled={!gs || (gs.resources?.materials || 0) < BALANCE.workbenchCost.materials}
+                    onClick={buildWorkbench}
+                    title="Unlocks the crafting bench (convert materials to ammo / medicine)."
+                  >🔨 WORKBENCH (🔧{BALANCE.workbenchCost.materials})</button>
+                )}
+                {!gs?.researchLab?.built && (
+                  <button
+                    style={{ ...btn('#2a1828', '#7744aa'), fontSize: '10px', padding: '4px 10px' }}
+                    disabled={
+                      !gs ||
+                      (gs.resources?.materials || 0) < BALANCE.researchLabCost.materials ||
+                      (gs.resources?.medicine  || 0) < BALANCE.researchLabCost.medicine
+                    }
+                    onClick={buildResearchLab}
+                    title="Unlocks the research tree (permanent base-wide upgrades)."
+                  >🧪 RESEARCH LAB (🔧{BALANCE.researchLabCost.materials} 💊{BALANCE.researchLabCost.medicine})</button>
+                )}
               </div>
             </div>
             <div style={row}>
@@ -1499,24 +1622,171 @@ export default function DeadPerimeter() {
                     <div style={{ flex: 1, height: '3px', background: '#1a1a1a' }}><div style={{ height: '3px', width: `${(s.hp / s.maxHp) * 100}%`, background: s.hp > 60 ? C.acc : s.hp > 30 ? C.wrn : C.dng }} /></div>
                     <span style={{ ...lbl, minWidth: '28px' }}>{s.state === 'dead' ? 'KIA' : `${s.hp}HP`}</span>
                   </div>
-                  {s.state !== 'dead' && (
-                    <div style={{ display: 'flex', gap: '3px', marginTop: '3px', flexWrap: 'wrap' }}>
-                      {s.hp < s.maxHp && (
-                        <button style={{ ...btn('#162814', '#336622'), fontSize: '8px', padding: '2px 6px', marginRight: 0 }} onClick={() => healSoldier(i)} disabled={gs.resources.medicine < 5}>💊 HEAL</button>
-                      )}
-                      {!s.onRoof && (
-                        <button
-                          style={{ ...btn('#1a2435', '#3a5588'), fontSize: '8px', padding: '2px 6px', marginRight: 0 }}
-                          onClick={() => benchSoldier(i)}
-                          disabled={(gs.reserve?.length || 0) >= BALANCE.maxReserveSoldiers}
-                          title={(gs.reserve?.length || 0) >= BALANCE.maxReserveSoldiers ? 'Reserve full' : 'Send to reserve'}
-                        >🛏 BENCH</button>
-                      )}
-                    </div>
-                  )}
+                  {s.state !== 'dead' && (() => {
+                    const owned = Object.keys(s.upgrades || {});
+                    const wbBuilt = !!gs.workbench?.built;
+                    return (
+                      <>
+                        {owned.length > 0 && (
+                          <div style={{ fontSize: '9px', marginTop: '3px', letterSpacing: '.03em' }}>
+                            {owned.map(pid => {
+                              const p = PERKS.find(x => x.id === pid);
+                              return p ? <span key={pid} title={`${p.name} — ${p.desc}`} style={{ marginRight: '2px' }}>{p.icon}</span> : null;
+                            })}
+                          </div>
+                        )}
+                        <div style={{ display: 'flex', gap: '3px', marginTop: '3px', flexWrap: 'wrap' }}>
+                          {s.hp < s.maxHp && (
+                            <button style={{ ...btn('#162814', '#336622'), fontSize: '8px', padding: '2px 6px', marginRight: 0 }} onClick={() => healSoldier(i)} disabled={gs.resources.medicine < 5}>💊 HEAL</button>
+                          )}
+                          {!s.onRoof && (
+                            <button
+                              style={{ ...btn('#1a2435', '#3a5588'), fontSize: '8px', padding: '2px 6px', marginRight: 0 }}
+                              onClick={() => benchSoldier(i)}
+                              disabled={(gs.reserve?.length || 0) >= BALANCE.maxReserveSoldiers}
+                              title={(gs.reserve?.length || 0) >= BALANCE.maxReserveSoldiers ? 'Reserve full' : 'Send to reserve'}
+                            >🛏 BENCH</button>
+                          )}
+                          {wbBuilt && !s.civilian && (
+                            <button
+                              style={{ ...btn('#2a2418', '#aa8833'), fontSize: '8px', padding: '2px 6px', marginRight: 0 }}
+                              onClick={() => setUpgOpenId(upgOpenId === s.id ? null : s.id)}
+                              title="Buy weapon perks at the workbench"
+                            >⚙ UPGRADES {upgOpenId === s.id ? '▴' : '▾'}</button>
+                          )}
+                        </div>
+                        {wbBuilt && upgOpenId === s.id && (
+                          <div style={{ marginTop: '4px', borderTop: `1px solid ${C.uib}`, paddingTop: '4px' }}>
+                            {PERKS.filter(p => p.weapons === 'all' || p.weapons.includes(s.weapon)).map(p => {
+                              const have = !!(s.upgrades && s.upgrades[p.id]);
+                              const canPay = !have && Object.entries(p.cost).every(([k, v]) => (gs.resources[k] || 0) >= v);
+                              const costLbl = Object.entries(p.cost).map(([k, v]) => `${resIcon(k)}${v}`).join(' ');
+                              return (
+                                <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '3px' }}>
+                                  <span style={{ fontSize: '11px' }}>{p.icon}</span>
+                                  <div style={{ flex: 1, fontSize: '8px', lineHeight: '1.25' }}>
+                                    <div style={{ color: have ? C.acc : C.txt, fontWeight: 'bold' }}>{p.name}{have ? ' ✔' : ''}</div>
+                                    <div style={{ opacity: 0.65 }}>{p.desc}</div>
+                                  </div>
+                                  {have ? (
+                                    <span style={{ fontSize: '8px', color: C.acc }}>OWNED</span>
+                                  ) : (
+                                    <button
+                                      style={{ ...btn('#2a2418', '#aa8833'), fontSize: '8px', padding: '2px 5px', marginRight: 0, marginTop: 0 }}
+                                      disabled={!canPay}
+                                      onClick={() => upgradeSoldier(i, p.id)}
+                                      title={`Pay ${costLbl}`}
+                                    >BUY {costLbl}</button>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()}
                 </div>
               ))}
             </div>
+            {(gs?.workbench?.built || gs?.researchLab?.built) && (
+              <>
+                <hr style={hr} />
+                <div style={h2}>🛠 WORKSHOP</div>
+                {gs.workbench?.built && (
+                  <div style={{ marginBottom: '6px' }}>
+                    <div style={{ ...lbl, color: '#ffcc66' }}>🔨 CRAFTING BENCH</div>
+                    <div style={{ fontSize: '9px', color: C.txt, opacity: 0.55, marginBottom: '4px' }}>
+                      Convert raw materials into combat consumables.
+                      {getResearchEffect(gs, 'craftMultiplier', 1) > 1 && (
+                        <span style={{ color: '#ffd54a', marginLeft: '6px' }}>
+                          · Improved Mags active (+{Math.round((getResearchEffect(gs, 'craftMultiplier', 1) - 1) * 100)}% yield)
+                        </span>
+                      )}
+                    </div>
+                    <div style={row}>
+                      {CRAFT_RECIPES.map(r => {
+                        const mul = getResearchEffect(gs, 'craftMultiplier', 1);
+                        const canPay = Object.entries(r.cost).every(([k, v]) => (gs.resources[k] || 0) >= v);
+                        const costLbl = Object.entries(r.cost).map(([k, v]) => `${resIcon(k)}${v}`).join(' ');
+                        const outLbl  = Object.entries(r.output).map(([k, v]) => `+${Math.max(1, Math.round(v * mul))}${resIcon(k)}`).join(' ');
+                        return (
+                          <button
+                            key={r.id}
+                            style={{ ...btn('#2a2410', '#aa8822'), fontSize: '9px', padding: '4px 8px', minWidth: '110px', textAlign: 'left' }}
+                            disabled={!canPay}
+                            onClick={() => craft(r.id)}
+                            title={`${r.name}: pay ${costLbl}, get ${outLbl}`}
+                          >
+                            {r.icon} {outLbl}
+                            <div style={{ fontSize: '8px', opacity: 0.7, marginTop: '2px' }}>cost {costLbl}</div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+                {gs.researchLab?.built && (() => {
+                  const active = gs.research?.activeId ? RESEARCHES.find(r => r.id === gs.research.activeId) : null;
+                  const completed = gs.research?.completed || [];
+                  return (
+                    <div>
+                      <div style={{ ...lbl, color: '#cc99ff' }}>🧪 RESEARCH LAB</div>
+                      <div style={{ fontSize: '9px', color: C.txt, opacity: 0.55, marginBottom: '4px' }}>
+                        One node at a time. Progress ticks +1 per wave clear. Costs paid up-front; cancel forfeits the spend.
+                      </div>
+                      {active && (
+                        <div style={{ background: 'rgba(40,20,60,0.6)', border: '1px solid #5a3a88', padding: '6px 10px', marginBottom: '6px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <div style={{ color: '#cc99ff', fontSize: '11px', fontWeight: 'bold' }}>⏳ {active.name}</div>
+                            <button style={{ ...btn('#2a1818', '#883333'), fontSize: '8px', padding: '2px 6px', marginRight: 0 }} onClick={cancelResearch}>CANCEL</button>
+                          </div>
+                          <div style={{ fontSize: '9px', color: C.txt, opacity: 0.7 }}>{active.desc}</div>
+                          <div style={{ height: '4px', background: '#1a1a1a', marginTop: '4px' }}>
+                            <div style={{ height: '4px', width: `${Math.min(100, (gs.research.progress / active.waves) * 100)}%`, background: '#aa66ff' }} />
+                          </div>
+                          <div style={{ ...lbl, marginTop: '2px' }}>{gs.research.progress}/{active.waves} waves</div>
+                        </div>
+                      )}
+                      <div style={row}>
+                        {RESEARCHES.map(r => {
+                          const done = completed.includes(r.id);
+                          const isActive = active && active.id === r.id;
+                          if (isActive) return null;
+                          const canPay = !active && !done && Object.entries(r.cost).every(([k, v]) => (gs.resources[k] || 0) >= v);
+                          const costLbl = Object.entries(r.cost).map(([k, v]) => `${resIcon(k)}${v}`).join(' ');
+                          return (
+                            <div
+                              key={r.id}
+                              style={{
+                                ...card, minWidth: '170px',
+                                borderColor: done ? '#446644' : '#3a2a55',
+                                background: done ? 'rgba(20,40,20,0.6)' : 'rgba(30,20,50,0.6)',
+                                opacity: done ? 0.7 : 1,
+                              }}
+                            >
+                              <div style={{ color: done ? C.acc : '#cc99ff', fontSize: '11px', fontWeight: 'bold' }}>
+                                {done ? '✔ ' : ''}{r.name}
+                              </div>
+                              <div style={{ fontSize: '9px', color: C.txt, opacity: 0.75, marginTop: '2px', lineHeight: '1.3' }}>{r.desc}</div>
+                              <div style={{ ...lbl, marginTop: '4px' }}>{r.waves} waves · {costLbl}</div>
+                              {!done && (
+                                <button
+                                  style={{ ...btn('#2a1838', '#7744aa'), fontSize: '9px', padding: '3px 8px', marginTop: '3px', marginRight: 0 }}
+                                  disabled={!canPay}
+                                  onClick={() => startResearch(r.id)}
+                                  title={active ? 'Another research is already running' : !canPay ? 'Not enough resources' : 'Begin research'}
+                                >▶ START</button>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })()}
+              </>
+            )}
             {reserveCount > 0 && (
               <>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

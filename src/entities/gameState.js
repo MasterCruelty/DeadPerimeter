@@ -34,5 +34,12 @@ export const mkGS = () => {
     lastFoodReport: null,
     lastSupplyDrop: null,     // { wave, breakdown } banner data
     usedNames: new Set(['Alpha', 'Bravo', 'Charlie', 'Delta']),
+    // Workshop progression (see data/difficulty.js for recipes / nodes).
+    // workbench.built unlocks the crafting panel; researchLab.built unlocks
+    // the research panel. research.activeId is the currently running node
+    // (null = none). research.progress counts wave-clears since start.
+    workbench: { built: false },
+    researchLab: { built: false },
+    research: { activeId: null, progress: 0, completed: [] },
   };
 };
