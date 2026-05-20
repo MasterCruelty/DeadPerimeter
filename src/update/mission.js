@@ -246,13 +246,13 @@ export function mkMission(soldier, dest, wave = 1, magsPerSoldier = 2) {
     props.push({ x: px + rng(-30, 30), type: biome.propType });
   }
 
-  // Platforms — elevated ledges/balconies the lead can jump onto.
-  // y is the platform TOP (negative = above ground; MGY - 70 means
-  // 70 px above the floor). w is the platform width. Indoor biomes
-  // get more platforms to feel like a multi-level interior, outdoor
-  // biomes get fewer (fire-escape style). The lead's jump arc peaks
-  // at ~60 px so platforms cap at -65 to stay reachable.
+  // Platforms — elevated ledges/balconies the lead can jump onto OR
+  // reach via the attached ladder. y is the platform TOP (MGY - 70
+  // means 70 px above the floor). w is the platform width. Indoor
+  // biomes get more platforms to feel like a multi-level interior,
+  // outdoor biomes get fewer (fire-escape style).
   const platforms = [];
+  const ladders = [];
   const platCount = biome.indoor ? rng(4, 6) : rng(2, 4);
   for (let i = 0; i < platCount; i++) {
     // Distribute roughly evenly across the mission, with jitter.
@@ -261,6 +261,18 @@ export function mkMission(soldier, dest, wave = 1, magsPerSoldier = 2) {
     const py = MGY - rng(45, 65);   // 45..65 px above ground
     const pw = rng(120, 200);
     platforms.push({ x: px, y: py, w: pw, type: biome.indoor ? 'floor' : 'ledge' });
+    // Every platform gets a ladder (or stairs for indoor) at one of
+    // its ends so the player can reliably climb up / down without
+    // having to time a jump.
+    const ladderAtLeft = (i % 2 === 0);
+    const lx = ladderAtLeft ? px + 10 : px + pw - 14;
+    ladders.push({
+      x: lx, yTop: py, yBot: MGY,
+      type: biome.indoor ? 'stairs' : 'ladder',
+      // Stairs lean toward the platform centre — used by the render
+      // to draw the slope correctly. ladder is purely vertical.
+      slopeDir: ladderAtLeft ? 1 : -1,
+    });
   }
 
   // Hazards: mines (one-shot AoE) + acid pools (slow + dot).
@@ -422,7 +434,7 @@ export function mkMission(soldier, dest, wave = 1, magsPerSoldier = 2) {
     // applies the same scaling as initial mkMission spawns.
     _spitDmgScaled: spitDmgScaled, _spitRateScaled: spitRateScaled,
     defendStartedAt: 0, defendNextSpawn: 0,
-    zombies, pickups, obstacles, props, hazards, rescuables, platforms,
+    zombies, pickups, obstacles, props, hazards, rescuables, platforms, ladders,
     bullets: [], effects: [], soundQ: [],
     inputUp: false, inputDown: false,
     cameraX: 0,
@@ -594,29 +606,66 @@ export function updateMission(m, now, dt) {
     const minX = m.defendAnchor - 30;
     if (s.x < minX) s.x = minX;
   }
-  // ── JUMP + PLATFORM physics ──────────────────────────────────
-  // UP/W kicks off a vertical leap when on ground OR on a platform.
-  // While airborne (vy !== 0) we apply gravity and check for
-  // platform collisions on descent. While on a platform, walking
-  // past the platform edge starts a fall.
+  // ── JUMP + PLATFORM + LADDER physics ─────────────────────────
+  // UP/W either climbs an adjacent ladder OR jumps if not on one.
+  // While climbing, gravity is off and standingY moves toward the
+  // platform top / ground. While airborne (vy !== 0) we apply
+  // gravity and check for platform collisions on descent.
   const JUMP_GRAV = 0.55;
   const JUMP_VEL  = -8.6;
-  // standingY is the world-y of the surface the soldier is on.
-  // 0 = ground (MGY). Negative values = on a platform.
+  const CLIMB_SPD = 2.2;
   if (s.standingY === undefined) s.standingY = 0;
-  const effY = (s.standingY || 0) + (s.jumpY || 0);
+  if (s.climbing === undefined) s.climbing = null;
   const onSurface = (s.jumpY || 0) === 0 && (s.vy || 0) === 0;
-  // Press UP to jump from any surface (ground or platform)
-  if (m.inputUp && onSurface && s.state !== 'knife' && s.state !== 'reload') {
+
+  // Ladder lookup: which ladder is the soldier "next to"?
+  const nearLadder = (m.ladders || []).find(l => Math.abs(s.x - l.x) < 18);
+
+  // Start a climb when pressing UP near a ladder while grounded,
+  // or DOWN at the top of a ladder while on the matching platform.
+  if (!s.climbing) {
+    if (nearLadder && m.inputUp && onSurface && (s.standingY || 0) > nearLadder.yTop - MGY) {
+      s.climbing = { ladder: nearLadder, dir: -1 };
+      s.state = 'walk';
+    } else if (nearLadder && m.inputDown && onSurface && (s.standingY || 0) < 0
+               && Math.abs((s.standingY || 0) - (nearLadder.yTop - MGY)) < 6) {
+      s.climbing = { ladder: nearLadder, dir: 1 };
+      s.state = 'walk';
+    }
+  }
+
+  // While climbing, ignore gravity, suppress jump, move along the
+  // ladder y. UP/DOWN reverse direction or accelerate. Reaching
+  // either end commits the soldier to that surface.
+  if (s.climbing) {
+    const l = s.climbing.ladder;
+    const topRel = l.yTop - MGY;  // negative
+    const botRel = 0;
+    // Snap soldier x to the ladder so the climb reads cleanly
+    s.x = l.x;
+    // Direction follows current input (UP=up, DOWN=down)
+    if (m.inputUp)   s.climbing.dir = -1;
+    if (m.inputDown) s.climbing.dir = 1;
+    s.standingY = (s.standingY || 0) + s.climbing.dir * CLIMB_SPD * (dt / 16);
+    s.jumpY = 0; s.vy = 0;
+    if (s.standingY <= topRel) {
+      s.standingY = topRel;
+      s.climbing = null;
+    } else if (s.standingY >= botRel) {
+      s.standingY = 0;
+      s.climbing = null;
+    }
+  } else if (m.inputUp && onSurface && s.state !== 'knife' && s.state !== 'reload') {
+    // No ladder under us — UP is a jump from the current surface.
     s.vy = JUMP_VEL;
     s.state = 'walk';
   }
-  // Press DOWN to drop off a platform (sets vy slightly positive so
-  // we fall through the current standingY).
+  // Press DOWN to drop off a platform when there's no ladder to
+  // climb down (sets vy slightly positive so we fall through).
   const wasOnPlatform = (s.standingY || 0) < 0 && onSurface;
-  if (m.inputDown && wasOnPlatform) {
-    s.standingY = 0;          // commit to falling toward the ground
-    s.vy = 1.2;               // small initial downward push
+  if (!s.climbing && m.inputDown && wasOnPlatform && !nearLadder) {
+    s.standingY = 0;
+    s.vy = 1.2;
   }
   // Apply gravity + integrate position
   if (!onSurface || (s.vy || 0) !== 0) {
@@ -644,8 +693,9 @@ export function updateMission(m, now, dt) {
     // Hit ground (jumpY clamped at 0 only when standingY is 0)
     if ((s.standingY || 0) === 0 && s.jumpY >= 0) { s.jumpY = 0; s.vy = 0; }
   }
-  // Walked off a platform edge?
-  if ((s.standingY || 0) < 0 && (s.jumpY || 0) === 0 && (s.vy || 0) === 0) {
+  // Walked off a platform edge? Don't trigger while climbing — the
+  // ladder is the "surface" then, not the platform.
+  if (!s.climbing && (s.standingY || 0) < 0 && (s.jumpY || 0) === 0 && (s.vy || 0) === 0) {
     const on = (m.platforms || []).some(p =>
       s.x >= p.x && s.x <= p.x + p.w
       && (p.y - MGY) === s.standingY,
@@ -1340,6 +1390,65 @@ function dIndoorBackdrop(ctx, m, biome) {
   }
 }
 
+// Ladders / stairs. Vertical traversal between ground and a
+// platform. 'ladder' = vertical metal rungs (outdoor fire-escape
+// style). 'stairs' = diagonal indoor staircase with a railing.
+function dLadder(ctx, l) {
+  const x = l.x, yTop = l.yTop, yBot = l.yBot;
+  if (l.type === 'stairs') {
+    // Indoor staircase — slope from ground (bottom of platform side)
+    // up to the platform top. Built from a series of stepped rectangles.
+    const dir = l.slopeDir; // +1 = up-and-to-the-right, -1 = up-left
+    const stepCount = 6;
+    const totalH = yBot - yTop;
+    const stepH = totalH / stepCount;
+    const stepW = 12;
+    for (let i = 0; i < stepCount; i++) {
+      const sx = x + dir * (i * stepW);
+      const sy = yBot - (i + 1) * stepH;
+      // Each step face
+      ctx.fillStyle = '#3a3530';
+      ctx.fillRect(Math.min(sx, sx + dir * stepW), sy, Math.abs(stepW) + 1, stepH + 1);
+      // Top tread highlight
+      ctx.fillStyle = '#5a554a';
+      ctx.fillRect(Math.min(sx, sx + dir * stepW), sy, Math.abs(stepW) + 1, 2);
+      // Riser shadow
+      ctx.fillStyle = '#1a1814';
+      ctx.fillRect(Math.min(sx, sx + dir * stepW), sy + stepH - 1, Math.abs(stepW) + 1, 1);
+    }
+    // Banister rail
+    ctx.strokeStyle = '#5a4030'; ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(x, yBot - 4);
+    ctx.lineTo(x + dir * stepCount * stepW, yTop - 4);
+    ctx.stroke();
+    // A few posts along the rail
+    ctx.strokeStyle = '#3a281c'; ctx.lineWidth = 1;
+    for (let i = 0; i < stepCount; i += 2) {
+      const sx = x + dir * (i * stepW + stepW / 2);
+      const sy = yBot - (i + 0.5) * stepH;
+      ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(sx, sy - 14); ctx.stroke();
+    }
+  } else {
+    // Outdoor vertical ladder — two side rails + horizontal rungs.
+    ctx.strokeStyle = '#3a3530'; ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(x - 5, yTop); ctx.lineTo(x - 5, yBot); ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x + 5, yTop); ctx.lineTo(x + 5, yBot); ctx.stroke();
+    ctx.fillStyle = '#5a554a';
+    const rungCount = Math.max(3, Math.floor((yBot - yTop) / 8));
+    for (let i = 0; i <= rungCount; i++) {
+      const ry = yTop + (i / rungCount) * (yBot - yTop);
+      ctx.fillRect(x - 6, ry, 12, 1.5);
+    }
+    // Rust streaks
+    ctx.fillStyle = 'rgba(140,60,20,0.4)';
+    ctx.fillRect(x - 6, yBot - 14, 1, 12);
+    ctx.fillRect(x + 5, yBot - 18, 1, 16);
+  }
+}
+
 // Platforms / ledges. Two visual styles depending on biome:
 //   'floor'  — indoor wooden/concrete second-storey floor with a
 //              steel-beam edge and a couple of support struts.
@@ -1758,6 +1867,10 @@ export function dMissionWorld(ctx, m, now) {
   // Decorative props (lampposts, fences, neon poles)
   (m.props || []).forEach(p => dProp(ctx, p));
 
+  // Ladders / stairs first so the platform's solid top draws over
+  // the ladder top rung — gives the impression of climbing INTO the
+  // platform rather than past it.
+  (m.ladders || []).forEach(l => dLadder(ctx, l));
   // Platforms / ledges — drawn before obstacles so a sandbag or
   // wreck sitting near a platform pillar still renders on top.
   (m.platforms || []).forEach(p => dPlatform(ctx, p));
