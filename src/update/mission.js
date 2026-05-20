@@ -246,6 +246,23 @@ export function mkMission(soldier, dest, wave = 1, magsPerSoldier = 2) {
     props.push({ x: px + rng(-30, 30), type: biome.propType });
   }
 
+  // Platforms — elevated ledges/balconies the lead can jump onto.
+  // y is the platform TOP (negative = above ground; MGY - 70 means
+  // 70 px above the floor). w is the platform width. Indoor biomes
+  // get more platforms to feel like a multi-level interior, outdoor
+  // biomes get fewer (fire-escape style). The lead's jump arc peaks
+  // at ~60 px so platforms cap at -65 to stay reachable.
+  const platforms = [];
+  const platCount = biome.indoor ? rng(4, 6) : rng(2, 4);
+  for (let i = 0; i < platCount; i++) {
+    // Distribute roughly evenly across the mission, with jitter.
+    const segW = (MISSION_W - 400) / platCount;
+    const px = 280 + i * segW + rng(-40, 80);
+    const py = MGY - rng(45, 65);   // 45..65 px above ground
+    const pw = rng(120, 200);
+    platforms.push({ x: px, y: py, w: pw, type: biome.indoor ? 'floor' : 'ledge' });
+  }
+
   // Hazards: mines (one-shot AoE) + acid pools (slow + dot).
   // Density scales with risk so HIGH runs feel actively dangerous.
   const hazards = [];
@@ -405,7 +422,7 @@ export function mkMission(soldier, dest, wave = 1, magsPerSoldier = 2) {
     // applies the same scaling as initial mkMission spawns.
     _spitDmgScaled: spitDmgScaled, _spitRateScaled: spitRateScaled,
     defendStartedAt: 0, defendNextSpawn: 0,
-    zombies, pickups, obstacles, props, hazards, rescuables,
+    zombies, pickups, obstacles, props, hazards, rescuables, platforms,
     bullets: [], effects: [], soundQ: [],
     inputUp: false, inputDown: false,
     cameraX: 0,
@@ -577,22 +594,66 @@ export function updateMission(m, now, dt) {
     const minX = m.defendAnchor - 30;
     if (s.x < minX) s.x = minX;
   }
-  // ── JUMP physics ─────────────────────────────────────────────
-  // UP/W kicks off a vertical leap when grounded. The jump arc lets
-  // the lead avoid spitter projectiles, hop over zombies, and
-  // (later) reach platforms / ledges added by the structural pass.
-  // Followers don't jump — only the player-controlled lead.
+  // ── JUMP + PLATFORM physics ──────────────────────────────────
+  // UP/W kicks off a vertical leap when on ground OR on a platform.
+  // While airborne (vy !== 0) we apply gravity and check for
+  // platform collisions on descent. While on a platform, walking
+  // past the platform edge starts a fall.
   const JUMP_GRAV = 0.55;
-  const JUMP_VEL  = -8.2;
-  const grounded  = (s.jumpY || 0) === 0 && (s.vy || 0) === 0;
-  if (m.inputUp && grounded && s.state !== 'knife' && s.state !== 'reload') {
+  const JUMP_VEL  = -8.6;
+  // standingY is the world-y of the surface the soldier is on.
+  // 0 = ground (MGY). Negative values = on a platform.
+  if (s.standingY === undefined) s.standingY = 0;
+  const effY = (s.standingY || 0) + (s.jumpY || 0);
+  const onSurface = (s.jumpY || 0) === 0 && (s.vy || 0) === 0;
+  // Press UP to jump from any surface (ground or platform)
+  if (m.inputUp && onSurface && s.state !== 'knife' && s.state !== 'reload') {
     s.vy = JUMP_VEL;
     s.state = 'walk';
   }
-  if (!grounded || (s.vy || 0) !== 0) {
+  // Press DOWN to drop off a platform (sets vy slightly positive so
+  // we fall through the current standingY).
+  const wasOnPlatform = (s.standingY || 0) < 0 && onSurface;
+  if (m.inputDown && wasOnPlatform) {
+    s.standingY = 0;          // commit to falling toward the ground
+    s.vy = 1.2;               // small initial downward push
+  }
+  // Apply gravity + integrate position
+  if (!onSurface || (s.vy || 0) !== 0) {
     s.vy = (s.vy || 0) + JUMP_GRAV * (dt / 16);
     s.jumpY = (s.jumpY || 0) + s.vy * (dt / 16);
-    if (s.jumpY >= 0) { s.jumpY = 0; s.vy = 0; }
+    // Platform collision: only when DESCENDING (vy > 0). Check if
+    // the soldier's foot is crossing a platform top this tick. We
+    // ignore platforms above the current standingY (they're already
+    // above us — no upward catch).
+    if (s.vy > 0 && Array.isArray(m.platforms)) {
+      const footYNow  = (s.standingY || 0) + (s.jumpY || 0);
+      const footYPrev = footYNow - s.vy * (dt / 16);
+      for (const p of m.platforms) {
+        const platTopRelToGround = (p.y - MGY); // negative
+        if (s.x < p.x || s.x > p.x + p.w) continue;
+        // Was above the platform top last tick AND now at or below
+        if (footYPrev <= platTopRelToGround && footYNow >= platTopRelToGround) {
+          s.standingY = platTopRelToGround;
+          s.jumpY = 0;
+          s.vy = 0;
+          break;
+        }
+      }
+    }
+    // Hit ground (jumpY clamped at 0 only when standingY is 0)
+    if ((s.standingY || 0) === 0 && s.jumpY >= 0) { s.jumpY = 0; s.vy = 0; }
+  }
+  // Walked off a platform edge?
+  if ((s.standingY || 0) < 0 && (s.jumpY || 0) === 0 && (s.vy || 0) === 0) {
+    const on = (m.platforms || []).some(p =>
+      s.x >= p.x && s.x <= p.x + p.w
+      && (p.y - MGY) === s.standingY,
+    );
+    if (!on) {
+      // No platform under us — start falling toward the ground.
+      s.vy = 0.6;
+    }
   }
   m.cameraX = Math.max(0, Math.min(MISSION_W - MISSION_VIEW, s.x - MISSION_VIEW / 2));
 
@@ -1279,6 +1340,57 @@ function dIndoorBackdrop(ctx, m, biome) {
   }
 }
 
+// Platforms / ledges. Two visual styles depending on biome:
+//   'floor'  — indoor wooden/concrete second-storey floor with a
+//              steel-beam edge and a couple of support struts.
+//   'ledge'  — outdoor metal fire-escape with a railing.
+function dPlatform(ctx, p) {
+  const x = p.x, y = p.y, w = p.w;
+  if (p.type === 'floor') {
+    // Concrete slab top
+    ctx.fillStyle = '#3a3a36'; ctx.fillRect(x, y - 2, w, 6);
+    ctx.fillStyle = '#5a5a52'; ctx.fillRect(x, y - 2, w, 2);
+    // Underside dark band
+    ctx.fillStyle = '#1a1a16'; ctx.fillRect(x, y + 4, w, 4);
+    // Two support struts hanging from the underside down to ground
+    ctx.fillStyle = '#2a2a26';
+    const strut1X = x + 14, strut2X = x + w - 22;
+    ctx.fillRect(strut1X, y + 4, 8, MGY - y - 4);
+    ctx.fillRect(strut2X, y + 4, 8, MGY - y - 4);
+    // Strut top brackets
+    ctx.fillStyle = '#1a1a18';
+    ctx.fillRect(strut1X - 3, y + 4, 14, 3);
+    ctx.fillRect(strut2X - 3, y + 4, 14, 3);
+    // Subtle shadow on the ground under the floor
+    ctx.fillStyle = 'rgba(0,0,0,0.25)';
+    ctx.fillRect(x, MGY - 1, w, 2);
+  } else {
+    // Metal fire-escape ledge
+    ctx.fillStyle = '#3a3530'; ctx.fillRect(x, y - 2, w, 5);
+    // Top grating pattern
+    ctx.fillStyle = '#5a554a';
+    for (let gx = x + 3; gx < x + w - 3; gx += 6) ctx.fillRect(gx, y - 1, 3, 1);
+    // Vertical railing posts + horizontal bar
+    ctx.fillStyle = '#2a2520';
+    ctx.fillRect(x + 4, y - 22, 2, 22);
+    ctx.fillRect(x + w - 6, y - 22, 2, 22);
+    ctx.fillRect(x + 4, y - 22, w - 8, 2);
+    // Rust streaks running down the front
+    ctx.fillStyle = 'rgba(140,60,20,0.4)';
+    ctx.fillRect(x + 14, y + 3, 2, 12);
+    ctx.fillRect(x + w - 24, y + 3, 2, 16);
+    // Two diagonal support brackets to ground
+    ctx.strokeStyle = '#2a2520'; ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(x + 6,     y + 3); ctx.lineTo(x + 30,    MGY);
+    ctx.moveTo(x + w - 6, y + 3); ctx.lineTo(x + w - 30, MGY);
+    ctx.stroke();
+    // Ground shadow
+    ctx.fillStyle = 'rgba(0,0,0,0.20)';
+    ctx.fillRect(x + 10, MGY - 1, w - 20, 2);
+  }
+}
+
 function dProp(ctx, p) {
   const x = p.x, y = MGY;
   if (p.type === 'lamppost-hospital') {
@@ -1646,6 +1758,10 @@ export function dMissionWorld(ctx, m, now) {
   // Decorative props (lampposts, fences, neon poles)
   (m.props || []).forEach(p => dProp(ctx, p));
 
+  // Platforms / ledges — drawn before obstacles so a sandbag or
+  // wreck sitting near a platform pillar still renders on top.
+  (m.platforms || []).forEach(p => dPlatform(ctx, p));
+
   // Hazards (acid pools first so obstacles draw on top, then mines).
   (m.hazards || []).filter(h => h.type === 'acid').forEach(h => dHazard(ctx, h, now));
   // Foreground obstacles (biome-aware)
@@ -1730,9 +1846,13 @@ export function dMissionWorld(ctx, m, now) {
   });
 
   const sCopy = { ...m.soldier, lane: 0, onExpedition: false, state: m.soldier.state };
-  // Apply both the fork-lane y offset AND the jumpY (negative when
-  // airborne) so the lead actually leaves the ground during a jump.
-  ctx.save(); ctx.translate(0, (m.soldier._laneY || 0) + (m.soldier.jumpY || 0));
+  // Render y offset = fork-lane offset + jump arc + platform stand
+  // height. standingY is negative when on a platform (above ground).
+  ctx.save(); ctx.translate(0,
+    (m.soldier._laneY || 0)
+    + (m.soldier.jumpY || 0)
+    + (m.soldier.standingY || 0),
+  );
   dSoldier(ctx, sCopy, now, true); // pass selection ring to mark the lead
   ctx.restore();
 
