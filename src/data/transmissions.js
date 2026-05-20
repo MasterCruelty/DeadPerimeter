@@ -26,7 +26,7 @@ export const TRANSMISSIONS = {
     durMs: 21000,
     dropAt: 15500,
     landAt: 19500,
-    supplyDrop: { ammo:  60, food: 30, medicine:  8, materials: 15, sniperAmmo:  5 },
+    supplyDrop: { ammo:  100, food: 100, medicine:  25, materials: 30, sniperAmmo:  15 },
   },
   20: {
     title: 'INCOMING TRANSMISSION',
@@ -40,7 +40,7 @@ export const TRANSMISSIONS = {
     durMs: 20000,
     dropAt: 14200,
     landAt: 18500,
-    supplyDrop: { ammo: 100, food: 50, medicine: 15, materials: 30, sniperAmmo: 10, turretAmmo: 20 },
+    supplyDrop: { ammo: 200, food: 150, medicine: 40, materials: 50, sniperAmmo: 30, turretAmmo: 75 },
   },
   25: {
     title: 'INCOMING TRANSMISSION',
@@ -55,6 +55,6 @@ export const TRANSMISSIONS = {
     durMs: 23500,
     dropAt: 17500,
     landAt: 22000,
-    supplyDrop: { ammo: 150, food: 80, medicine: 25, materials: 50, sniperAmmo: 20, turretAmmo: 40 },
+    supplyDrop: { ammo: 300, food: 180, medicine: 70, materials: 80, sniperAmmo: 50, turretAmmo: 140 },
   },
 };
