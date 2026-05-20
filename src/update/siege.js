@@ -1,4 +1,4 @@
-import { C, CW, GY, WX, uid, rng, laneY, laneSc } from '../constants.js';
+import { C, CW, WORLD_W, GY, WX, uid, rng, laneY, laneSc } from '../constants.js';
 import { WPN } from '../data/weapons.js';
 import { HUMAN_AMMO_DROP } from '../data/humans.js';
 import { BALANCE } from '../data/difficulty.js';
@@ -257,10 +257,13 @@ export function update(gs, now, dt) {
         }
         return;
       }
-      // Target picker: furthest zombie or human in range
+      // Target picker: furthest zombie or human in range. WORLD_W is
+      // the right boundary so the rooftop sniper can see (and pick)
+      // targets across the whole battlefield, not just the legacy
+      // 900-wide viewport.
       const pool = gs.isHumanWave
-        ? gs.humans.filter(z => z.state !== 'dead' && z.x > WX && z.x < CW)
-        : gs.zombies.filter(z => z.state !== 'dead' && z.x > WX && z.x < CW);
+        ? gs.humans.filter(z => z.state !== 'dead' && z.x > WX && z.x < WORLD_W)
+        : gs.zombies.filter(z => z.state !== 'dead' && z.x > WX && z.x < WORLD_W);
       if (pool.length === 0) return;
       const tgt = pool.sort((a, b) => b.x - a.x)[0];
       s.facing = 1;
@@ -381,7 +384,11 @@ export function update(gs, now, dt) {
   // ── BULLETS ──────────────────────────────────────────────────
   gs.bullets = gs.bullets.filter(b => {
     b.x += b.dx; b.y += b.dy; b.life--;
-    if (b.life <= 0 || b.x < 0 || b.x > CW) return false;
+    // Despawn at the WORLD edge, not the legacy viewport. After the
+    // WORLD_W widening, soldiers who advance forward fire bullets
+    // that used to vanish at x>CW (=900) before reaching the zombies
+    // still walking in from the spawn band (x≈2000).
+    if (b.life <= 0 || b.x < 0 || b.x > WORLD_W) return false;
 
     if (b.hostile) {
       // Hostile bullet → check soldier collisions (any soldier in target lane).

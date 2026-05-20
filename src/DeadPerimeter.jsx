@@ -520,7 +520,12 @@ export default function DeadPerimeter() {
   const moveSquad = useCallback(dir => {
     const gs = gsRef.current; if (!gs || gs.phase !== 'siege') return;
     const cur = gs.squadTarget ?? 270;
-    gs.squadTarget = dir === 'retreat' ? Math.max(WX + 40, cur - 80) : Math.min(CW - 80, cur + 80);
+    // Advance limit is well past the legacy viewport edge — the
+    // battlefield is WORLD_W wide and soldiers should be able to
+    // push forward into the killbox to meet the horde, not be
+    // clamped at x≈820 where bullets used to despawn.
+    const advanceMax = WORLD_W - 700;
+    gs.squadTarget = dir === 'retreat' ? Math.max(WX + 40, cur - 80) : Math.min(advanceMax, cur + 80);
     const movables = gs.selectedSoldierId
       ? gs.soldiers.filter(s => s.id === gs.selectedSoldierId && s.state !== 'dead' && !s.onExpedition && !s.onRoof && s.state !== 'reload')
       : gs.soldiers.filter(s => s.state !== 'dead' && !s.onExpedition && !s.onRoof && s.state !== 'reload');
@@ -614,7 +619,9 @@ export default function DeadPerimeter() {
 
       if (worldX > WX + 40) {
         const clickedLane = clickToLane(my);
-        const targetX = Math.max(WX + 40, Math.min(CW - 80, worldX));
+        // Click-target clamp matches the ADVANCE limit so the player
+        // can route the squad anywhere in the meaningful killbox.
+        const targetX = Math.max(WX + 40, Math.min(WORLD_W - 700, worldX));
         if (gs.selectedSoldierId !== null) {
           const s = gs.soldiers.find(s => s.id === gs.selectedSoldierId);
           if (s && s.state !== 'dead' && !s.onExpedition && !s.onRoof && s.state !== 'reload') {
