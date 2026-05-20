@@ -548,13 +548,16 @@ function aiShoot(m, who, now, dt) {
     who.state = 'shoot'; who.lastShot = now; who.shootAt = now; who.ammo--;
     m.soundQ.push({ t: 'shot', w: who.weapon }); m.soundQ.push({ t: 'shell' });
     const bx = who.x + who.facing * 24;
+    const shooterY = (who.standingY || 0);
+    const bulletY  = MGY - 26 + shooterY;
     for (let p = 0; p < (w.pel || 1); p++) {
       const sp2 = (Math.random() - 0.5) * w.sp * 2;
       m.bullets.push({
-        id: uid(), x: bx, y: MGY - 26,
+        id: uid(), x: bx, y: bulletY,
         dx: who.facing * w.spd * Math.cos(sp2),
         dy: w.spd * Math.sin(sp2),
         dmg: w.pel ? w.dmg / w.pel : w.dmg,
+        shooterY,
         life: Math.ceil(w.range / w.spd * 1.15),
       });
     }
@@ -813,6 +816,56 @@ export function updateMission(m, now, dt) {
     const tgt = targets.reduce((a, b) => Math.abs(a.x - z.x) < Math.abs(b.x - z.x) ? a : b);
     const dx = tgt.x - z.x;
     const meta = z.z;
+    const zStandingY = z.standingY || 0;
+    const tStandingY = tgt.standingY || 0;
+
+    // ── Vertical pursuit: climb ladders when the target is on a
+    // different level. Tanks are too heavy to climb (they shamble
+    // around on the ground); spitters keep their range game and
+    // don't need to chase. Walkers and runners CAN climb.
+    if (!meta.ranged && z.type !== 'tank') {
+      if (z.climbing) {
+        const l = z.climbing.ladder;
+        const topRel = l.yTop - MGY;
+        // Re-pick direction each tick so the climber tracks the
+        // target if they jump back down.
+        if (tStandingY < zStandingY - 2) z.climbing.dir = -1;
+        else if (tStandingY > zStandingY + 2) z.climbing.dir = 1;
+        z.x = l.x;
+        const climbSpd = z.type === 'runner' ? 1.6 : 1.1;
+        z.standingY = zStandingY + z.climbing.dir * climbSpd * (dt / 16);
+        z.state = 'walk';
+        if (z.standingY <= topRel) { z.standingY = topRel; z.climbing = null; }
+        else if (z.standingY >= 0)  { z.standingY = 0;      z.climbing = null; }
+        return;
+      }
+      // Target on a different surface? Seek a ladder that bridges
+      // our current level to the target's level.
+      const wantUp   = tStandingY < zStandingY - 5;
+      const wantDown = tStandingY > zStandingY + 5;
+      if (wantUp || wantDown) {
+        const ladder = (m.ladders || []).reduce((best, l) => {
+          // Skip ladders that don't reach the target level.
+          const tops = l.yTop - MGY;
+          if (wantUp   && Math.abs(tops - tStandingY) > 6) return best;
+          if (wantDown && Math.abs(tops - zStandingY) > 6) return best;
+          const d = Math.abs(l.x - z.x);
+          if (!best || d < best.d) return { ladder: l, d };
+          return best;
+        }, null);
+        if (ladder && ladder.d < 400) {
+          const ldx = ladder.ladder.x - z.x;
+          z.facing = ldx > 0 ? 1 : -1;
+          if (Math.abs(ldx) > 6) {
+            z.x += z.spd * z.facing * (dt / 16);
+            z.state = 'walk';
+            return;
+          }
+          z.climbing = { ladder: ladder.ladder, dir: wantUp ? -1 : 1 };
+          return;
+        }
+      }
+    }
 
     // ── Ranged zombies (spitters) keep their distance and lob acid ──
     if (meta.ranged) {
@@ -854,14 +907,22 @@ export function updateMission(m, now, dt) {
       return;
     }
 
+    // Vertical separation between zombie and target. If they're on
+    // different levels (platform vs ground), melee can't connect —
+    // the zombie has to find a ladder first (handled above).
+    const dy = Math.abs(tStandingY - zStandingY);
+    const sameLevel = dy < 18;
+
     if (z.state === 'idle' || z.state === 'walk') {
       z.facing = dx > 0 ? 1 : -1;
-      if (Math.abs(dx) > 40) { z.x += z.spd * z.facing * (dt / 16); if (z.state === 'idle') z.state = 'walk'; }
-      else { z.state = 'attack'; }
+      if (Math.abs(dx) > 40 || !sameLevel) {
+        z.x += z.spd * z.facing * (dt / 16);
+        if (z.state === 'idle') z.state = 'walk';
+      } else { z.state = 'attack'; }
     } else if (z.state === 'attack') {
       z.atkTimer += dt;
       z.facing = dx > 0 ? 1 : -1;
-      if (Math.abs(dx) > 50) { z.state = 'walk'; z.atkTimer = 0; return; }
+      if (Math.abs(dx) > 50 || !sameLevel) { z.state = 'walk'; z.atkTimer = 0; return; }
       if (z.atkTimer > 1000) {
         z.atkTimer = 0;
         tgt.hp -= z.z.dmg; tgt.hurtTimer = 320;
@@ -883,16 +944,23 @@ export function updateMission(m, now, dt) {
       s.state = 'shoot'; s.lastShot = now; s.shootAt = now; s.ammo--;
       m.soundQ.push({ t: 'shot', w: s.weapon }); m.soundQ.push({ t: 'shell' });
       const bx = s.x + s.facing * 24;
+      // Bullet origin Y rides the soldier's platform — if the lead
+      // is up on a ledge / second floor, their muzzle is up there
+      // too. shooterY is tracked on each bullet so the collision
+      // pass can match them with zombies on the same level.
+      const shooterY = (s.standingY || 0);
+      const bulletY  = MGY - 26 + shooterY;
       for (let p = 0; p < (w.pel || 1); p++) {
         const sp2 = (Math.random() - 0.5) * w.sp * 2;
         m.bullets.push({
-          id: uid(), x: bx, y: MGY - 26,
+          id: uid(), x: bx, y: bulletY,
           dx: s.facing * w.spd * Math.cos(sp2), dy: w.spd * Math.sin(sp2),
           dmg: w.pel ? w.dmg / w.pel : w.dmg,
           life: Math.ceil(w.range / w.spd * 1.15),
+          shooterY,
         });
       }
-      m.effects.push({ type: 'shell', x: s.x - s.facing * 8, y: MGY - 26, vx: -s.facing * (1.4 + Math.random()), at: now, dur: 780 });
+      m.effects.push({ type: 'shell', x: s.x - s.facing * 8, y: bulletY, vx: -s.facing * (1.4 + Math.random()), at: now, dur: 780 });
       if (s.ammo === 0) {
         if ((s.magsLeft || 0) > 0) {
           s.state = 'reload'; s.reloadStart = now; s.ammo = s.maxAmmo;
@@ -1219,7 +1287,17 @@ export function updateMission(m, now, dt) {
       return false;
     }
 
-    const hit = m.zombies.find(z => z.state !== 'dead' && Math.abs(z.x - b.x) < 20);
+    // Y-level check: a bullet fired from a platform must be on the
+    // same level as the zombie to hit. Otherwise a soldier shooting
+    // sideways from a ledge would clip ground-level walkers
+    // standing far below. Bullets without a shooterY (older entries)
+    // default to ground level for back-compat.
+    const hit = m.zombies.find(z => {
+      if (z.state === 'dead' || Math.abs(z.x - b.x) >= 20) return false;
+      const zStandingY = z.standingY || 0;
+      const shooterY = b.shooterY || 0;
+      return Math.abs(zStandingY - shooterY) < 22;
+    });
     if (hit) {
       hit.hp -= b.dmg; hit.hurtTimer = 210; m.soundQ.push({ t: 'hit', now });
       m.effects.push({ type: 'blood', x: b.x, y: b.y, drops: Array.from({ length: 6 }, () => ({ x: 0, y: 0, vx: (Math.random() - 0.5) * 3.5, vy: -Math.random() * 2.5 - 0.5, r: 1.5 + Math.random() * 3 })), at: now, dur: 600 });
@@ -1991,7 +2069,16 @@ export function dMissionWorld(ctx, m, now) {
   });
 
   m.zombies.filter(z => z.state === 'dead').forEach(z => { z.lane = 0; dZombie(ctx, z, now); });
-  m.zombies.filter(z => z.state !== 'dead' && z.activated).forEach(z => { z.lane = 0; dZombie(ctx, z, now); });
+  // Living zombies — apply standingY offset so climbers and the
+  // ones standing on platforms render at the correct height. The
+  // dZombie helper draws at lane Y by default; ctx.translate
+  // shifts the whole sprite up to the platform-top.
+  m.zombies.filter(z => z.state !== 'dead' && z.activated).forEach(z => {
+    z.lane = 0;
+    const dy = z.standingY || 0;
+    if (dy !== 0) { ctx.save(); ctx.translate(0, dy); dZombie(ctx, z, now); ctx.restore(); }
+    else dZombie(ctx, z, now);
+  });
 
   // Rescuable civilians (drawn before the party so they read as on-stage)
   (m.rescuables || []).forEach(r => {
