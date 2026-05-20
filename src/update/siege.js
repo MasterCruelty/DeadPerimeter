@@ -372,9 +372,13 @@ export function update(gs, now, dt) {
         const refill = Math.min(s.maxAmmo, gs.resources.ammo);
         if (refill > 0) {
           s.state = 'reload'; s.reloadStart = now; gs.resources.ammo -= refill; s.ammo = refill;
+          s.knifeReady = false;
           if (!s.reloadTriggered) { s.reloadTriggered = true; gs.soundQ.push({ t: 'reload', w: s.weapon, dur: w.rl }); pushRadio(gs, 'reload', { speaker: s }); }
           gs.effects.push({ type: 'txt', x: s.x, y: laneY(s.lane) - 80, v: 'RELOAD!', col: C.wrn, at: now, dur: 800 });
         } else {
+          // Empty stash too — soldier holsters firearm and the knife
+          // becomes their permanent ready-stance until ammo arrives.
+          s.knifeReady = true;
           gs.effects.push({ type: 'txt', x: s.x, y: laneY(s.lane) - 80, v: 'DRY!', col: C.dng, at: now, dur: 900 });
         }
       }

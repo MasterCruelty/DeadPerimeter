@@ -194,7 +194,13 @@ export function dSoldier(ctx, s, now, isSelected) {
   }
 
   // ── LIVING SOLDIER ─────────────────────────────────────────────
-  const isWalk = s.state === 'walk', isShoot = s.state === 'shoot', isRl = s.state === 'reload', isKnife = s.state === 'knife';
+  // knifeReady = the soldier has exhausted every magazine and is
+  // permanently holding their knife at the ready. State 'knife' is
+  // still the active swing animation. Both paths use the same
+  // arm-with-knife render, with the swing animation only firing
+  // when state actually flips to 'knife'.
+  const isWalk = s.state === 'walk', isShoot = s.state === 'shoot', isRl = s.state === 'reload';
+  const isKnife = s.state === 'knife' || s.knifeReady;
   const t = now / 300 + s.walkPhase;
   const la = isWalk ? Math.sin(t) * 28 : 0;
   const bb = isWalk ? Math.abs(Math.sin(t)) * 2.5 : 0;

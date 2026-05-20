@@ -55,7 +55,12 @@ function promoteLeadOnDeath(m, now) {
   return true;
 }
 
-export function mkMission(soldier, dest, wave = 1) {
+// magsPerSoldier: how many magazines each party member carries into
+// the mission. 1 = only the loaded mag (no reloads possible). 2 =
+// loaded + 1 spare. Etc. Tunable from the expedition loadout UI.
+// Mission soldiers carry a finite ammo budget now — no more infinite
+// auto-reload — so the player has to weigh stash spend vs mission risk.
+export function mkMission(soldier, dest, wave = 1, magsPerSoldier = 2) {
   const zombies = [], pickups = [], obstacles = [];
 
   // Spitters are the most punishing zombie kind (ranged + chip damage).
@@ -275,6 +280,16 @@ export function mkMission(soldier, dest, wave = 1) {
     x: 80 - offset * 30, lane: 0, hp: orig.hp, maxHp: orig.maxHp,
     ammo: Math.max(0, orig.ammo | 0),
     maxAmmo: orig.maxAmmo,
+    // Spare magazines beyond the one already loaded. When the loaded
+    // mag goes empty, one spare gets consumed by the reload. When
+    // spare and loaded are both 0, knifeReady stays true and the
+    // soldier visually holsters their firearm + brandishes a knife.
+    magsLeft: Math.max(0, magsPerSoldier - 1),
+    knifeReady: false,
+    // Jump physics: jumpY is the render-only y-offset (negative =
+    // above ground), vy is vertical velocity. Followers don't jump,
+    // only the lead reacts to inputUp.
+    jumpY: 0, vy: 0,
     civilian: !!orig.civilian,
     state: 'idle', facing: 1,
     lastShot: 0, reloadStart: 0, shootAt: 0, knifeTimer: 0,
@@ -484,8 +499,14 @@ function aiShoot(m, who, now, dt) {
     }
     m.effects.push({ type: 'shell', x: who.x - who.facing * 8, y: MGY - 26, vx: -who.facing * (1.4 + Math.random()), at: now, dur: 780 });
     if (who.ammo === 0) {
-      who.state = 'reload'; who.reloadStart = now; who.ammo = who.maxAmmo;
-      m.soundQ.push({ t: 'reload', w: who.weapon, dur: w.rl });
+      if ((who.magsLeft || 0) > 0) {
+        who.state = 'reload'; who.reloadStart = now; who.ammo = who.maxAmmo;
+        who.magsLeft -= 1;
+        m.soundQ.push({ t: 'reload', w: who.weapon, dur: w.rl });
+      } else {
+        // No more mags — holster firearm, knife is ready.
+        who.knifeReady = true;
+      }
     }
   } else if (now - who.lastShot > w.rate * 0.5) {
     who.state = 'idle';
@@ -552,6 +573,23 @@ export function updateMission(m, now, dt) {
   if (m.objective === 'defend' && m.defendStartedAt) {
     const minX = m.defendAnchor - 30;
     if (s.x < minX) s.x = minX;
+  }
+  // ── JUMP physics ─────────────────────────────────────────────
+  // UP/W kicks off a vertical leap when grounded. The jump arc lets
+  // the lead avoid spitter projectiles, hop over zombies, and
+  // (later) reach platforms / ledges added by the structural pass.
+  // Followers don't jump — only the player-controlled lead.
+  const JUMP_GRAV = 0.55;
+  const JUMP_VEL  = -8.2;
+  const grounded  = (s.jumpY || 0) === 0 && (s.vy || 0) === 0;
+  if (m.inputUp && grounded && s.state !== 'knife' && s.state !== 'reload') {
+    s.vy = JUMP_VEL;
+    s.state = 'walk';
+  }
+  if (!grounded || (s.vy || 0) !== 0) {
+    s.vy = (s.vy || 0) + JUMP_GRAV * (dt / 16);
+    s.jumpY = (s.jumpY || 0) + s.vy * (dt / 16);
+    if (s.jumpY >= 0) { s.jumpY = 0; s.vy = 0; }
   }
   m.cameraX = Math.max(0, Math.min(MISSION_W - MISSION_VIEW, s.x - MISSION_VIEW / 2));
 
@@ -712,7 +750,20 @@ export function updateMission(m, now, dt) {
         });
       }
       m.effects.push({ type: 'shell', x: s.x - s.facing * 8, y: MGY - 26, vx: -s.facing * (1.4 + Math.random()), at: now, dur: 780 });
-      if (s.ammo === 0) { s.state = 'reload'; s.reloadStart = now; s.ammo = s.maxAmmo; m.soundQ.push({ t: 'reload', w: s.weapon, dur: w.rl }); pushRadio(m, 'reload', { speaker: s }); }
+      if (s.ammo === 0) {
+        if ((s.magsLeft || 0) > 0) {
+          s.state = 'reload'; s.reloadStart = now; s.ammo = s.maxAmmo;
+          s.magsLeft -= 1;
+          m.soundQ.push({ t: 'reload', w: s.weapon, dur: w.rl });
+          pushRadio(m, 'reload', { speaker: s });
+        } else {
+          // Out of mags — holster the firearm. Knife is now the
+          // permanent ready-state until end of mission (or scavenged
+          // ammo from a future pickup, if we add that).
+          s.knifeReady = true;
+          pushRadio(m, 'lowAmmo', { line: 'Dry! Knife out!', urgent: true, speaker: s });
+        }
+      }
     } else if (now - s.lastShot > w.rate * 0.5) s.state = 'walk';
   }
   if (s.state === 'shoot' && now - s.shootAt > 200) s.state = m.inputLeft || m.inputRight ? 'walk' : 'idle';
@@ -1676,7 +1727,9 @@ export function dMissionWorld(ctx, m, now) {
   });
 
   const sCopy = { ...m.soldier, lane: 0, onExpedition: false, state: m.soldier.state };
-  ctx.save(); ctx.translate(0, m.soldier._laneY || 0);
+  // Apply both the fork-lane y offset AND the jumpY (negative when
+  // airborne) so the lead actually leaves the ground during a jump.
+  ctx.save(); ctx.translate(0, (m.soldier._laneY || 0) + (m.soldier.jumpY || 0));
   dSoldier(ctx, sCopy, now, true); // pass selection ring to mark the lead
   ctx.restore();
 
