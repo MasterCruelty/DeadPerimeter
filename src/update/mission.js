@@ -232,10 +232,30 @@ export function mkMission(soldier, dest, wave = 1, magsPerSoldier = 2) {
   // missions don't have an identical-looking street.
   const biomeKey = dest.biome || DEFAULT_BIOME;
   const biome = BIOMES[biomeKey] || BIOMES[DEFAULT_BIOME];
+
+  // Multi-segment missions: a MED/HIGH outdoor destination has a
+  // ~55% chance of an "enter the building" transition halfway
+  // through. The right half of the world swaps to an indoor biome
+  // (police_interior / armory_interior / office_interior) and a
+  // doorway prop marks the entry point. Already-indoor destinations
+  // (Police Station, Gun Shop, Office Tower) stay single-biome.
+  const INDOOR_POOL = ['police_interior', 'armory_interior', 'office_interior'];
+  let indoorBiomeKey = null;
+  let entranceX = 0;
+  if (!biome.indoor && dest.risk !== 'LOW' && Math.random() < 0.55) {
+    indoorBiomeKey = INDOOR_POOL[Math.floor(Math.random() * INDOOR_POOL.length)];
+    entranceX = Math.floor(MISSION_W * (0.38 + Math.random() * 0.08));
+  }
+  const indoorBiome = indoorBiomeKey ? BIOMES[indoorBiomeKey] : null;
   const obsCount = rng(4, 9);
   for (let i = 0; i < obsCount; i++) {
     const ox = 200 + i * MISSION_W / (obsCount + 1) + rng(-50, 50);
-    const otype = biome.obstacles[Math.floor(Math.random() * biome.obstacles.length)];
+    // Multi-segment missions: obstacles past the entrance use the
+    // indoor pool (desks, lockers, etc.) so the building interior
+    // doesn't feel like an outdoor street with brick walls.
+    const useIndoor = indoorBiome && ox >= entranceX;
+    const pool = useIndoor ? indoorBiome.obstacles : biome.obstacles;
+    const otype = pool[Math.floor(Math.random() * pool.length)];
     obstacles.push({ x: ox, type: otype });
   }
   // Decorative props every biome.propsPerStep along the road
@@ -243,7 +263,13 @@ export function mkMission(soldier, dest, wave = 1, magsPerSoldier = 2) {
   // renderer can layer them behind/around the obstacles.
   const props = [];
   for (let px = biome.propsPerStep; px < MISSION_W - 50; px += biome.propsPerStep) {
-    props.push({ x: px + rng(-30, 30), type: biome.propType });
+    // Multi-segment: outdoor props only in the outdoor half; indoor
+    // gets its own decor type past the entrance.
+    if (indoorBiome && px >= entranceX) {
+      props.push({ x: px + rng(-30, 30), type: indoorBiome.propType });
+    } else {
+      props.push({ x: px + rng(-30, 30), type: biome.propType });
+    }
   }
 
   // Platforms — elevated ledges/balconies the lead can jump onto OR
@@ -260,7 +286,12 @@ export function mkMission(soldier, dest, wave = 1, magsPerSoldier = 2) {
     const px = 280 + i * segW + rng(-40, 80);
     const py = MGY - rng(45, 65);   // 45..65 px above ground
     const pw = rng(120, 200);
-    platforms.push({ x: px, y: py, w: pw, type: biome.indoor ? 'floor' : 'ledge' });
+    // Platform type depends on whether it sits in the outdoor or
+    // indoor section of a multi-segment mission. Single-biome
+    // missions just use the biome's flavour.
+    const inIndoorSection = !!indoorBiome && px >= entranceX;
+    const isIndoor = biome.indoor || inIndoorSection;
+    platforms.push({ x: px, y: py, w: pw, type: isIndoor ? 'floor' : 'ledge' });
     // Every platform gets a ladder (or stairs for indoor) at one of
     // its ends so the player can reliably climb up / down without
     // having to time a jump.
@@ -268,9 +299,7 @@ export function mkMission(soldier, dest, wave = 1, magsPerSoldier = 2) {
     const lx = ladderAtLeft ? px + 10 : px + pw - 14;
     ladders.push({
       x: lx, yTop: py, yBot: MGY,
-      type: biome.indoor ? 'stairs' : 'ladder',
-      // Stairs lean toward the platform centre — used by the render
-      // to draw the slope correctly. ladder is purely vertical.
+      type: isIndoor ? 'stairs' : 'ladder',
       slopeDir: ladderAtLeft ? 1 : -1,
     });
   }
@@ -426,7 +455,7 @@ export function mkMission(soldier, dest, wave = 1, magsPerSoldier = 2) {
     soldier: msol, followers,
     origSoldier: lead,                   // back-compat: legacy field points to lead
     origSoldiers: partySoldiers,         // full original-soldiers list (for finishMission)
-    dest, biomeKey, fork,
+    dest, biomeKey, indoorBiomeKey, entranceX, fork,
     humans, encounter,
     dialog: null,                        // { type: 'trade', accept, refuse } when active
     objective, defendAnchor, defendDuration,
@@ -1788,6 +1817,85 @@ function dObstacle(ctx, o) {
   }
 }
 
+// Outdoor backdrop helper — extracted from dMissionWorld so the
+// multi-segment branch can clip and reuse it.
+function dOutdoorBackdrop(ctx, m, biome) {
+  // Sky (biome-tinted gradient)
+  const sg = ctx.createLinearGradient(0, 0, 0, MGY - 80);
+  sg.addColorStop(0, biome.sky[0]); sg.addColorStop(1, biome.sky[1]);
+  ctx.fillStyle = sg; ctx.fillRect(0, 0, MISSION_W, MGY - 80);
+  // Stars / specks
+  for (let i = 0; i < 60; i++) {
+    const sx = ((i * 173 + m.cameraX * 0.2) % MISSION_W);
+    const sy = (i * 97 + 17) % (MGY - 100);
+    ctx.fillStyle = `rgba(255,255,255,${0.3 + (i % 4) * 0.18})`;
+    ctx.fillRect(sx, sy, 1.5, 1.5);
+  }
+  ctx.fillStyle = biome.accentLight;
+  ctx.beginPath(); ctx.arc(MISSION_W * 0.4, MGY - 120, 200, 0, Math.PI * 2); ctx.fill();
+  // Background buildings
+  const bldCount = biome.bldgCount;
+  const [hMin, hMax] = biome.bldgHRange;
+  for (let i = 0; i < bldCount; i++) {
+    const bx = (i * MISSION_W / bldCount) + 50 + (i % 3) * 30;
+    const bw = 40 + (i * 7) % 70;
+    const bh = hMin + ((i * 23) % (hMax - hMin));
+    ctx.fillStyle = biome.bldgFill; ctx.fillRect(bx, MGY - 80 - bh, bw, bh);
+    ctx.fillStyle = biome.bldgRoof; ctx.fillRect(bx, MGY - 80 - bh, bw, 4);
+    ctx.fillStyle = biome.bldgWindow;
+    for (let wx = bx + 8; wx < bx + bw - 5; wx += 14)
+      for (let wy = MGY - 80 - bh + 10; wy < MGY - 90; wy += 18)
+        if (Math.sin((bx + wx) * 0.1 + wy * 0.07) > 0.2) ctx.fillRect(wx, wy, 8, 10);
+  }
+  // Ground
+  const gg = ctx.createLinearGradient(0, MGY, 0, CH);
+  gg.addColorStop(0, biome.ground[0]); gg.addColorStop(1, biome.ground[1]);
+  ctx.fillStyle = gg; ctx.fillRect(0, MGY, MISSION_W, CH - MGY);
+  ctx.strokeStyle = biome.groundLine; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(0, MGY); ctx.lineTo(MISSION_W, MGY); ctx.stroke();
+}
+
+// Doorway prop drawn at the outdoor→indoor seam of multi-segment
+// missions. Sells the transition: a dark archway in a brick frame
+// with a hanging "ENTER" / hazard sign above it.
+function dDoorway(ctx, x, indoor) {
+  // Brick frame around a tall doorway
+  const doorW = 60, doorH = 110;
+  const fx = x - doorW / 2;
+  const fy = MGY - doorH;
+  // Outer frame
+  ctx.fillStyle = '#2a201a';
+  ctx.fillRect(fx - 14, fy - 18, doorW + 28, doorH + 18);
+  // Brick texture on the frame
+  ctx.fillStyle = '#3a2a1c';
+  for (let by = fy - 14; by < fy + doorH; by += 6) {
+    for (let bx = fx - 12; bx < fx + doorW + 12; bx += 14) {
+      const off = (Math.floor((by - (fy - 14)) / 6) % 2) * 7;
+      ctx.fillRect(bx + off, by, 12, 4);
+    }
+  }
+  // Door opening (dark interior visible through)
+  const innerColour = indoor && indoor.ceiling ? indoor.ceiling[1] : '#0a0a0a';
+  ctx.fillStyle = innerColour;
+  ctx.fillRect(fx, fy, doorW, doorH);
+  // Subtle indoor light spilling out
+  const spill = ctx.createLinearGradient(fx, fy, fx, fy + doorH);
+  spill.addColorStop(0, 'rgba(220,200,140,0.18)');
+  spill.addColorStop(1, 'rgba(220,200,140,0)');
+  ctx.fillStyle = spill; ctx.fillRect(fx, fy, doorW, doorH);
+  // Threshold step
+  ctx.fillStyle = '#1a1410';
+  ctx.fillRect(fx - 4, MGY - 3, doorW + 8, 6);
+  // Hanging sign above the doorway
+  ctx.fillStyle = '#1a1410';
+  ctx.fillRect(fx + 6, fy - 26, doorW - 12, 14);
+  ctx.fillStyle = '#cc8800'; ctx.font = 'bold 8px monospace'; ctx.textAlign = 'center';
+  ctx.fillText('ENTER', x, fy - 16);
+  ctx.textAlign = 'left';
+  // Hinge bolts on the sign
+  ctx.fillStyle = '#2a2018'; ctx.fillRect(fx + 8, fy - 24, 2, 2); ctx.fillRect(fx + doorW - 10, fy - 24, 2, 2);
+}
+
 export function dMissionWorld(ctx, m, now) {
   ctx.save();
   ctx.translate(-m.cameraX, 0);
@@ -1795,45 +1903,25 @@ export function dMissionWorld(ctx, m, now) {
   const biome = BIOMES[m.biomeKey] || BIOMES[DEFAULT_BIOME];
 
   if (biome.indoor) {
+    // Single-biome indoor destination (police_interior, etc.)
     dIndoorBackdrop(ctx, m, biome, now);
+  } else if (m.indoorBiomeKey && m.entranceX > 0) {
+    // Multi-segment mission: outdoor approach → enter the building →
+    // indoor section. Clip the two backdrops to their respective
+    // halves of the world, then draw a doorway prop at the seam so
+    // the transition reads visually.
+    const indoor = BIOMES[m.indoorBiomeKey] || BIOMES[DEFAULT_BIOME];
+    ctx.save();
+    ctx.beginPath(); ctx.rect(0, 0, m.entranceX, CH); ctx.clip();
+    dOutdoorBackdrop(ctx, m, biome);
+    ctx.restore();
+    ctx.save();
+    ctx.beginPath(); ctx.rect(m.entranceX, 0, MISSION_W - m.entranceX, CH); ctx.clip();
+    dIndoorBackdrop(ctx, m, indoor, now);
+    ctx.restore();
+    dDoorway(ctx, m.entranceX, indoor);
   } else {
-    // Sky (biome-tinted gradient)
-    const sg = ctx.createLinearGradient(0, 0, 0, MGY - 80);
-    sg.addColorStop(0, biome.sky[0]); sg.addColorStop(1, biome.sky[1]);
-    ctx.fillStyle = sg; ctx.fillRect(0, 0, MISSION_W, MGY - 80);
-
-    // Stars / specks (always)
-    for (let i = 0; i < 60; i++) {
-      const sx = ((i * 173 + m.cameraX * 0.2) % MISSION_W);
-      const sy = (i * 97 + 17) % (MGY - 100);
-      ctx.fillStyle = `rgba(255,255,255,${0.3 + (i % 4) * 0.18})`;
-      ctx.fillRect(sx, sy, 1.5, 1.5);
-    }
-    // Biome accent glow (smear of color: clinical halo, sunset blaze, etc.)
-    ctx.fillStyle = biome.accentLight;
-    ctx.beginPath(); ctx.arc(MISSION_W * 0.4, MGY - 120, 200, 0, Math.PI * 2); ctx.fill();
-
-    // Background buildings: count + height range from biome
-    const bldCount = biome.bldgCount;
-    const [hMin, hMax] = biome.bldgHRange;
-    for (let i = 0; i < bldCount; i++) {
-      const bx = (i * MISSION_W / bldCount) + 50 + (i % 3) * 30;
-      const bw = 40 + (i * 7) % 70;
-      const bh = hMin + ((i * 23) % (hMax - hMin));
-      ctx.fillStyle = biome.bldgFill; ctx.fillRect(bx, MGY - 80 - bh, bw, bh);
-      ctx.fillStyle = biome.bldgRoof; ctx.fillRect(bx, MGY - 80 - bh, bw, 4);
-      ctx.fillStyle = biome.bldgWindow;
-      for (let wx = bx + 8; wx < bx + bw - 5; wx += 14)
-        for (let wy = MGY - 80 - bh + 10; wy < MGY - 90; wy += 18)
-          if (Math.sin((bx + wx) * 0.1 + wy * 0.07) > 0.2) ctx.fillRect(wx, wy, 8, 10);
-    }
-
-    // Ground
-    const gg = ctx.createLinearGradient(0, MGY, 0, CH);
-    gg.addColorStop(0, biome.ground[0]); gg.addColorStop(1, biome.ground[1]);
-    ctx.fillStyle = gg; ctx.fillRect(0, MGY, MISSION_W, CH - MGY);
-    ctx.strokeStyle = biome.groundLine; ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.moveTo(0, MGY); ctx.lineTo(MISSION_W, MGY); ctx.stroke();
+    dOutdoorBackdrop(ctx, m, biome);
   }
 
   // Branching path (high lane road)
