@@ -33,5 +33,8 @@ export const mkSoldier = (name, weapon, destX, hp, lane = 0, civilian = false, o
     lastShot: 0, reloadStart: 0, shootAt: 0, knifeTimer: 0, recoil: 0,
     walkPhase: Math.random() * Math.PI * 2, hurtTimer: 0, reloadTriggered: false,
     onExpedition: false,
+    // Owned weapon perks (see data/difficulty.js PERKS). Sparse map of
+    // perk-id → true. Persisted across saves.
+    upgrades: {},
   };
 };

@@ -7,10 +7,10 @@
 // Save format version is bumped whenever the shape changes so old saves
 // are silently discarded rather than crashing.
 
-// v2 added workshop fields (workbench / researchLab / research). Older
-// v1 saves are silently discarded so the new shape never has to be
-// patched in at load time.
-const STORAGE_KEY = 'dead-perimeter-save-v2';
+// v2 added workshop fields (workbench / researchLab / research).
+// v3 added per-soldier upgrades (PERKS). Older versions are silently
+// discarded — keeps the load path free of compatibility branches.
+const STORAGE_KEY = 'dead-perimeter-save-v3';
 
 export function hasSavedGame() {
   try {
@@ -24,7 +24,7 @@ export function saveGame(gs) {
   if (!gs) return false;
   try {
     const snapshot = {
-      v: 2, savedAt: Date.now(),
+      v: 3, savedAt: Date.now(),
       day: gs.day, wave: gs.wave,
       baseHp: gs.baseHp, baseMaxHp: gs.baseMaxHp,
       resources: { ...gs.resources },
@@ -37,6 +37,7 @@ export function saveGame(gs) {
         civilian: !!s.civilian, veteran: !!s.veteran,
         kind: s.kind,
         onRoof: !!s.onRoof,
+        upgrades: { ...(s.upgrades || {}) },
       })),
       barricades: gs.barricades.map(b => ({ id: b.id, x: b.x, hp: b.hp, maxHp: b.maxHp })),
       turrets: (gs.turrets || []).map(t => ({ id: t.id, x: t.x, lane: t.lane })),
@@ -72,7 +73,7 @@ export function loadGame(mkGS) {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
     const data = JSON.parse(raw);
-    if (data.v !== 2) return null;
+    if (data.v !== 3) return null;
 
     const gs = mkGS();
     gs.day = data.day; gs.wave = data.wave;
@@ -93,6 +94,7 @@ export function loadGame(mkGS) {
         lastShot: 0, reloadStart: 0, shootAt: 0, knifeTimer: 0, recoil: 0,
         walkPhase: Math.random() * Math.PI * 2, hurtTimer: 0,
         reloadTriggered: false, onExpedition: false,
+        upgrades: { ...(s.upgrades || {}) },
       };
     });
     gs.barricades = data.barricades.map(b => ({ ...b }));

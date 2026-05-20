@@ -13,7 +13,7 @@ import { mkTurret } from './entities/turret.js';
 import { mkWave, mkHumanWave } from './entities/wave.js';
 import { mkGS } from './entities/gameState.js';
 import { hasSavedGame, saveGame, loadGame, clearSave } from './entities/persistence.js';
-import { BALANCE, CRAFT_RECIPES, RESEARCHES, getResearchEffect } from './data/difficulty.js';
+import { BALANCE, CRAFT_RECIPES, RESEARCHES, PERKS, getResearchEffect } from './data/difficulty.js';
 
 import { dBg } from './render/background.js';
 import { dBase } from './render/base.js';
@@ -53,6 +53,9 @@ export default function DeadPerimeter() {
   const voiceAvail = isRadioVoiceAvailable();
   const [paused, setPaused] = useState(false);
   const [hasSave, setHasSave] = useState(false);
+  // Which soldier card currently has its upgrade panel expanded (id).
+  // null = none. Toggled by the ⚙ UPGRADES button on each card.
+  const [upgOpenId, setUpgOpenId] = useState(null);
   const [, setMissionTick] = useState(0);
   // Multi-soldier picker: an array of soldier indices (max BALANCE.maxExpeditionParty)
   const [expSoldierIdxs, setExpSoldierIdxs] = useState([]);
@@ -604,6 +607,28 @@ export default function DeadPerimeter() {
     gs.resources.medicine -= 5;
     const heal = Math.round(40 * getResearchEffect(gs, 'medicineMul', 1));
     s.hp = Math.min(s.maxHp, s.hp + heal);
+    saveGame(gs); setHasSave(true);
+    setUi({ ...gs, soldiers: gs.soldiers.map(s => ({ ...s })) });
+  }, []);
+
+  // Buy a perk for a specific soldier. Requires the workbench. One-shot
+  // bumps (maxHpBonus / maxAmmoBonus) are applied directly here so the
+  // soldier card immediately reflects the new caps. Per-shot multipliers
+  // are read by siege.js at fire time.
+  const upgradeSoldier = useCallback((idx, perkId) => {
+    const gs = gsRef.current;
+    if (!gs?.workbench?.built) return;
+    const s = gs.soldiers[idx]; if (!s || s.state === 'dead') return;
+    const p = PERKS.find(x => x.id === perkId); if (!p) return;
+    if (s.upgrades && s.upgrades[perkId]) return;
+    if (p.weapons !== 'all' && !p.weapons.includes(s.weapon)) return;
+    for (const [k, v] of Object.entries(p.cost)) {
+      if ((gs.resources[k] || 0) < v) return;
+    }
+    for (const [k, v] of Object.entries(p.cost)) gs.resources[k] -= v;
+    s.upgrades = { ...(s.upgrades || {}), [perkId]: true };
+    if (p.maxHpBonus)   { s.maxHp += p.maxHpBonus; s.hp = Math.min(s.maxHp, s.hp + p.maxHpBonus); }
+    if (p.maxAmmoBonus) { s.maxAmmo += p.maxAmmoBonus; }
     saveGame(gs); setHasSave(true);
     setUi({ ...gs, soldiers: gs.soldiers.map(s => ({ ...s })) });
   }, []);
@@ -1597,21 +1622,70 @@ export default function DeadPerimeter() {
                     <div style={{ flex: 1, height: '3px', background: '#1a1a1a' }}><div style={{ height: '3px', width: `${(s.hp / s.maxHp) * 100}%`, background: s.hp > 60 ? C.acc : s.hp > 30 ? C.wrn : C.dng }} /></div>
                     <span style={{ ...lbl, minWidth: '28px' }}>{s.state === 'dead' ? 'KIA' : `${s.hp}HP`}</span>
                   </div>
-                  {s.state !== 'dead' && (
-                    <div style={{ display: 'flex', gap: '3px', marginTop: '3px', flexWrap: 'wrap' }}>
-                      {s.hp < s.maxHp && (
-                        <button style={{ ...btn('#162814', '#336622'), fontSize: '8px', padding: '2px 6px', marginRight: 0 }} onClick={() => healSoldier(i)} disabled={gs.resources.medicine < 5}>💊 HEAL</button>
-                      )}
-                      {!s.onRoof && (
-                        <button
-                          style={{ ...btn('#1a2435', '#3a5588'), fontSize: '8px', padding: '2px 6px', marginRight: 0 }}
-                          onClick={() => benchSoldier(i)}
-                          disabled={(gs.reserve?.length || 0) >= BALANCE.maxReserveSoldiers}
-                          title={(gs.reserve?.length || 0) >= BALANCE.maxReserveSoldiers ? 'Reserve full' : 'Send to reserve'}
-                        >🛏 BENCH</button>
-                      )}
-                    </div>
-                  )}
+                  {s.state !== 'dead' && (() => {
+                    const owned = Object.keys(s.upgrades || {});
+                    const wbBuilt = !!gs.workbench?.built;
+                    return (
+                      <>
+                        {owned.length > 0 && (
+                          <div style={{ fontSize: '9px', marginTop: '3px', letterSpacing: '.03em' }}>
+                            {owned.map(pid => {
+                              const p = PERKS.find(x => x.id === pid);
+                              return p ? <span key={pid} title={`${p.name} — ${p.desc}`} style={{ marginRight: '2px' }}>{p.icon}</span> : null;
+                            })}
+                          </div>
+                        )}
+                        <div style={{ display: 'flex', gap: '3px', marginTop: '3px', flexWrap: 'wrap' }}>
+                          {s.hp < s.maxHp && (
+                            <button style={{ ...btn('#162814', '#336622'), fontSize: '8px', padding: '2px 6px', marginRight: 0 }} onClick={() => healSoldier(i)} disabled={gs.resources.medicine < 5}>💊 HEAL</button>
+                          )}
+                          {!s.onRoof && (
+                            <button
+                              style={{ ...btn('#1a2435', '#3a5588'), fontSize: '8px', padding: '2px 6px', marginRight: 0 }}
+                              onClick={() => benchSoldier(i)}
+                              disabled={(gs.reserve?.length || 0) >= BALANCE.maxReserveSoldiers}
+                              title={(gs.reserve?.length || 0) >= BALANCE.maxReserveSoldiers ? 'Reserve full' : 'Send to reserve'}
+                            >🛏 BENCH</button>
+                          )}
+                          {wbBuilt && !s.civilian && (
+                            <button
+                              style={{ ...btn('#2a2418', '#aa8833'), fontSize: '8px', padding: '2px 6px', marginRight: 0 }}
+                              onClick={() => setUpgOpenId(upgOpenId === s.id ? null : s.id)}
+                              title="Buy weapon perks at the workbench"
+                            >⚙ UPGRADES {upgOpenId === s.id ? '▴' : '▾'}</button>
+                          )}
+                        </div>
+                        {wbBuilt && upgOpenId === s.id && (
+                          <div style={{ marginTop: '4px', borderTop: `1px solid ${C.uib}`, paddingTop: '4px' }}>
+                            {PERKS.filter(p => p.weapons === 'all' || p.weapons.includes(s.weapon)).map(p => {
+                              const have = !!(s.upgrades && s.upgrades[p.id]);
+                              const canPay = !have && Object.entries(p.cost).every(([k, v]) => (gs.resources[k] || 0) >= v);
+                              const costLbl = Object.entries(p.cost).map(([k, v]) => `${resIcon(k)}${v}`).join(' ');
+                              return (
+                                <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '3px' }}>
+                                  <span style={{ fontSize: '11px' }}>{p.icon}</span>
+                                  <div style={{ flex: 1, fontSize: '8px', lineHeight: '1.25' }}>
+                                    <div style={{ color: have ? C.acc : C.txt, fontWeight: 'bold' }}>{p.name}{have ? ' ✔' : ''}</div>
+                                    <div style={{ opacity: 0.65 }}>{p.desc}</div>
+                                  </div>
+                                  {have ? (
+                                    <span style={{ fontSize: '8px', color: C.acc }}>OWNED</span>
+                                  ) : (
+                                    <button
+                                      style={{ ...btn('#2a2418', '#aa8833'), fontSize: '8px', padding: '2px 5px', marginRight: 0, marginTop: 0 }}
+                                      disabled={!canPay}
+                                      onClick={() => upgradeSoldier(i, p.id)}
+                                      title={`Pay ${costLbl}`}
+                                    >BUY {costLbl}</button>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()}
                 </div>
               ))}
             </div>
