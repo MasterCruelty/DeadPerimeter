@@ -146,6 +146,26 @@ export function mkMission(soldier, dest, wave = 1, magsPerSoldier = 2) {
       : rng(3, 5);
     pickups.push({ id: uid(), x, type, value: base + waveBonus, collected: false, lane: 0 });
   }
+  // Elevate ~30% of the resource pickups to the upper floor when
+  // there's a building, with a value bump (exploration reward). The
+  // player has to climb the stairs to grab them — riskier but more
+  // payoff. Only applies to pickups that fall inside the building's
+  // upper-floor x range.
+  if (buildings.length > 0) {
+    const upperPlat = platforms.find(p => p.type === 'floor');
+    if (upperPlat) {
+      const candidates = pickups.filter(p =>
+        p.x > upperPlat.x + 20 && p.x < upperPlat.x + upperPlat.w - 20,
+      );
+      const elevateCount = Math.floor(candidates.length * 0.35);
+      for (let i = 0; i < elevateCount; i++) {
+        const p = candidates[i];
+        if (!p) break;
+        p.standingY = upperPlat.y - MGY;        // negative
+        p.value = Math.round((p.value || 1) * 1.4);  // exploration bonus
+      }
+    }
+  }
   // 'civilian' / 'lostSoldier' are flagged via the loot table when the
   // location can yield them, with risk-modulated base chance.
   const lootHas = t => (dest.loot || []).includes(t);
@@ -272,36 +292,64 @@ export function mkMission(soldier, dest, wave = 1, magsPerSoldier = 2) {
     }
   }
 
-  // Platforms — elevated ledges/balconies the lead can jump onto OR
-  // reach via the attached ladder. y is the platform TOP (MGY - 70
-  // means 70 px above the floor). w is the platform width. Indoor
-  // biomes get more platforms to feel like a multi-level interior,
-  // outdoor biomes get fewer (fire-escape style).
+  // ── Vertical layout ─────────────────────────────────────────
+  // Indoor sections are real BUILDINGS with a proper second floor
+  // running the full length of the indoor section, connected to
+  // the ground floor by 1-2 staircases at fixed positions. Outdoor
+  // sections still use scattered fire-escape ledges for variety.
   const platforms = [];
   const ladders = [];
-  const platCount = biome.indoor ? rng(4, 6) : rng(2, 4);
-  for (let i = 0; i < platCount; i++) {
-    // Distribute roughly evenly across the mission, with jitter.
-    const segW = (MISSION_W - 400) / platCount;
-    const px = 280 + i * segW + rng(-40, 80);
-    const py = MGY - rng(45, 65);   // 45..65 px above ground
-    const pw = rng(120, 200);
-    // Platform type depends on whether it sits in the outdoor or
-    // indoor section of a multi-segment mission. Single-biome
-    // missions just use the biome's flavour.
-    const inIndoorSection = !!indoorBiome && px >= entranceX;
-    const isIndoor = biome.indoor || inIndoorSection;
-    platforms.push({ x: px, y: py, w: pw, type: isIndoor ? 'floor' : 'ledge' });
-    // Every platform gets a ladder (or stairs for indoor) at one of
-    // its ends so the player can reliably climb up / down without
-    // having to time a jump.
-    const ladderAtLeft = (i % 2 === 0);
-    const lx = ladderAtLeft ? px + 10 : px + pw - 14;
-    ladders.push({
-      x: lx, yTop: py, yBot: MGY,
-      type: isIndoor ? 'stairs' : 'ladder',
-      slopeDir: ladderAtLeft ? 1 : -1,
-    });
+  const FLOOR_H = 80;   // distance from ground to upper floor
+  const FLOOR_Y = MGY - FLOOR_H;   // world Y of the upper floor top
+  const buildings = [];
+
+  if (biome.indoor) {
+    // Single-biome indoor mission (Police Station, Gun Shop, etc.):
+    // the whole world IS one building. Upper floor spans most of it
+    // with two staircases — one early, one near the goal.
+    const bx = 220, bw = MISSION_W - 280;
+    buildings.push({ x: bx, w: bw, floorY: FLOOR_Y, biomeKey });
+    // Upper floor as a single wide "platform" so the existing
+    // jump / collision code still works.
+    platforms.push({ x: bx + 40, y: FLOOR_Y, w: bw - 80, type: 'floor' });
+    // Two staircases: 1/3 and 2/3 along the building.
+    const s1 = bx + Math.floor(bw * 0.30);
+    const s2 = bx + Math.floor(bw * 0.72);
+    ladders.push({ x: s1, yTop: FLOOR_Y, yBot: MGY, type: 'stairs', slopeDir: +1 });
+    ladders.push({ x: s2, yTop: FLOOR_Y, yBot: MGY, type: 'stairs', slopeDir: -1 });
+  } else if (indoorBiome) {
+    // Multi-segment outdoor → indoor mission. The indoor half
+    // (entranceX → MISSION_W) is a building with a real upper
+    // floor reachable via staircases. The outdoor half stays
+    // ground-level with no platforms (street, no fire escapes
+    // for now — keeps the contrast).
+    const bx = entranceX + 30;
+    const bw = MISSION_W - bx - 60;
+    buildings.push({ x: bx, w: bw, floorY: FLOOR_Y, biomeKey: indoorBiomeKey });
+    platforms.push({ x: bx + 40, y: FLOOR_Y, w: bw - 80, type: 'floor' });
+    // Stairs: one just past the entrance + one near the goal.
+    const s1 = bx + Math.floor(bw * 0.18);
+    const s2 = bx + Math.floor(bw * 0.78);
+    ladders.push({ x: s1, yTop: FLOOR_Y, yBot: MGY, type: 'stairs', slopeDir: +1 });
+    ladders.push({ x: s2, yTop: FLOOR_Y, yBot: MGY, type: 'stairs', slopeDir: -1 });
+  } else {
+    // Pure outdoor mission — keep the old scattered fire-escape
+    // ledges so the player still has SOME verticality to use.
+    const ledgeCount = rng(2, 3);
+    for (let i = 0; i < ledgeCount; i++) {
+      const segW = (MISSION_W - 400) / ledgeCount;
+      const lx = 280 + i * segW + rng(-40, 80);
+      const ly = MGY - rng(45, 65);
+      const lw = rng(120, 180);
+      platforms.push({ x: lx, y: ly, w: lw, type: 'ledge' });
+      const onLeft = (i % 2 === 0);
+      ladders.push({
+        x: onLeft ? lx + 10 : lx + lw - 14,
+        yTop: ly, yBot: MGY,
+        type: 'ladder',
+        slopeDir: onLeft ? 1 : -1,
+      });
+    }
   }
 
   // Sprinkle a few zombies on the platforms so the player has a
@@ -484,7 +532,7 @@ export function mkMission(soldier, dest, wave = 1, magsPerSoldier = 2) {
     // applies the same scaling as initial mkMission spawns.
     _spitDmgScaled: spitDmgScaled, _spitRateScaled: spitRateScaled,
     defendStartedAt: 0, defendNextSpawn: 0,
-    zombies, pickups, obstacles, props, hazards, rescuables, platforms, ladders,
+    zombies, pickups, obstacles, props, hazards, rescuables, platforms, ladders, buildings,
     bullets: [], effects: [], soundQ: [],
     inputUp: false, inputDown: false,
     cameraX: 0,
@@ -743,8 +791,16 @@ export function updateMission(m, now, dt) {
         }
       }
     }
-    // Hit ground (jumpY clamped at 0 only when standingY is 0)
-    if ((s.standingY || 0) === 0 && s.jumpY >= 0) { s.jumpY = 0; s.vy = 0; }
+    // Hit ground — works from BOTH a ground jump (standingY === 0)
+    // AND a fall from a platform (standingY < 0, soldier walked off
+    // the edge mid-jump). Previously the clamp only triggered when
+    // standingY === 0, so falling off a platform horizontally let
+    // jumpY grow without bound and the soldier rendered below the
+    // floor (invisible bug reported by the player).
+    const footY = (s.standingY || 0) + (s.jumpY || 0);
+    if (s.vy >= 0 && footY >= 0) {
+      s.standingY = 0; s.jumpY = 0; s.vy = 0;
+    }
   }
   // Walked off a platform edge? Don't trigger while climbing — the
   // ladder is the "surface" then, not the platform.
@@ -1341,12 +1397,16 @@ export function updateMission(m, now, dt) {
     if (p.collected) return;
     const grabber = aliveParty(m).find(member => {
       if (Math.abs(p.x - member.x) >= 28) return false;
-      // Fork pickups require lane match. Non-fork pickups (lane 0) only
-      // count when the picker is also on lane 0 to avoid grabbing them
-      // while floating up on the high lane.
+      // Fork pickups require lane match.
       const memberLane = member.forkLane || 0;
       const pLane = p.lane || 0;
-      return memberLane === pLane;
+      if (memberLane !== pLane) return false;
+      // Upper-floor pickups (standingY < 0) require the grabber to
+      // also be on that floor — you can't grab loot from the second
+      // floor while standing on the ground.
+      const pY = p.standingY || 0;
+      const mY = member.standingY || 0;
+      return Math.abs(pY - mY) < 12;
     });
     if (grabber) {
       p.collected = true;
@@ -1540,6 +1600,67 @@ function dIndoorBackdrop(ctx, m, biome) {
     ctx.fill();
     ctx.globalAlpha = 1;
   }
+}
+
+// Building structural render — drawn BEFORE platforms so the upper
+// floor slab covers the building's interior cleanly. Adds the
+// architectural cues that make the indoor section read as a real
+// building instead of "random ledges in space":
+//   - Back wall + corner trim along the floor seam
+//   - Vertical support columns at regular intervals
+//   - Inter-floor ceiling stripe + ducting hint
+//   - Far wall on the right of the building (the goal side)
+function dBuilding(ctx, b) {
+  const indoor = BIOMES[b.biomeKey] || {};
+  const floorY = b.floorY;
+  const bx = b.x, bw = b.w;
+  const ceilTrim = indoor.ceilingTrim || '#1a1814';
+  const wallDark = indoor.wallDark || '#1a1410';
+  const wallFill = indoor.wallFill || '#3a2a18';
+  // Inter-floor slab seam: a darker band running just under the
+  // upper floor so the slab reads as resting on the ground-floor
+  // walls.
+  ctx.fillStyle = ceilTrim;
+  ctx.fillRect(bx, floorY + 8, bw, 4);
+  // Vertical support columns inside the building (every ~220 px).
+  // Behind the action — drawn before obstacles, so they read as
+  // structure not collision.
+  for (let cx = bx + 80; cx < bx + bw - 60; cx += 220) {
+    ctx.fillStyle = wallDark;
+    ctx.fillRect(cx - 4, floorY + 6, 8, MGY - floorY - 6);
+    // Column highlight strip
+    ctx.fillStyle = wallFill;
+    ctx.fillRect(cx - 3, floorY + 8, 2, MGY - floorY - 10);
+    // Base plate
+    ctx.fillStyle = ceilTrim;
+    ctx.fillRect(cx - 7, MGY - 6, 14, 6);
+  }
+  // Back wall behind the upper-floor playing strip. Drawn very
+  // faintly so it doesn't fight the sprites — just enough to say
+  // "you are inside a room with walls".
+  ctx.fillStyle = 'rgba(0,0,0,0.18)';
+  ctx.fillRect(bx, floorY - 50, bw, 50);
+  // Far wall + door on the right edge (= the goal). A door frame
+  // hints that the mission extracts THROUGH the building.
+  const farX = bx + bw - 6;
+  ctx.fillStyle = wallDark;
+  ctx.fillRect(farX, floorY + 8, 6, MGY - floorY - 6);
+  // A small entrance/exit door on the ground floor at the far end
+  ctx.fillStyle = '#1a1410';
+  ctx.fillRect(farX - 24, MGY - 50, 22, 50);
+  ctx.fillStyle = indoor.ceiling ? indoor.ceiling[1] : '#1a1814';
+  ctx.fillRect(farX - 22, MGY - 46, 18, 44);
+  // Door handle
+  ctx.fillStyle = '#bbb';
+  ctx.fillRect(farX - 8, MGY - 24, 2, 4);
+  // Soft warm spill from the far door
+  ctx.fillStyle = 'rgba(220,200,140,0.10)';
+  ctx.beginPath();
+  ctx.moveTo(farX - 24, MGY);
+  ctx.lineTo(farX, MGY);
+  ctx.lineTo(farX, MGY + 14);
+  ctx.lineTo(farX - 40, MGY + 14);
+  ctx.closePath(); ctx.fill();
 }
 
 // Ladders / stairs. Vertical traversal between ground and a
@@ -2088,7 +2209,10 @@ export function dMissionWorld(ctx, m, now) {
   // Decorative props (lampposts, fences, neon poles)
   (m.props || []).forEach(p => dProp(ctx, p));
 
-  // Ladders / stairs first so the platform's solid top draws over
+  // Building architecture first (columns, back wall, far door) so
+  // ladders and the upper-floor slab render in front of it.
+  (m.buildings || []).forEach(b => dBuilding(ctx, b));
+  // Ladders / stairs next so the platform's solid top draws over
   // the ladder top rung — gives the impression of climbing INTO the
   // platform rather than past it.
   (m.ladders || []).forEach(l => dLadder(ctx, l));
@@ -2111,7 +2235,9 @@ export function dMissionWorld(ctx, m, now) {
   m.pickups.forEach(p => {
     if (p.collected) return;
     const bob = Math.sin(now / 300 + p.x * 0.01) * 3;
-    const yOff = (p.lane === 1) ? -34 : 0;
+    // Fork lane vs upper-floor pickups: lane 1 = the legacy high
+    // road (-34), standingY = the new upper building floor (~-80).
+    const yOff = (p.standingY || 0) + ((p.lane === 1) ? -34 : 0);
     ctx.save(); ctx.translate(p.x, MGY - 30 + bob + yOff);
     ctx.fillStyle = p.type === 'civilian' ? 'rgba(136,221,255,0.18)' : 'rgba(114,188,64,0.18)';
     ctx.beginPath(); ctx.arc(0, 0, 18, 0, Math.PI * 2); ctx.fill();
