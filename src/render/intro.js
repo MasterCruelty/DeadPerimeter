@@ -535,63 +535,188 @@ function dShotZombieBite(ctx, t, now) {
   const tug = Math.sin(now / 140) * 4;
 
   // The victim — woman facing right, head thrown back screaming, hair
-  // flying, one arm pushing at the zombie's face.
+  // flying, one arm pushing at the zombie's face. Body silhouette is
+  // built from bezier curves (shoulders, ribcage, hips, drape of the
+  // coat) instead of stacked vertices so it reads as a person, not a
+  // paper cutout.
   const vx = CW * 0.30 + tug, vy = CH * 0.55;
-  // Coat / civilian clothes
+  // ── Coat ────────────────────────────────────────────────────
+  // Hem flares slightly with the struggle motion.
+  const hemSway = Math.sin(now / 220) * 4;
   ctx.fillStyle = '#8a5a3a';
   ctx.beginPath();
-  ctx.moveTo(vx - 50, vy + 130);
-  ctx.lineTo(vx - 60, vy - 20);
-  ctx.lineTo(vx - 40, vy - 80);
-  ctx.lineTo(vx + 30, vy - 70);
-  ctx.lineTo(vx + 60, vy + 20);
-  ctx.lineTo(vx + 50, vy + 130);
+  ctx.moveTo(vx - 52 + hemSway * 0.3, vy + 130);                                // hem L
+  ctx.bezierCurveTo(vx - 64, vy + 60, vx - 64, vy - 4, vx - 58, vy - 36);       // outer L (waist → ribs)
+  ctx.bezierCurveTo(vx - 56, vy - 60, vx - 48, vy - 76, vx - 30, vy - 82);      // L shoulder slope
+  ctx.bezierCurveTo(vx - 14, vy - 86, vx + 8, vy - 84, vx + 28, vy - 76);       // collar opening
+  ctx.bezierCurveTo(vx + 46, vy - 70, vx + 56, vy - 56, vx + 60, vy - 32);      // R shoulder/ribs
+  ctx.bezierCurveTo(vx + 64, vy - 4, vx + 64, vy + 60, vx + 54 - hemSway * 0.3, vy + 130);
   ctx.closePath(); ctx.fill();
-  ctx.fillStyle = '#6a3a22';
-  ctx.fillRect(vx - 56, vy - 22, 100, 4); // belt line
-  // Head tilted back in scream
+  // Coat front opening (centre seam), suggested with a curved shadow
+  ctx.strokeStyle = '#5a3622'; ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(vx + 4, vy - 78);
+  ctx.bezierCurveTo(vx + 6, vy - 40, vx + 2, vy + 40, vx, vy + 126);
+  ctx.stroke();
+  // Lapel
+  ctx.fillStyle = '#5a3622';
+  ctx.beginPath();
+  ctx.moveTo(vx + 4, vy - 78); ctx.lineTo(vx + 26, vy - 70);
+  ctx.lineTo(vx + 12, vy - 46); ctx.closePath(); ctx.fill();
+  // Belt — a curved band that follows the waist, with a buckle
+  ctx.fillStyle = '#3a2010';
+  ctx.beginPath();
+  ctx.moveTo(vx - 60, vy - 20);
+  ctx.bezierCurveTo(vx - 30, vy - 14, vx + 30, vy - 14, vx + 60, vy - 20);
+  ctx.lineTo(vx + 60, vy - 12);
+  ctx.bezierCurveTo(vx + 30, vy - 6, vx - 30, vy - 6, vx - 60, vy - 12);
+  ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#8a6840';
+  ctx.fillRect(vx - 4, vy - 18, 8, 6); // buckle
+
+  // ── Head, tilted back in a scream ───────────────────────────
+  // Skull as an ellipse (head, not a sphere) with a jaw drop wedge
+  // suggesting the open mouth posture.
   ctx.fillStyle = '#bf8a6a';
   ctx.beginPath();
-  ctx.arc(vx + 8, vy - 110, 32, 0, Math.PI * 2);
+  ctx.ellipse(vx + 8, vy - 110, 30, 36, -0.15, 0, Math.PI * 2);
   ctx.fill();
-  // Hair flying (long)
-  ctx.fillStyle = '#2a1810';
-  ctx.beginPath();
-  ctx.moveTo(vx - 28, vy - 130);
-  ctx.lineTo(vx - 60, vy - 110);
-  ctx.lineTo(vx - 70, vy - 70);
-  ctx.lineTo(vx - 50, vy - 60);
-  ctx.lineTo(vx - 24, vy - 96);
-  ctx.closePath(); ctx.fill();
-  ctx.fillStyle = '#2a1810';
-  ctx.beginPath();
-  ctx.moveTo(vx - 8, vy - 138); ctx.lineTo(vx + 30, vy - 134);
-  ctx.lineTo(vx + 26, vy - 100); ctx.lineTo(vx, vy - 110);
-  ctx.closePath(); ctx.fill();
-  // Eyes wide (white slivers)
-  ctx.fillStyle = '#fff';
-  ctx.fillRect(vx + 2, vy - 118, 6, 3);
-  ctx.fillRect(vx + 14, vy - 118, 6, 3);
-  ctx.fillStyle = '#1a1a1a';
-  ctx.fillRect(vx + 4, vy - 117, 2, 2);
-  ctx.fillRect(vx + 16, vy - 117, 2, 2);
-  // Mouth wide open (screaming)
-  ctx.fillStyle = '#3a0a0a';
-  ctx.beginPath();
-  ctx.ellipse(vx + 10, vy - 92, 9, 12, 0, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = '#fff';
-  ctx.fillRect(vx + 5, vy - 94, 10, 2); // teeth
-  // Pushing arm extended toward zombie's face
-  ctx.strokeStyle = '#bf8a6a'; ctx.lineWidth = 22;
-  ctx.lineCap = 'round';
-  ctx.beginPath();
-  ctx.moveTo(vx + 36, vy - 60);
-  ctx.lineTo(vx + 110, vy - 100);
-  ctx.stroke();
-  ctx.lineCap = 'butt';
-  // Sleeve
+  // Neck (visible because the head is thrown back)
   ctx.fillStyle = '#8a5a3a';
-  ctx.fillRect(vx + 30, vy - 70, 30, 24);
+  ctx.beginPath();
+  ctx.moveTo(vx - 8, vy - 80);
+  ctx.bezierCurveTo(vx - 4, vy - 70, vx + 14, vy - 70, vx + 18, vy - 80);
+  ctx.lineTo(vx + 18, vy - 92); ctx.lineTo(vx - 8, vy - 92);
+  ctx.closePath(); ctx.fill();
+  // Jaw-line shadow (gives the chin its angle)
+  ctx.fillStyle = '#9a6a4e';
+  ctx.beginPath();
+  ctx.moveTo(vx - 18, vy - 96);
+  ctx.bezierCurveTo(vx - 10, vy - 80, vx + 24, vy - 78, vx + 32, vy - 92);
+  ctx.bezierCurveTo(vx + 24, vy - 88, vx - 10, vy - 88, vx - 18, vy - 96);
+  ctx.closePath(); ctx.fill();
+
+  // ── Long flowing hair (multiple bezier strands, not flat flaps) ──
+  // Behind the head (deepest), drawn first so face overlays it.
+  const hairDark = '#1f1208';
+  const hairMid  = '#2c1812';
+  ctx.fillStyle = hairDark;
+  ctx.beginPath();
+  ctx.moveTo(vx - 12, vy - 130);
+  ctx.bezierCurveTo(vx - 50, vy - 130, vx - 86, vy - 100, vx - 86, vy - 60);
+  ctx.bezierCurveTo(vx - 80, vy - 56, vx - 60, vy - 70, vx - 40, vy - 86);
+  ctx.bezierCurveTo(vx - 28, vy - 96, vx - 18, vy - 110, vx - 12, vy - 130);
+  ctx.closePath(); ctx.fill();
+  // Mid-length strand at the top crown
+  ctx.fillStyle = hairMid;
+  ctx.beginPath();
+  ctx.moveTo(vx - 22, vy - 138);
+  ctx.bezierCurveTo(vx - 50, vy - 134, vx - 70, vy - 118, vx - 72, vy - 96);
+  ctx.bezierCurveTo(vx - 64, vy - 100, vx - 46, vy - 116, vx - 30, vy - 128);
+  ctx.closePath(); ctx.fill();
+  // Wisps flying forward over the brow
+  ctx.fillStyle = hairDark;
+  ctx.beginPath();
+  ctx.moveTo(vx + 10, vy - 140);
+  ctx.bezierCurveTo(vx + 28, vy - 136, vx + 38, vy - 126, vx + 36, vy - 110);
+  ctx.bezierCurveTo(vx + 28, vy - 120, vx + 16, vy - 130, vx + 8, vy - 130);
+  ctx.closePath(); ctx.fill();
+  // Skull-cap (top of head where hair is parted)
+  ctx.fillStyle = hairMid;
+  ctx.beginPath();
+  ctx.moveTo(vx - 18, vy - 138);
+  ctx.bezierCurveTo(vx, vy - 150, vx + 22, vy - 144, vx + 26, vy - 130);
+  ctx.bezierCurveTo(vx + 8, vy - 138, vx - 8, vy - 138, vx - 18, vy - 138);
+  ctx.closePath(); ctx.fill();
+
+  // ── Eyes (round eyeball + iris + pupil, not flat rectangles) ──
+  // Eye socket shadow
+  ctx.fillStyle = '#5a3622';
+  ctx.beginPath();
+  ctx.ellipse(vx + 4, vy - 118, 5, 3, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(vx + 16, vy - 118, 5, 3, 0, 0, Math.PI * 2); ctx.fill();
+  // Sclera (whites)
+  ctx.fillStyle = '#f0e8d4';
+  ctx.beginPath();
+  ctx.ellipse(vx + 4, vy - 118, 4, 2.5, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(vx + 16, vy - 118, 4, 2.5, 0, 0, Math.PI * 2); ctx.fill();
+  // Iris (terror-wide, looking up and to the right at the zombie)
+  ctx.fillStyle = '#3a2a18';
+  ctx.beginPath(); ctx.arc(vx + 6, vy - 119, 2, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(vx + 18, vy - 119, 2, 0, Math.PI * 2); ctx.fill();
+  // Pupils (dilated)
+  ctx.fillStyle = '#0a0a0a';
+  ctx.beginPath(); ctx.arc(vx + 6, vy - 119, 1.2, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(vx + 18, vy - 119, 1.2, 0, Math.PI * 2); ctx.fill();
+  // Eyebrows raised in fear — thin tapered strokes, not bars
+  ctx.strokeStyle = '#3a2010'; ctx.lineWidth = 1.6; ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(vx - 2, vy - 126); ctx.quadraticCurveTo(vx + 4, vy - 130, vx + 10, vy - 124); ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(vx + 12, vy - 124); ctx.quadraticCurveTo(vx + 18, vy - 130, vx + 24, vy - 124); ctx.stroke();
+  ctx.lineCap = 'butt';
+  // Tear streak from the right eye
+  ctx.fillStyle = 'rgba(200,220,230,0.6)';
+  ctx.beginPath();
+  ctx.ellipse(vx + 18, vy - 110, 1, 5, 0, 0, Math.PI * 2); ctx.fill();
+
+  // ── Mouth wide open (screaming) ────────────────────────────
+  // Open maw with rounded lip rim + teeth, plus a tongue suggestion.
+  ctx.fillStyle = '#2a0606';
+  ctx.beginPath();
+  ctx.ellipse(vx + 10, vy - 92, 10, 14, 0, 0, Math.PI * 2); ctx.fill();
+  // Lip rim (slightly lighter outer band)
+  ctx.strokeStyle = '#5a2818'; ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.ellipse(vx + 10, vy - 92, 10, 14, 0, 0, Math.PI * 2); ctx.stroke();
+  // Upper teeth
+  ctx.fillStyle = '#f0e8d4';
+  ctx.fillRect(vx + 3, vy - 100, 14, 3);
+  // Tongue
+  ctx.fillStyle = '#7a2a2a';
+  ctx.beginPath();
+  ctx.ellipse(vx + 10, vy - 86, 5, 3, 0, 0, Math.PI * 2); ctx.fill();
+
+  // ── Pushing arm extended toward the zombie's face ──
+  // Drawn as a tapering bezier shape so it has a real elbow + wrist,
+  // not just a fat round-capped line.
+  ctx.fillStyle = '#bf8a6a';
+  ctx.beginPath();
+  ctx.moveTo(vx + 32, vy - 70);                                 // shoulder
+  ctx.bezierCurveTo(vx + 60, vy - 76, vx + 90, vy - 96, vx + 116, vy - 102); // upper arm/elbow → forearm
+  ctx.bezierCurveTo(vx + 118, vy - 100, vx + 118, vy - 98, vx + 116, vy - 96);
+  ctx.bezierCurveTo(vx + 90, vy - 90, vx + 60, vy - 70, vx + 36, vy - 58);   // back along underside
+  ctx.closePath(); ctx.fill();
+  // Sleeve (coat material covers upper third of the arm)
+  ctx.fillStyle = '#8a5a3a';
+  ctx.beginPath();
+  ctx.moveTo(vx + 30, vy - 76);
+  ctx.bezierCurveTo(vx + 50, vy - 80, vx + 70, vy - 86, vx + 80, vy - 86);
+  ctx.lineTo(vx + 78, vy - 76);
+  ctx.bezierCurveTo(vx + 60, vy - 70, vx + 40, vy - 64, vx + 32, vy - 60);
+  ctx.closePath(); ctx.fill();
+  // Sleeve cuff
+  ctx.fillStyle = '#5a3622';
+  ctx.beginPath();
+  ctx.moveTo(vx + 76, vy - 88); ctx.lineTo(vx + 86, vy - 90);
+  ctx.lineTo(vx + 84, vy - 80); ctx.lineTo(vx + 74, vy - 78);
+  ctx.closePath(); ctx.fill();
+  // Hand splayed in a defensive push (palm-out, fingers spread)
+  ctx.fillStyle = '#bf8a6a';
+  ctx.beginPath();
+  ctx.ellipse(vx + 116, vy - 100, 10, 8, -0.3, 0, Math.PI * 2); ctx.fill();
+  // Spread fingers
+  ctx.strokeStyle = '#bf8a6a'; ctx.lineWidth = 4; ctx.lineCap = 'round';
+  for (let f = 0; f < 4; f++) {
+    const ang = -1.0 + f * 0.35;
+    ctx.beginPath();
+    ctx.moveTo(vx + 116, vy - 100);
+    ctx.lineTo(vx + 116 + Math.cos(ang) * 14, vy - 100 + Math.sin(ang) * 14);
+    ctx.stroke();
+  }
+  ctx.lineCap = 'butt';
 
   // The zombie — real in-game dZombie sprite scaled up, in the
   // 'attack' state so its arms are out and it's leaning into the bite.
@@ -2435,95 +2560,264 @@ function dShotConvoyWide(ctx, t, now) {
   ctx.restore();
 }
 
+// Shared 5-point star — used for the ARMY decal on both vehicle types.
+// Wraps the previous inline copies that rebuilt the same path.
+function drawArmyStar(ctx, cx, cy, r) {
+  ctx.beginPath();
+  for (let i = 0; i < 10; i++) {
+    const ang = -Math.PI / 2 + i * Math.PI / 5;
+    const rr = (i % 2 === 0) ? r : r * 0.48;
+    const px = cx + Math.cos(ang) * rr;
+    const py = cy + Math.sin(ang) * rr;
+    if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+  }
+  ctx.closePath(); ctx.fill();
+}
+
+// Realistic tyre — outer rubber, inner hub, 5 lugs around the hub so
+// the wheel reads as a wheel and not as two concentric discs.
+function drawTyre(ctx, cx, cy, r) {
+  ctx.fillStyle = '#0a0a0a';
+  ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
+  // Sidewall tread highlight
+  ctx.strokeStyle = '#1a1a1a'; ctx.lineWidth = 1.2;
+  ctx.beginPath(); ctx.arc(cx, cy, r - 1, 0, Math.PI * 2); ctx.stroke();
+  // Hub
+  ctx.fillStyle = '#252525';
+  ctx.beginPath(); ctx.arc(cx, cy, r * 0.55, 0, Math.PI * 2); ctx.fill();
+  // Lug nuts
+  ctx.fillStyle = '#0a0a0a';
+  for (let l = 0; l < 5; l++) {
+    const a = (l / 5) * Math.PI * 2;
+    ctx.beginPath();
+    ctx.arc(cx + Math.cos(a) * r * 0.35, cy + Math.sin(a) * r * 0.35, 1.2, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  // Centre cap
+  ctx.fillStyle = '#404040';
+  ctx.beginPath(); ctx.arc(cx, cy, r * 0.18, 0, Math.PI * 2); ctx.fill();
+}
+
 function drawConvoyVehicle(ctx, x, y, type, now) {
   if (type === 'humvee') {
-    // Boxy military 4x4 in olive drab
+    // ── Humvee (HMMWV) — wide, low, with sloped bonnet ─────────
+    // The body silhouette is built from one filled path so the hood
+    // slope, fender flares and rear cargo all read as one chunky
+    // 4×4 rather than two rectangles stacked on top of each other.
     ctx.fillStyle = '#3a4a30';
-    ctx.fillRect(x - 60, y - 30, 120, 30);
-    ctx.fillStyle = '#2a3826';
-    ctx.fillRect(x - 50, y - 50, 90, 20);
-    // Windshield
-    ctx.fillStyle = '#0a1418';
-    ctx.fillRect(x - 30, y - 47, 50, 14);
-    // Side door details
-    ctx.fillStyle = '#1f2818'; ctx.fillRect(x - 40, y - 24, 30, 18);
-    ctx.fillRect(x - 6, y - 24, 30, 18);
-    // White ARMY star on door
-    ctx.fillStyle = '#dde2d0';
     ctx.beginPath();
-    for (let i = 0; i < 10; i++) {
-      const ang = -Math.PI / 2 + i * Math.PI / 5;
-      const rr = (i % 2 === 0) ? 5 : 2.4;
-      const px = x - 25 + Math.cos(ang) * rr;
-      const py = y - 14 + Math.sin(ang) * rr;
-      if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
-    }
+    ctx.moveTo(x - 68, y + 2);                 // rear-lower corner
+    ctx.lineTo(x - 68, y - 24);                // rear panel
+    ctx.lineTo(x - 60, y - 50);                // rear roof corner
+    ctx.lineTo(x - 36, y - 56);                // roof apex (rear cab)
+    ctx.lineTo(x + 18, y - 56);                // roof apex (front cab)
+    ctx.lineTo(x + 30, y - 46);                // windshield top
+    ctx.lineTo(x + 48, y - 28);                // bonnet slope
+    ctx.lineTo(x + 68, y - 22);                // grille top
+    ctx.lineTo(x + 68, y + 2);                 // grille bottom
     ctx.closePath(); ctx.fill();
-    // Roof-mounted turret with a gunner
-    ctx.fillStyle = '#1a1a14';
-    ctx.fillRect(x - 12, y - 60, 24, 12);
-    // Gunner — head + shoulders + .50 cal
-    ctx.fillStyle = '#0a0a0a';
-    ctx.fillRect(x - 4, y - 76, 8, 18);
-    ctx.fillStyle = '#1a2418';
-    ctx.fillRect(x - 5, y - 78, 10, 4); // helmet
-    ctx.fillStyle = '#0a0a0a';
-    ctx.fillRect(x + 4, y - 70, 24, 4); // turret barrel
-    // Wheels
-    ctx.fillStyle = '#0a0a0a';
-    ctx.beginPath(); ctx.arc(x - 40, y + 4, 12, 0, Math.PI * 2); ctx.fill();
-    ctx.beginPath(); ctx.arc(x + 40, y + 4, 12, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = '#1a1a1a';
-    ctx.beginPath(); ctx.arc(x - 40, y + 4, 6, 0, Math.PI * 2); ctx.fill();
-    ctx.beginPath(); ctx.arc(x + 40, y + 4, 6, 0, Math.PI * 2); ctx.fill();
-  } else if (type === 'truck') {
-    // Larger 6-wheel troop truck with covered bed
-    // Cab
-    ctx.fillStyle = '#3a4a30';
-    ctx.fillRect(x + 30, y - 50, 50, 50);
-    ctx.fillStyle = '#0a1418';
-    ctx.fillRect(x + 38, y - 46, 36, 18); // windshield
-    // Side window
-    ctx.fillStyle = '#1f2818'; ctx.fillRect(x + 36, y - 24, 18, 14);
-    // Headlights
-    ctx.fillStyle = '#fff5c4';
-    ctx.fillRect(x + 78, y - 28, 4, 5);
-    ctx.fillRect(x + 78, y - 18, 4, 5);
-    // Cargo box with canvas cover
-    ctx.fillStyle = '#2a3826';
-    ctx.fillRect(x - 80, y - 56, 110, 56);
-    // Canvas cover (arched ribs)
-    ctx.fillStyle = '#3a4a30';
-    for (let i = 0; i < 5; i++) ctx.fillRect(x - 80 + i * 22, y - 56, 2, 56);
+    // Underbody / wheel-well shadow
     ctx.fillStyle = '#1f2818';
-    ctx.fillRect(x - 80, y - 60, 110, 6); // top edge
-    // Soldiers in the back, just heads visible
-    for (let i = 0; i < 3; i++) {
-      ctx.fillStyle = '#bf8a6a';
-      ctx.beginPath(); ctx.arc(x - 60 + i * 30, y - 56, 4, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = '#1a2418';
-      ctx.fillRect(x - 64 + i * 30, y - 60, 9, 4);
-    }
-    // White ARMY star on cargo side
-    ctx.fillStyle = '#dde2d0';
+    ctx.fillRect(x - 68, y + 2, 136, 4);
+    // Bonnet highlight (sheen along the sloped panel)
+    ctx.fillStyle = '#4a5a3c';
     ctx.beginPath();
-    for (let i = 0; i < 10; i++) {
-      const ang = -Math.PI / 2 + i * Math.PI / 5;
-      const rr = (i % 2 === 0) ? 7 : 3.4;
-      const px = x - 30 + Math.cos(ang) * rr;
-      const py = y - 24 + Math.sin(ang) * rr;
-      if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
-    }
+    ctx.moveTo(x + 30, y - 44); ctx.lineTo(x + 50, y - 28);
+    ctx.lineTo(x + 50, y - 25); ctx.lineTo(x + 30, y - 40);
     ctx.closePath(); ctx.fill();
-    // 6 wheels (3 axles)
+    // Windshield — slightly tilted
+    ctx.fillStyle = '#0a1418';
+    ctx.beginPath();
+    ctx.moveTo(x - 16, y - 52); ctx.lineTo(x + 28, y - 50);
+    ctx.lineTo(x + 30, y - 36); ctx.lineTo(x - 16, y - 38);
+    ctx.closePath(); ctx.fill();
+    // Window reflection
+    ctx.fillStyle = 'rgba(120,140,140,0.20)';
+    ctx.fillRect(x - 12, y - 50, 18, 4);
+    // Door divider + side window (driver door)
+    ctx.fillStyle = '#1f2818';
+    ctx.fillRect(x - 16, y - 36, 2, 30);
+    ctx.fillStyle = '#0a1418';
+    ctx.fillRect(x - 38, y - 36, 22, 12);
+    // Rear door (passenger / cargo door)
+    ctx.fillStyle = '#1f2818';
+    ctx.fillRect(x - 40, y - 36, 2, 30);
+    // ARMY star on the door
+    ctx.fillStyle = '#dde2d0';
+    drawArmyStar(ctx, x - 28, y - 14, 6);
+    // Headlight cluster (twin sealed-beams + amber indicator)
+    ctx.fillStyle = '#fff5c4';
+    ctx.beginPath(); ctx.arc(x + 64, y - 16, 3, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(x + 64, y - 8,  3, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#cc8820';
+    ctx.fillRect(x + 64, y - 2, 4, 2);
+    // Grille slats (vertical bars)
+    ctx.fillStyle = '#0a0e08';
+    for (let g = 0; g < 6; g++) ctx.fillRect(x + 54 + g * 2.4, y - 22, 1.4, 18);
+    // Front bumper with brush guard
+    ctx.fillStyle = '#1a2014';
+    ctx.fillRect(x + 50, y - 4, 22, 6);
+    ctx.strokeStyle = '#2c3826'; ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(x + 58, y - 22); ctx.lineTo(x + 58, y - 6);
+    ctx.moveTo(x + 66, y - 22); ctx.lineTo(x + 66, y - 6); ctx.stroke();
+    // Antenna whipping in the wind from the rear
+    ctx.strokeStyle = '#1a1a14'; ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(x - 60, y - 56);
+    ctx.quadraticCurveTo(x - 80, y - 78, x - 74 + Math.sin(now / 320) * 3, y - 96);
+    ctx.stroke();
+    // Roof-mounted .50-cal cupola with gunner peeking out
+    ctx.fillStyle = '#1a1a14';
+    ctx.beginPath();
+    ctx.moveTo(x - 18, y - 56); ctx.lineTo(x - 18, y - 66);
+    ctx.quadraticCurveTo(x, y - 70, x + 18, y - 66);
+    ctx.lineTo(x + 18, y - 56);
+    ctx.closePath(); ctx.fill();
+    // Gunner shoulders + head + helmet
+    ctx.fillStyle = '#0a0e08';
+    ctx.beginPath();
+    ctx.moveTo(x - 10, y - 66); ctx.lineTo(x - 10, y - 76);
+    ctx.quadraticCurveTo(x, y - 80, x + 10, y - 76);
+    ctx.lineTo(x + 10, y - 66); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#bf8a6a';
+    ctx.beginPath(); ctx.arc(x, y - 82, 4, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#1a2418';
+    ctx.beginPath();
+    ctx.moveTo(x - 6, y - 84);
+    ctx.quadraticCurveTo(x, y - 92, x + 6, y - 84);
+    ctx.lineTo(x + 6, y - 80); ctx.lineTo(x - 6, y - 80);
+    ctx.closePath(); ctx.fill();
+    // M2 .50-cal mounted up top
     ctx.fillStyle = '#0a0a0a';
-    [-60, 0, 50].forEach(wx => {
-      ctx.beginPath(); ctx.arc(x + wx, y + 4, 12, 0, Math.PI * 2); ctx.fill();
-    });
+    ctx.fillRect(x + 4, y - 74, 30, 3);
+    // Barrel cooling fins (a few notches)
     ctx.fillStyle = '#1a1a1a';
+    for (let f = 0; f < 4; f++) ctx.fillRect(x + 14 + f * 4, y - 76, 1.6, 6);
+    // Pintle mount under the gun
+    ctx.fillStyle = '#1a1a14';
+    ctx.fillRect(x + 2, y - 70, 5, 6);
+    // Wheels with fender arches that bite into the body silhouette
+    ctx.fillStyle = '#3a4a30';
+    ctx.beginPath();
+    ctx.arc(x - 42, y, 18, Math.PI, 0); ctx.fill();
+    ctx.beginPath();
+    ctx.arc(x + 42, y, 18, Math.PI, 0); ctx.fill();
+    drawTyre(ctx, x - 42, y + 4, 13);
+    drawTyre(ctx, x + 42, y + 4, 13);
+
+  } else if (type === 'truck') {
+    // ── M939 / M35-style 6×6 troop truck ────────────────────────
+    // Cab — boxy but with a sloped windshield and a rounded roof
+    ctx.fillStyle = '#3a4a30';
+    ctx.beginPath();
+    ctx.moveTo(x + 30, y + 2);
+    ctx.lineTo(x + 30, y - 36);                // cab rear wall
+    ctx.lineTo(x + 38, y - 52);                // roof rear
+    ctx.lineTo(x + 70, y - 52);                // roof front
+    ctx.lineTo(x + 80, y - 36);                // hood join
+    ctx.lineTo(x + 84, y - 22);                // hood top
+    ctx.lineTo(x + 84, y + 2);                 // grille bottom
+    ctx.closePath(); ctx.fill();
+    // Hood highlight
+    ctx.fillStyle = '#4a5a3c';
+    ctx.fillRect(x + 70, y - 32, 12, 2);
+    // Windshield (split, two panes)
+    ctx.fillStyle = '#0a1418';
+    ctx.beginPath();
+    ctx.moveTo(x + 42, y - 50); ctx.lineTo(x + 70, y - 50);
+    ctx.lineTo(x + 72, y - 38); ctx.lineTo(x + 42, y - 38);
+    ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = '#1f2818'; ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(x + 56, y - 50); ctx.lineTo(x + 57, y - 38); ctx.stroke();
+    // Window reflection
+    ctx.fillStyle = 'rgba(120,140,140,0.18)';
+    ctx.fillRect(x + 45, y - 48, 10, 3);
+    // Driver door + side window
+    ctx.fillStyle = '#1f2818'; ctx.fillRect(x + 38, y - 36, 26, 28);
+    ctx.fillStyle = '#0a1418'; ctx.fillRect(x + 40, y - 34, 16, 10);
+    ctx.fillStyle = '#2c3826';
+    ctx.fillRect(x + 62, y - 18, 2, 6); // door handle
+    // Headlights + grille
+    ctx.fillStyle = '#fff5c4';
+    ctx.beginPath(); ctx.arc(x + 82, y - 24, 3, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(x + 82, y - 16, 3, 0, Math.PI * 2); ctx.fill();
+    // Grille slats (horizontal)
+    ctx.fillStyle = '#0a0e08';
+    for (let g = 0; g < 5; g++) ctx.fillRect(x + 72, y - 10 + g * 2.4, 12, 1.4);
+    // Front bumper
+    ctx.fillStyle = '#1a2014';
+    ctx.fillRect(x + 70, y - 2, 16, 5);
+    // Side step under the door
+    ctx.fillStyle = '#181814';
+    ctx.fillRect(x + 38, y - 4, 26, 3);
+
+    // Cargo box with canvas cover — arched silhouette
+    ctx.fillStyle = '#2a3826';
+    ctx.beginPath();
+    ctx.moveTo(x - 90, y + 2);
+    ctx.lineTo(x - 90, y - 48);
+    ctx.quadraticCurveTo(x - 86, y - 62, x - 72, y - 62);  // arched front-top
+    ctx.lineTo(x + 22, y - 62);
+    ctx.quadraticCurveTo(x + 30, y - 62, x + 30, y - 50);
+    ctx.lineTo(x + 30, y + 2);
+    ctx.closePath(); ctx.fill();
+    // Canvas cover ribs (vertical lacing)
+    ctx.strokeStyle = '#1f2818'; ctx.lineWidth = 1.4;
+    for (let i = 0; i < 6; i++) {
+      const rx = x - 80 + i * 20;
+      ctx.beginPath();
+      ctx.moveTo(rx, y - 60); ctx.lineTo(rx, y - 4); ctx.stroke();
+    }
+    // Lashing rope along the bottom of the canvas
+    ctx.strokeStyle = '#5a4a2a'; ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    for (let i = 0; i < 6; i++) {
+      ctx.moveTo(x - 88 + i * 22, y - 8);
+      ctx.quadraticCurveTo(x - 80 + i * 22, y - 4, x - 70 + i * 22, y - 8);
+    }
+    ctx.stroke();
+    // Tailgate band at the rear
+    ctx.fillStyle = '#1f2818';
+    ctx.fillRect(x - 90, y - 8, 8, 10);
+    // Soldiers in the back, just helmets + shoulders showing through
+    // the open rear flap.
+    for (let i = 0; i < 3; i++) {
+      const hx = x - 64 + i * 28;
+      // Shoulders
+      ctx.fillStyle = '#2c3a24';
+      ctx.beginPath();
+      ctx.moveTo(hx - 6, y - 52); ctx.lineTo(hx + 6, y - 52);
+      ctx.lineTo(hx + 8, y - 46); ctx.lineTo(hx - 8, y - 46);
+      ctx.closePath(); ctx.fill();
+      // Face
+      ctx.fillStyle = '#bf8a6a';
+      ctx.beginPath(); ctx.arc(hx, y - 56, 4, 0, Math.PI * 2); ctx.fill();
+      // Helmet
+      ctx.fillStyle = '#1a2418';
+      ctx.beginPath();
+      ctx.moveTo(hx - 5, y - 58);
+      ctx.quadraticCurveTo(hx, y - 64, hx + 5, y - 58);
+      ctx.lineTo(hx + 5, y - 54); ctx.lineTo(hx - 5, y - 54);
+      ctx.closePath(); ctx.fill();
+    }
+    // ARMY star on the cargo side
+    ctx.fillStyle = '#dde2d0';
+    drawArmyStar(ctx, x - 38, y - 28, 8);
+    // Mud spatter along the canvas bottom
+    ctx.fillStyle = 'rgba(40,30,18,0.7)';
+    for (let m = 0; m < 9; m++) {
+      const mx = x - 88 + m * 14 + (m % 2 ? 3 : 0);
+      ctx.fillRect(mx, y - 6 + (m % 3), 4, 2);
+    }
+    // Triple-axle wheels with proper fender arches
+    ctx.fillStyle = '#3a4a30';
     [-60, 0, 50].forEach(wx => {
-      ctx.beginPath(); ctx.arc(x + wx, y + 4, 6, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath();
+      ctx.arc(x + wx, y, 17, Math.PI, 0); ctx.fill();
     });
+    [-60, 0, 50].forEach(wx => drawTyre(ctx, x + wx, y + 4, 13));
   }
 }
 
@@ -2593,74 +2887,210 @@ function dShotConvoyClose(ctx, t, now) {
   ctx.fillStyle = '#0e1408';
   for (let i = 0; i < 8; i++) ctx.fillRect(i * 120, 0, 4, 60);
 
-  // The SOLDIER — large mid-shot, looking forward (right) toward Fort Omega
+  // The SOLDIER — large mid-shot, looking forward (right) toward Fort
+  // Omega. Built from curved bezier pieces (shoulders, chest, neck,
+  // jaw) rather than stacked rectangles so the silhouette reads as a
+  // person rather than a cardboard cutout.
   const sx = CW * 0.36, sy = CH - 130;
-  // Torso visible above the bed edge
+  const breathe = Math.sin(now / 1100) * 1.2;
+
+  // ── Torso: olive uniform with V-taper from shoulder to waist ──
   ctx.fillStyle = '#3a4a30';
   ctx.beginPath();
-  ctx.moveTo(sx - 80, sy);
-  ctx.lineTo(sx - 70, sy - 80);
-  ctx.lineTo(sx + 70, sy - 80);
-  ctx.lineTo(sx + 80, sy);
+  ctx.moveTo(sx - 86, sy + 4);
+  ctx.bezierCurveTo(sx - 92, sy - 26, sx - 92, sy - 56, sx - 78, sy - 70);
+  ctx.bezierCurveTo(sx - 60, sy - 84, sx - 40, sy - 86, sx - 22, sy - 86);
+  ctx.lineTo(sx + 22, sy - 86);
+  ctx.bezierCurveTo(sx + 40, sy - 86, sx + 60, sy - 84, sx + 78, sy - 70);
+  ctx.bezierCurveTo(sx + 92, sy - 56, sx + 92, sy - 26, sx + 86, sy + 4);
   ctx.closePath(); ctx.fill();
-  // Tactical vest pouches
-  ctx.fillStyle = '#1a2418';
-  ctx.fillRect(sx - 60, sy - 60, 40, 50);
-  ctx.fillRect(sx + 20, sy - 60, 40, 50);
-  ctx.fillStyle = '#a4a230';
-  ctx.fillRect(sx - 60, sy - 35, 120, 3); // refl stripe
-  // Shoulder patch (american flag-ish)
+  // Chest centre-seam shadow for depth
+  ctx.fillStyle = '#2c3a24';
+  ctx.beginPath();
+  ctx.moveTo(sx - 18, sy - 82); ctx.lineTo(sx + 18, sy - 82);
+  ctx.bezierCurveTo(sx + 14, sy - 60, sx + 12, sy - 30, sx + 16, sy + 4);
+  ctx.lineTo(sx - 16, sy + 4);
+  ctx.bezierCurveTo(sx - 12, sy - 30, sx - 14, sy - 60, sx - 18, sy - 82);
+  ctx.closePath(); ctx.fill();
+
+  // ── Tactical vest pouches (with shadow + MOLLE webbing) ──
+  const drawPouch = (px, py, pw, ph) => {
+    ctx.fillStyle = 'rgba(0,0,0,0.45)';
+    ctx.fillRect(px + 2, py + 3, pw, ph);
+    ctx.fillStyle = '#1f2a18';
+    ctx.beginPath();
+    ctx.moveTo(px + 4, py); ctx.lineTo(px + pw - 4, py);
+    ctx.quadraticCurveTo(px + pw, py, px + pw, py + 4);
+    ctx.lineTo(px + pw, py + ph - 4);
+    ctx.quadraticCurveTo(px + pw, py + ph, px + pw - 4, py + ph);
+    ctx.lineTo(px + 4, py + ph);
+    ctx.quadraticCurveTo(px, py + ph, px, py + ph - 4);
+    ctx.lineTo(px, py + 4);
+    ctx.quadraticCurveTo(px, py, px + 4, py);
+    ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = '#3a4a30'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(px + 3, py + 14); ctx.lineTo(px + pw - 3, py + 14); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(px + 3, py + ph - 14); ctx.lineTo(px + pw - 3, py + ph - 14); ctx.stroke();
+  };
+  drawPouch(sx - 60, sy - 64, 42, 56);
+  drawPouch(sx + 18, sy - 64, 42, 56);
+  // Tan webbing strap across the chest
+  ctx.fillStyle = '#7a6a3a'; ctx.fillRect(sx - 60, sy - 28, 120, 4);
+  ctx.fillStyle = '#52441e'; ctx.fillRect(sx - 60, sy - 25, 120, 1);
+
+  // ── US flag shoulder patch (sewn-on parallelogram) ──
+  ctx.fillStyle = 'rgba(0,0,0,0.45)';
+  ctx.fillRect(sx + 52, sy - 76, 22, 12);
   ctx.fillStyle = '#0a2855';
-  ctx.fillRect(sx + 50, sy - 76, 18, 8);
+  ctx.fillRect(sx + 50, sy - 78, 22, 12);
   ctx.fillStyle = '#dcdcdc';
-  for (let i = 0; i < 4; i++) ctx.fillRect(sx + 50, sy - 76 + i * 2, 18, 1);
+  for (let i = 0; i < 4; i++) ctx.fillRect(sx + 50, sy - 78 + i * 3, 22, 1);
   ctx.fillStyle = '#cc1818';
-  ctx.fillRect(sx + 50, sy - 70, 18, 2);
-  // Arms forward + rifle held diagonally across the chest
+  ctx.fillRect(sx + 50, sy - 70, 22, 2);
+
+  // ── Arms — rounded with sleeve cuffs and domed gloves ──
   ctx.fillStyle = '#3a4a30';
-  ctx.fillRect(sx - 80, sy - 70, 30, 70); // left arm
-  ctx.fillRect(sx + 50, sy - 70, 30, 70); // right arm
+  // Left (far-side) arm tucked behind the stock
+  ctx.beginPath();
+  ctx.moveTo(sx - 78, sy - 70);
+  ctx.bezierCurveTo(sx - 96, sy - 60, sx - 100, sy - 30, sx - 92, sy + 4);
+  ctx.lineTo(sx - 66, sy + 4);
+  ctx.bezierCurveTo(sx - 72, sy - 30, sx - 70, sy - 56, sx - 60, sy - 70);
+  ctx.closePath(); ctx.fill();
+  // Right (camera-side) arm gripping the rifle, forearm angled in
+  ctx.beginPath();
+  ctx.moveTo(sx + 78, sy - 70);
+  ctx.bezierCurveTo(sx + 96, sy - 56, sx + 96, sy - 28, sx + 80, sy);
+  ctx.lineTo(sx + 50, sy + 6);
+  ctx.bezierCurveTo(sx + 54, sy - 24, sx + 58, sy - 54, sx + 62, sy - 70);
+  ctx.closePath(); ctx.fill();
+  // Sleeve seam shading
+  ctx.fillStyle = '#2c3a24';
+  ctx.fillRect(sx - 92, sy - 32, 26, 3);
+  ctx.fillRect(sx + 66, sy - 32, 26, 3);
+  // Gloves
   ctx.fillStyle = '#1a2418';
-  ctx.fillRect(sx - 80, sy - 14, 32, 16); // glove
-  ctx.fillRect(sx + 48, sy - 14, 32, 16); // glove
-  // Rifle held diagonally
+  ctx.beginPath(); ctx.ellipse(sx - 78, sy + 8, 18, 12, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(sx + 64, sy + 10, 18, 12, -0.2, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = '#0a0a0a'; ctx.lineWidth = 1;
+  for (let k = 0; k < 3; k++) {
+    ctx.beginPath(); ctx.moveTo(sx - 86 + k * 5, sy + 2); ctx.lineTo(sx - 82 + k * 5, sy + 6); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(sx + 56 + k * 5, sy + 4); ctx.lineTo(sx + 60 + k * 5, sy + 8); ctx.stroke();
+  }
+
+  // ── Rifle held diagonally across the chest ──
   ctx.save();
   ctx.translate(sx, sy - 30);
-  ctx.rotate(-0.3);
+  ctx.rotate(-0.30);
+  // Stock with rounded buttplate
   ctx.fillStyle = '#1a1410';
-  ctx.fillRect(-100, -6, 50, 14); // stock
-  ctx.fillStyle = '#181818';
-  ctx.fillRect(-50, -8, 60, 16); // receiver
-  ctx.fillStyle = '#0e0e0e';
-  ctx.fillRect(10, -5, 80, 10); // barrel
-  ctx.fillStyle = '#0a0a0a';
-  ctx.fillRect(-30, 8, 14, 22); // magazine
-  ctx.restore();
-  // Head — looking forward (right), wind hitting from the front
-  ctx.fillStyle = '#bf8a6a';
-  ctx.beginPath(); ctx.arc(sx, sy - 130, 30, 0, Math.PI * 2); ctx.fill();
-  // Helmet
-  ctx.fillStyle = '#1a2418';
   ctx.beginPath();
-  ctx.moveTo(sx - 32, sy - 140);
-  ctx.quadraticCurveTo(sx, sy - 168, sx + 36, sy - 138);
-  ctx.lineTo(sx + 36, sy - 116);
-  ctx.lineTo(sx - 32, sy - 116);
+  ctx.moveTo(-104, -6); ctx.quadraticCurveTo(-110, 0, -104, 8);
+  ctx.lineTo(-50, 8); ctx.lineTo(-50, -6); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#2a2018'; ctx.fillRect(-100, -5, 50, 3); // cheek-weld
+  // Receiver + charging handle bump
+  ctx.fillStyle = '#1a1a1c'; ctx.fillRect(-50, -10, 60, 20);
+  ctx.fillStyle = '#0a0a0a'; ctx.fillRect(-32, -14, 18, 4);
+  // Handguard with vent slots
+  ctx.fillStyle = '#222226'; ctx.fillRect(10, -7, 50, 14);
+  for (let v = 0; v < 4; v++) {
+    ctx.fillStyle = '#0a0a0a';
+    ctx.fillRect(16 + v * 10, -4, 4, 8);
+  }
+  ctx.fillStyle = '#0e0e10'; ctx.fillRect(60, -4, 32, 8); // barrel
+  ctx.fillStyle = '#0a0a0a'; ctx.fillRect(88, -10, 3, 6); // front sight
+  // Curved STANAG magazine
+  ctx.fillStyle = '#0a0a0a';
+  ctx.beginPath();
+  ctx.moveTo(-30, 10); ctx.lineTo(-14, 10);
+  ctx.quadraticCurveTo(-10, 16, -12, 30);
+  ctx.lineTo(-16, 36); ctx.lineTo(-30, 34);
+  ctx.quadraticCurveTo(-34, 22, -32, 14);
   ctx.closePath(); ctx.fill();
-  // Strap
-  ctx.fillStyle = '#0a0a0a';
-  ctx.fillRect(sx - 28, sy - 118, 64, 2);
-  // NVG mount up top
-  ctx.fillStyle = '#0a0a0a';
-  ctx.fillRect(sx - 4, sy - 162, 14, 6);
-  // Eye looking forward (right), squinting against wind
-  ctx.fillStyle = '#1a1a1a';
-  ctx.fillRect(sx + 8, sy - 132, 6, 3);
+  // Trigger guard
+  ctx.strokeStyle = '#0a0a0a'; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.arc(-20, 14, 7, -0.2, Math.PI + 0.2); ctx.stroke();
+  ctx.restore();
+
+  // ── Head + neck ─────────────────────────────────────────────
+  const hx = sx, hy = sy - 130 + breathe;
+  // Neck (cylindrical, shaded toward the bottom)
+  ctx.fillStyle = '#8a6248'; ctx.fillRect(hx - 10, hy + 24, 20, 16);
+  ctx.fillStyle = '#6a4a36'; ctx.fillRect(hx - 10, hy + 32, 20, 8);
+  // Face — egg-shaped
+  ctx.fillStyle = '#bf8a6a';
+  ctx.beginPath(); ctx.ellipse(hx, hy, 26, 32, 0, 0, Math.PI * 2); ctx.fill();
+  // Jaw shadow defining the chin angle
   ctx.fillStyle = '#9a6a4e';
-  ctx.fillRect(sx + 6, sy - 138, 12, 2); // brow
-  // Stubble jaw
-  ctx.fillStyle = '#5a4030';
-  ctx.fillRect(sx - 12, sy - 116, 18, 4);
+  ctx.beginPath();
+  ctx.moveTo(hx - 22, hy + 6);
+  ctx.bezierCurveTo(hx - 16, hy + 26, hx + 16, hy + 26, hx + 22, hy + 6);
+  ctx.bezierCurveTo(hx + 18, hy + 16, hx - 18, hy + 16, hx - 22, hy + 6);
+  ctx.closePath(); ctx.fill();
+  // Stubble — textured dots along the jaw line, not a solid bar
+  ctx.fillStyle = '#3a2a1a';
+  for (let s = 0; s < 22; s++) {
+    const sax = hx - 18 + (s * 2.1);
+    const say = hy + 12 + ((s * 7) % 5);
+    ctx.fillRect(sax, say, 1, 1);
+  }
+
+  // ── Helmet (MICH-style, NVG mount, chin strap) ──
+  ctx.fillStyle = '#1f2a18';
+  ctx.beginPath();
+  ctx.moveTo(hx - 32, hy - 4);
+  ctx.bezierCurveTo(hx - 36, hy - 26, hx - 22, hy - 40, hx, hy - 42);
+  ctx.bezierCurveTo(hx + 22, hy - 40, hx + 36, hy - 26, hx + 32, hy - 4);
+  ctx.lineTo(hx + 32, hy + 2);
+  ctx.lineTo(hx - 32, hy + 2);
+  ctx.closePath(); ctx.fill();
+  // Helmet rim (slightly lighter)
+  ctx.fillStyle = '#2c3a24';
+  ctx.beginPath();
+  ctx.moveTo(hx - 32, hy + 2);
+  ctx.bezierCurveTo(hx - 22, hy - 4, hx + 22, hy - 4, hx + 32, hy + 2);
+  ctx.closePath(); ctx.fill();
+  // Moonlight specular highlight
+  ctx.fillStyle = 'rgba(200,210,180,0.18)';
+  ctx.beginPath();
+  ctx.ellipse(hx - 12, hy - 30, 12, 6, -0.4, 0, Math.PI * 2); ctx.fill();
+  // NVG mount block + folded-up monocular
+  ctx.fillStyle = '#0a0a0a'; ctx.fillRect(hx - 5, hy - 44, 14, 7);
+  ctx.fillStyle = '#181818'; ctx.fillRect(hx + 1, hy - 52, 7, 10);
+  ctx.fillStyle = '#0a0a0a';
+  ctx.beginPath(); ctx.arc(hx + 4, hy - 52, 4, 0, Math.PI * 2); ctx.fill();
+  // Chin strap curving under the jaw
+  ctx.strokeStyle = '#0a0a0a'; ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(hx - 28, hy);
+  ctx.quadraticCurveTo(hx, hy + 26, hx + 28, hy); ctx.stroke();
+
+  // ── Eyes (only the camera-side one is fully visible) ──
+  // Brow ridge as a subtle elliptical shadow, not a flat bar
+  ctx.fillStyle = '#7a5236';
+  ctx.beginPath();
+  ctx.ellipse(hx + 10, hy - 6, 11, 3, -0.15, 0, Math.PI * 2); ctx.fill();
+  // Eye socket
+  ctx.fillStyle = '#3a2418';
+  ctx.beginPath();
+  ctx.ellipse(hx + 10, hy + 1, 6, 3, 0, 0, Math.PI * 2); ctx.fill();
+  // Sclera
+  ctx.fillStyle = '#e8dfc8';
+  ctx.beginPath();
+  ctx.ellipse(hx + 11, hy + 1, 4, 2, 0, 0, Math.PI * 2); ctx.fill();
+  // Iris + pupil looking forward
+  ctx.fillStyle = '#3a4a30';
+  ctx.beginPath(); ctx.arc(hx + 13, hy + 1, 2, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#0a0a0a';
+  ctx.beginPath(); ctx.arc(hx + 14, hy + 1, 1, 0, Math.PI * 2); ctx.fill();
+  // Far-side eye barely visible past the nose bridge
+  ctx.fillStyle = '#3a2418'; ctx.fillRect(hx - 8, hy, 4, 2);
+  // Nose ridge highlight
+  ctx.strokeStyle = '#8a5a3a'; ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(hx + 4, hy - 4);
+  ctx.quadraticCurveTo(hx + 8, hy + 8, hx + 4, hy + 12); ctx.stroke();
+
   // Wind streaks across his face/scarf
   ctx.strokeStyle = 'rgba(180,170,150,0.45)'; ctx.lineWidth = 1.2;
   for (let i = 0; i < 5; i++) {
@@ -2674,15 +3104,24 @@ function dShotConvoyClose(ctx, t, now) {
   ctx.ellipse(sx + 32, sy - 122 + bz * 4, 14 + bz * 10, 6 + bz * 4, 0, 0, Math.PI * 2);
   ctx.fill();
 
-  // Second soldier silhouette in the background (back-to-camera, also
-  // looking forward — sells "we're not alone in this truck")
+  // Second soldier silhouette (background, back-to-camera, looking
+  // forward) — also rounded, not a flat rectangle.
   const sx2 = CW * 0.72, sy2 = CH - 100;
   ctx.fillStyle = '#1a2418';
-  ctx.fillRect(sx2 - 16, sy2 - 76, 32, 76);
+  ctx.beginPath();
+  ctx.moveTo(sx2 - 18, sy2);
+  ctx.bezierCurveTo(sx2 - 20, sy2 - 30, sx2 - 18, sy2 - 60, sx2 - 14, sy2 - 76);
+  ctx.lineTo(sx2 + 14, sy2 - 76);
+  ctx.bezierCurveTo(sx2 + 18, sy2 - 60, sx2 + 20, sy2 - 30, sx2 + 18, sy2);
+  ctx.closePath(); ctx.fill();
   ctx.beginPath(); ctx.arc(sx2, sy2 - 86, 12, 0, Math.PI * 2); ctx.fill();
   ctx.fillStyle = '#0a0a0a';
-  ctx.fillRect(sx2 - 14, sy2 - 96, 28, 8); // helmet
-  ctx.fillRect(sx2 + 12, sy2 - 60, 30, 4); // rifle slung
+  ctx.beginPath();
+  ctx.moveTo(sx2 - 14, sy2 - 92);
+  ctx.bezierCurveTo(sx2 - 14, sy2 - 102, sx2 + 14, sy2 - 102, sx2 + 14, sy2 - 92);
+  ctx.lineTo(sx2 + 14, sy2 - 88); ctx.lineTo(sx2 - 14, sy2 - 88);
+  ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#0a0a0a'; ctx.fillRect(sx2 + 12, sy2 - 60, 30, 4);
 }
 
 // 5.2 — Fort Omega wide: the wall + soldiers + title card.
