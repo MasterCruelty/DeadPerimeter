@@ -159,6 +159,46 @@ export const RESEARCHES = [
   },
 ];
 
+// Per-soldier weapon perks. Bought at the workbench (requires
+// `gs.workbench.built`). Each soldier has a sparse `upgrades` map of
+// id → true. `weapons: 'all'` perks fit any soldier; otherwise the
+// listed weapon keys gate the buy button. Costs are paid once.
+//
+// One-shot effects (maxHp / maxAmmo bumps) are applied at purchase
+// time directly on the soldier. Per-shot multipliers (damageMul,
+// reloadMul) are read from the perk table at fire / reload time.
+export const PERKS = [
+  { id: 'vest',        name: 'Ballistic Vest', icon: '🦺', cost: { materials: 20 }, weapons: 'all',
+    desc: '+30 max HP and patches up to the new cap.', maxHpBonus: 30 },
+  { id: 'extMag',      name: 'Extended Mag',   icon: '📦', cost: { materials: 12 }, weapons: ['rifle', 'pistol'],
+    desc: '+10 rounds per magazine.',                  maxAmmoBonus: 10 },
+  { id: 'heavyBarrel', name: 'Heavy Barrel',   icon: '⚙', cost: { materials: 18 }, weapons: ['rifle'],
+    desc: '+25% damage.',                              damageMul: 1.25 },
+  { id: 'hollowPts',   name: 'Hollow Points',  icon: '🔴', cost: { materials: 14 }, weapons: ['pistol'],
+    desc: '+30% damage.',                              damageMul: 1.30 },
+  { id: 'bipod',       name: 'Bipod',          icon: '🦿', cost: { materials: 20, sniperAmmo: 3 }, weapons: ['sniper'],
+    desc: '+150 range.',                               rangeBonus: 150 },
+  { id: 'matchAmmo',   name: 'Match Ammo',     icon: '🎯', cost: { materials: 18, sniperAmmo: 5 }, weapons: ['sniper'],
+    desc: '+40% damage.',                              damageMul: 1.40 },
+  { id: 'quickReload', name: 'Quick Reload',   icon: '⚡', cost: { materials: 15 }, weapons: 'all',
+    desc: '−25% reload time.',                         reloadMul: 0.75 },
+];
+
+// Aggregate a per-soldier perk effect. Multipliers (keys ending in
+// 'Mul') compound; bonuses add. Used by siege.js at fire / reload time.
+export function getSoldierPerkEffect(sol, key, defaultValue) {
+  const owned = (sol && sol.upgrades) || null;
+  if (!owned) return defaultValue;
+  let v = defaultValue;
+  for (const p of PERKS) {
+    if (!owned[p.id]) continue;
+    if (!(key in p)) continue;
+    if (key.endsWith('Mul')) v *= p[key];
+    else v += p[key];
+  }
+  return v;
+}
+
 // Helper: read the active research-effect value for a given key,
 // returning the supplied default if no completed research touches it.
 // `gs.research.completed` is the source of truth (array of ids).

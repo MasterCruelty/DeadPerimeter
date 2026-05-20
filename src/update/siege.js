@@ -1,7 +1,7 @@
 import { C, CW, WORLD_W, GY, WX, uid, rng, laneY, laneSc } from '../constants.js';
 import { WPN } from '../data/weapons.js';
 import { HUMAN_AMMO_DROP } from '../data/humans.js';
-import { BALANCE, RESEARCHES } from '../data/difficulty.js';
+import { BALANCE, RESEARCHES, PERKS } from '../data/difficulty.js';
 import { TRANSMISSION_WAVES } from '../data/transmissions.js';
 import { mkZombie } from '../entities/zombie.js';
 import { mkHuman } from '../entities/human.js';
@@ -21,16 +21,35 @@ function researchMul(gs, key) {
   return m;
 }
 
-// Effective reload time + weapon range with research bonuses folded in.
-function effRl(gs, w)    { return w.rl * researchMul(gs, 'reloadMul'); }
-function effRange(gs, weaponKey, w) {
-  if (weaponKey !== 'sniper') return w.range;
-  const ids = (gs && gs.research && gs.research.completed) || [];
+// Multiplier / bonus aggregated from a soldier's owned perks.
+function perkMul(sol, key) {
+  const owned = (sol && sol.upgrades) || null; if (!owned) return 1;
+  let m = 1;
+  for (const p of PERKS) { if (owned[p.id] && key in p) m *= p[key]; }
+  return m;
+}
+function perkBonus(sol, key) {
+  const owned = (sol && sol.upgrades) || null; if (!owned) return 0;
+  let b = 0;
+  for (const p of PERKS) { if (owned[p.id] && key in p) b += p[key]; }
+  return b;
+}
+
+// Effective reload time + weapon range. Folds in research effects
+// AND per-soldier perks. `sol` may be null for non-soldier callers.
+function effRl(gs, sol, w) {
+  return w.rl * researchMul(gs, 'reloadMul') * perkMul(sol, 'reloadMul');
+}
+function effRange(gs, sol, weaponKey, w) {
   let bonus = 0;
-  for (const id of ids) {
-    const r = RESEARCHES.find(r => r.id === id);
-    if (r && r.effects && 'sniperRangeBonus' in r.effects) bonus += r.effects.sniperRangeBonus;
+  if (weaponKey === 'sniper') {
+    const ids = (gs && gs.research && gs.research.completed) || [];
+    for (const id of ids) {
+      const r = RESEARCHES.find(r => r.id === id);
+      if (r && r.effects && 'sniperRangeBonus' in r.effects) bonus += r.effects.sniperRangeBonus;
+    }
   }
+  bonus += perkBonus(sol, 'rangeBonus');
   return w.range + bonus;
 }
 
@@ -261,7 +280,7 @@ export function update(gs, now, dt) {
       const w = WPN[s.weapon];
       s.recoil = Math.max(0, (s.recoil || 0) - dt);
       if (s.state === 'reload') {
-        if (now - s.reloadStart >= effRl(gs, w)) { s.ammo = s.maxAmmo; s.state = 'idle'; s.reloadTriggered = false; }
+        if (now - s.reloadStart >= effRl(gs, s, w)) { s.ammo = s.maxAmmo; s.state = 'idle'; s.reloadTriggered = false; }
         return;
       }
       if (s.ammo <= 0) {
@@ -269,7 +288,7 @@ export function update(gs, now, dt) {
         if (refill > 0) {
           gs.resources.sniperAmmo -= refill;
           s.state = 'reload'; s.reloadStart = now; s.ammo = refill;
-          if (!s.reloadTriggered) { s.reloadTriggered = true; gs.soundQ.push({ t: 'reload', w: s.weapon, dur: effRl(gs, w) }); pushRadio(gs, 'reload', { speaker: s }); }
+          if (!s.reloadTriggered) { s.reloadTriggered = true; gs.soundQ.push({ t: 'reload', w: s.weapon, dur: effRl(gs, s, w) }); pushRadio(gs, 'reload', { speaker: s }); }
           gs.effects.push({ type: 'txt', x: s.x + 30, y: GY - 160, v: 'RELOAD!', col: C.wrn, at: now, dur: 800 });
         } else {
           // Out of sniper ammo — descend
@@ -289,7 +308,7 @@ export function update(gs, now, dt) {
       // battlefield and the bullet-life math (range = distance-to-tgt
       // below) gave it effectively infinite reach. Now the same range
       // gate that the ground soldiers use applies here too.
-      const wRange = effRange(gs, s.weapon, w);
+      const wRange = effRange(gs, s, s.weapon, w);
       const pool = gs.isHumanWave
         ? gs.humans.filter(z => z.state !== 'dead' && z.x > WX && Math.abs(z.x - s.x) <= wRange)
         : gs.zombies.filter(z => z.state !== 'dead' && z.x > WX && Math.abs(z.x - s.x) <= wRange);
@@ -343,7 +362,7 @@ export function update(gs, now, dt) {
     const w = WPN[s.weapon];
 
     // Target zombies during normal waves, humans during human waves
-    const wRangeG = effRange(gs, s.weapon, w);
+    const wRangeG = effRange(gs, s, s.weapon, w);
     const enms = gs.isHumanWave
       ? gs.humans.filter(z => z.state !== 'dead' && Math.abs(z.x - s.x) <= wRangeG && z.x > WX)
       : gs.zombies.filter(z => z.state !== 'dead' && Math.abs(z.x - s.x) <= wRangeG && z.x > WX);
@@ -360,7 +379,7 @@ export function update(gs, now, dt) {
     s.facing = tgt.x > s.x ? 1 : -1;
 
     if (s.state === 'reload') {
-      if (now - s.reloadStart >= effRl(gs, w)) { s.ammo = s.maxAmmo; s.state = 'idle'; s.reloadTriggered = false; }
+      if (now - s.reloadStart >= effRl(gs, s, w)) { s.ammo = s.maxAmmo; s.state = 'idle'; s.reloadTriggered = false; }
       return;
     }
 
@@ -409,7 +428,7 @@ export function update(gs, now, dt) {
         if (refill > 0) {
           s.state = 'reload'; s.reloadStart = now; gs.resources.ammo -= refill; s.ammo = refill;
           s.knifeReady = false;
-          if (!s.reloadTriggered) { s.reloadTriggered = true; gs.soundQ.push({ t: 'reload', w: s.weapon, dur: effRl(gs, w) }); pushRadio(gs, 'reload', { speaker: s }); }
+          if (!s.reloadTriggered) { s.reloadTriggered = true; gs.soundQ.push({ t: 'reload', w: s.weapon, dur: effRl(gs, s, w) }); pushRadio(gs, 'reload', { speaker: s }); }
           gs.effects.push({ type: 'txt', x: s.x, y: laneY(s.lane) - 80, v: 'RELOAD!', col: C.wrn, at: now, dur: 800 });
         } else {
           // Empty stash too — soldier holsters firearm and the knife
@@ -455,7 +474,7 @@ export function update(gs, now, dt) {
     if (hit) {
       // Apply Combat Drills (all soldiers) and AP Rounds (rifle vs tank).
       const shooter = b.shooterId ? gs.soldiers.find(x => x.id === b.shooterId) : null;
-      let dmg = b.dmg * researchMul(gs, 'soldierDamageMul');
+      let dmg = b.dmg * researchMul(gs, 'soldierDamageMul') * perkMul(shooter, 'damageMul');
       if (shooter && shooter.weapon === 'rifle' && !gs.isHumanWave && hit.type === 'tank') {
         dmg *= researchMul(gs, 'rifleVsTankMul');
       }
