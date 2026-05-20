@@ -259,7 +259,21 @@ export function mkMission(soldier, dest, wave = 1, magsPerSoldier = 2) {
     const useIndoor = indoorBiome && ox >= entranceX;
     const pool = useIndoor ? indoorBiome.obstacles : biome.obstacles;
     const otype = pool[Math.floor(Math.random() * pool.length)];
-    obstacles.push({ x: ox, type: otype });
+    // Searchable container types — looting them yields a small
+    // resource drop (TLS Union City style). The player walks up to
+    // one and the auto-search kicks in. Half the obstacles in
+    // indoor sections are searchable; outdoor mission corpses /
+    // wrecks have a lower rate.
+    const SEARCHABLE_TYPES = new Set([
+      // Indoor
+      'desk', 'locker', 'filing-cabinet', 'evidence-box', 'gun-rack',
+      'glass-case', 'workbench', 'cubicle', 'photocopier', 'water-cooler',
+      // Outdoor / shared
+      'crate', 'ammo-crate', 'container', 'trash-bin', 'medkit',
+    ]);
+    const baseChance = useIndoor ? 0.55 : 0.30;
+    const searchable = SEARCHABLE_TYPES.has(otype) && Math.random() < baseChance;
+    obstacles.push({ x: ox, type: otype, searchable, searched: false });
   }
   // Decorative props every biome.propsPerStep along the road
   // (lampposts, fences, broken streetlights). Stored separately so the
@@ -707,7 +721,7 @@ export function updateMission(m, now, dt) {
   // line. Prevents the "pace back and forth and let AI followers
   // tank for you" exploit. They can still push forward to meet the
   // horde, just can't run away from it.
-  if (m.objective === 'defend' && m.defendStartedAt) {
+  if (m.objective === 'defend' && m.defendStartedAt && !m.extraction) {
     const minX = m.defendAnchor - 30;
     if (s.x < minX) s.x = minX;
   }
@@ -1118,8 +1132,78 @@ export function updateMission(m, now, dt) {
         });
         m.activatedCount++;
       }
-      if (elapsed >= m.defendDuration) {
-        m.state = 'won'; m.endedAt = now;
+      // Hold's done — call in the armored extraction. Spawning stops
+      // (no new zombies past this point), an APC drives in from the
+      // Fort Omega side, soldiers board, then it drives back. m.state
+      // only flips to 'won' when the convoy has cleared the screen.
+      if (elapsed >= m.defendDuration && !m.extraction) {
+        m.extraction = {
+          startedAt: now,
+          phase: 'incoming',           // incoming → boarding → leaving
+          // Truck rolls in from the LEFT (= back toward Fort Omega),
+          // stops a few pixels short of the defend anchor.
+          x: -180,
+          stopX: m.defendAnchor - 80,
+          boardStart: 0,
+          boardDur: 2600,
+          soldierEmbarked: { [m.soldier.id]: false },
+        };
+        (m.followers || []).forEach(f => { m.extraction.soldierEmbarked[f.id] = false; });
+        m.effects.push({ type: 'txt', x: s.x, y: MGY - 100, v: 'EXTRACTION INBOUND', col: '#88ddff', at: now, dur: 2400 });
+        pushRadio(m, 'evacIn', { line: 'Convoy rolling in!', speaker: m.soldier });
+      }
+    }
+  }
+  // Stop the defend spawn cadence once the extraction begins.
+  if (m.extraction && m.objective === 'defend') {
+    m.defendNextSpawn = Number.POSITIVE_INFINITY;
+    const e = m.extraction;
+    const APC_SPD_IN  = 1.4 * (dt / 16);    // px/frame at 60fps
+    const APC_SPD_OUT = 1.9 * (dt / 16);
+    if (e.phase === 'incoming') {
+      e.x += APC_SPD_IN;
+      if (e.x >= e.stopX) {
+        e.x = e.stopX;
+        e.phase = 'boarding';
+        e.boardStart = now;
+        m.effects.push({ type: 'txt', x: s.x, y: MGY - 90, v: 'BOARD UP!', col: '#88ee99', at: now, dur: 1800 });
+        pushRadio(m, 'evacBoard', { line: 'Mount up! Move move move!', urgent: true, speaker: m.soldier });
+      }
+    } else if (e.phase === 'boarding') {
+      // Pull every alive party member toward the truck and flip
+      // their embarked flag once they touch it. While embarked the
+      // sprite is hidden by the render (handled via soldierEmbarked
+      // lookup) but the soldier is otherwise alive for stats.
+      const members = [m.soldier, ...(m.followers || [])].filter(p => p && p.hp > 0 && p.state !== 'dead');
+      members.forEach(p => {
+        if (e.soldierEmbarked[p.id]) return;
+        const dx = (e.x + 30) - p.x;
+        const step = 2.4 * (dt / 16) * Math.sign(dx);
+        if (Math.abs(dx) <= 4) {
+          e.soldierEmbarked[p.id] = true;
+        } else {
+          p.x += step;
+          p.facing = step > 0 ? 1 : -1;
+          if (p.state === 'idle') p.state = 'walk';
+        }
+        // Also force them down off any platform / ladder so they
+        // don't ride the truck through the air.
+        p.standingY = 0; p.jumpY = 0; p.vy = 0; p.climbing = null;
+      });
+      const allEmbarked = members.every(p => e.soldierEmbarked[p.id]);
+      const timedOut = now - e.boardStart > e.boardDur + 1000;
+      if (allEmbarked || timedOut) {
+        e.phase = 'leaving';
+        pushRadio(m, 'evacOut', { line: 'Wheels up! Going home!', speaker: m.soldier });
+      }
+    } else if (e.phase === 'leaving') {
+      e.x -= APC_SPD_OUT;
+      // Camera tracks the truck on the way out so the player sees it
+      // disappear, not just their abandoned spawn point.
+      m.cameraX = Math.max(0, Math.min(MISSION_W - MISSION_VIEW, e.x - MISSION_VIEW / 2));
+      if (e.x < -200) {
+        m.state = 'won';
+        m.endedAt = now;
       }
     }
   }
@@ -1396,6 +1480,65 @@ export function updateMission(m, now, dt) {
   });
 
   // Pickups can be grabbed by any party member. Pickups with a fork
+  // Searchable obstacles (TLS Union City style looting). When a
+  // party member stays within ~30 px of an un-searched container
+  // for ~700 ms, it opens and drops a small resource pickup.
+  // Drives the "explore buildings, search furniture" loop without
+  // needing a discrete interaction key.
+  (m.obstacles || []).forEach(o => {
+    if (!o.searchable || o.searched) return;
+    const member = aliveParty(m).find(p =>
+      Math.abs(p.x - o.x) < 30 && Math.abs((p.standingY || 0) - 0) < 18,
+    );
+    if (!member) {
+      // Drop the search timer if the player walks away
+      o._searchAt = 0;
+      return;
+    }
+    if (!o._searchAt) o._searchAt = now;
+    if (now - o._searchAt >= 700) {
+      o.searched = true;
+      o._searchAt = 0;
+      // Drop a small loot pickup. The type pool depends on the
+      // container — guns yield ammo, desks yield medicine/food,
+      // workbenches yield materials, etc.
+      const LOOT_TABLE = {
+        'desk':           ['medicine', 'food', 'materials'],
+        'filing-cabinet': ['materials', 'food'],
+        'locker':         ['ammo', 'materials'],
+        'evidence-box':   ['ammo', 'materials'],
+        'gun-rack':       ['ammo', 'ammo', 'sniperAmmo'],
+        'glass-case':     ['ammo', 'sniperAmmo'],
+        'workbench':      ['materials', 'materials', 'ammo'],
+        'cubicle':        ['food', 'medicine'],
+        'photocopier':    ['materials'],
+        'water-cooler':   ['food', 'food', 'medicine'],
+        'crate':          ['materials', 'ammo', 'food'],
+        'ammo-crate':     ['ammo', 'ammo', 'turretAmmo'],
+        'container':      ['materials', 'ammo'],
+        'trash-bin':      ['food'],
+        'medkit':         ['medicine', 'medicine'],
+      };
+      const pool = LOOT_TABLE[o.type] || ['materials'];
+      const type = pool[Math.floor(Math.random() * pool.length)];
+      const VALUES = {
+        ammo: [4, 9], medicine: [3, 6], food: [3, 6],
+        materials: [2, 4], sniperAmmo: [1, 2], turretAmmo: [3, 6],
+      };
+      const [lo, hi] = VALUES[type] || [1, 3];
+      const value = rng(lo, hi);
+      m.collected[type] = (m.collected[type] || 0) + value;
+      m.effects.push({
+        type: 'txt',
+        x: o.x, y: MGY - 70,
+        v: `+${value} ${type}`,
+        col: type === 'ammo' || type === 'sniperAmmo' || type === 'turretAmmo' ? '#88ddff' : C.acc,
+        at: now, dur: 1200,
+      });
+      m.soundQ.push({ t: 'pickup' });
+    }
+  });
+
   // lane only count if the picker is on the matching lane.
   m.pickups.forEach(p => {
     if (p.collected) return;
@@ -1603,6 +1746,90 @@ function dIndoorBackdrop(ctx, m, biome) {
     ctx.ellipse(lx, MGY - 1, 36, 4, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.globalAlpha = 1;
+  }
+}
+
+// Armored personnel carrier that arrives at the end of a DEFEND
+// objective to extract the squad. Drawn at ground level facing the
+// direction it's moving (right while incoming, left while leaving).
+function dExtractionAPC(ctx, e, now) {
+  const x = e.x;
+  const y = MGY;
+  // Wheel bobs for that "diesel idling" feel while boarding
+  const bob = e.phase === 'boarding' ? Math.sin(now / 110) * 0.5 : 0;
+  // Hull main body
+  ctx.fillStyle = '#2a3424';
+  ctx.fillRect(x - 36, y - 32 + bob, 92, 30);
+  // Sloped front armour
+  ctx.fillStyle = '#1f281a';
+  ctx.beginPath();
+  ctx.moveTo(x + 56, y - 32 + bob);
+  ctx.lineTo(x + 72, y - 24 + bob);
+  ctx.lineTo(x + 72, y - 2 + bob);
+  ctx.lineTo(x + 56, y - 2 + bob);
+  ctx.closePath(); ctx.fill();
+  // Cab / windshield
+  ctx.fillStyle = '#5a6044';
+  ctx.fillRect(x - 30, y - 44 + bob, 50, 14);
+  ctx.fillStyle = '#1a2a30';
+  ctx.fillRect(x - 26, y - 41 + bob, 42, 8);
+  // Roof turret mount (decorative)
+  ctx.fillStyle = '#1a2014';
+  ctx.fillRect(x + 6, y - 50 + bob, 16, 8);
+  ctx.fillStyle = '#2a3424';
+  ctx.fillRect(x + 14, y - 54 + bob, 22, 4);  // barrel
+  // Door — open during boarding so soldiers can climb in
+  ctx.fillStyle = '#0a0e08';
+  if (e.phase === 'boarding') {
+    // Door swung outward
+    ctx.fillRect(x - 36, y - 30 + bob, 4, 28);
+    ctx.fillStyle = '#1a2014';
+    ctx.fillRect(x - 56, y - 30 + bob, 20, 28);
+    // Interior darkness
+    ctx.fillStyle = '#0a0e08';
+    ctx.fillRect(x - 32, y - 28 + bob, 26, 24);
+  } else {
+    ctx.fillRect(x - 30, y - 28 + bob, 22, 24);
+  }
+  // Star / unit marking
+  ctx.fillStyle = '#c4a838';
+  ctx.font = 'bold 14px monospace'; ctx.textAlign = 'center';
+  ctx.fillText('★', x + 30, y - 14 + bob);
+  ctx.textAlign = 'left';
+  // Rivets along the hull
+  ctx.fillStyle = '#1a2014';
+  for (let rx = x - 32; rx < x + 50; rx += 12) {
+    ctx.fillRect(rx, y - 18 + bob, 2, 2);
+  }
+  // Tires (3 axles)
+  ctx.fillStyle = '#080a06';
+  ctx.beginPath(); ctx.arc(x - 22, y - 1, 8, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(x + 14, y - 1, 8, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(x + 46, y - 1, 8, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#3a3a3a';
+  ctx.beginPath(); ctx.arc(x - 22, y - 1, 3, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(x + 14, y - 1, 3, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(x + 46, y - 1, 3, 0, Math.PI * 2); ctx.fill();
+  // Headlight beams reach forward while moving
+  if (e.phase === 'incoming' || e.phase === 'leaving') {
+    const dir = e.phase === 'incoming' ? 1 : -1;
+    const lx = dir > 0 ? x + 70 : x - 32;
+    ctx.fillStyle = 'rgba(255,240,200,0.18)';
+    ctx.beginPath();
+    ctx.moveTo(lx, y - 16);
+    ctx.lineTo(lx + dir * 90, y - 26);
+    ctx.lineTo(lx + dir * 90, y - 2);
+    ctx.closePath(); ctx.fill();
+    // Filament dots
+    ctx.fillStyle = '#fff5cc';
+    ctx.fillRect(lx - (dir > 0 ? 0 : 2), y - 18, 3, 2);
+    ctx.fillRect(lx - (dir > 0 ? 0 : 2), y - 12, 3, 2);
+  }
+  // Boarding-phase prompt above the truck
+  if (e.phase === 'boarding') {
+    ctx.fillStyle = '#88ee99'; ctx.font = 'bold 11px monospace'; ctx.textAlign = 'center';
+    ctx.fillText('◀ BOARD UP', x + 10, y - 64 + bob);
+    ctx.textAlign = 'left';
   }
 }
 
@@ -2226,8 +2453,38 @@ export function dMissionWorld(ctx, m, now) {
 
   // Hazards (acid pools first so obstacles draw on top, then mines).
   (m.hazards || []).filter(h => h.type === 'acid').forEach(h => dHazard(ctx, h, now));
-  // Foreground obstacles (biome-aware)
-  m.obstacles.forEach(o => dObstacle(ctx, o));
+  // Foreground obstacles (biome-aware). Searchable containers get
+  // a "loot ready" hint above them, an in-progress bar while the
+  // player is searching, and a darker / open-lid look after looting.
+  m.obstacles.forEach(o => {
+    if (o.searched) {
+      // Drained look — drawn at 0.55 alpha + a tiny "(empty)"
+      ctx.save(); ctx.globalAlpha = 0.55;
+      dObstacle(ctx, o);
+      ctx.restore();
+      ctx.fillStyle = 'rgba(120,120,110,0.6)'; ctx.font = '7px monospace'; ctx.textAlign = 'center';
+      ctx.fillText('(empty)', o.x, MGY - 28);
+      ctx.textAlign = 'left';
+    } else {
+      dObstacle(ctx, o);
+      if (o.searchable) {
+        // Floating loot-icon hint
+        const bob = Math.sin(now / 250 + o.x * 0.02) * 2;
+        ctx.fillStyle = 'rgba(220,200,80,0.75)';
+        ctx.font = 'bold 10px monospace'; ctx.textAlign = 'center';
+        ctx.fillText('★', o.x, MGY - 36 + bob);
+        ctx.textAlign = 'left';
+        // Mid-search progress bar
+        if (o._searchAt) {
+          const p = Math.min(1, (now - o._searchAt) / 700);
+          ctx.fillStyle = 'rgba(20,30,15,0.8)';
+          ctx.fillRect(o.x - 18, MGY - 50, 36, 4);
+          ctx.fillStyle = '#88ee99';
+          ctx.fillRect(o.x - 17, MGY - 49, 34 * p, 2);
+        }
+      }
+    }
+  });
   // Mines drawn after obstacles so the player can spot them on the road
   // (still low-contrast — they're hidden by design).
   (m.hazards || []).filter(h => h.type === 'mine').forEach(h => dHazard(ctx, h, now));
@@ -2310,24 +2567,38 @@ export function dMissionWorld(ctx, m, now) {
     }
   });
 
+  // Embarked-soldier check: during a defend extraction, party
+  // members who've stepped into the APC are hidden by the render
+  // (the truck rolls them off-screen).
+  const embarked = (m.extraction && m.extraction.soldierEmbarked) || {};
   // Draw followers first so the lead reads as in front of them.
   (m.followers || []).forEach(f => {
+    if (embarked[f.id]) return;
     const fc = { ...f, lane: 0, onExpedition: false, state: f.state };
     ctx.save(); ctx.translate(0, f._laneY || 0);
     dSoldier(ctx, fc, now);
     ctx.restore();
   });
 
-  const sCopy = { ...m.soldier, lane: 0, onExpedition: false, state: m.soldier.state };
-  // Render y offset = fork-lane offset + jump arc + platform stand
-  // height. standingY is negative when on a platform (above ground).
-  ctx.save(); ctx.translate(0,
-    (m.soldier._laneY || 0)
-    + (m.soldier.jumpY || 0)
-    + (m.soldier.standingY || 0),
-  );
-  dSoldier(ctx, sCopy, now, true); // pass selection ring to mark the lead
-  ctx.restore();
+  if (!embarked[m.soldier.id]) {
+    const sCopy = { ...m.soldier, lane: 0, onExpedition: false, state: m.soldier.state };
+    // Render y offset = fork-lane offset + jump arc + platform stand
+    // height. standingY is negative when on a platform (above ground).
+    ctx.save(); ctx.translate(0,
+      (m.soldier._laneY || 0)
+      + (m.soldier.jumpY || 0)
+      + (m.soldier.standingY || 0),
+    );
+    dSoldier(ctx, sCopy, now, true); // pass selection ring to mark the lead
+    ctx.restore();
+  }
+
+  // Extraction APC — rolls in from the Fort Omega side, soldiers
+  // board, then it drives back. Drawn AFTER party members so they
+  // visually approach (and disappear into) the truck.
+  if (m.extraction) {
+    dExtractionAPC(ctx, m.extraction, now);
+  }
 
   m.effects.forEach(e => dFx(ctx, e, now));
   m.bullets.forEach(b => dBlt(ctx, b));
