@@ -1,12 +1,57 @@
 import { C, CW, WORLD_W, GY, WX, uid, rng, laneY, laneSc } from '../constants.js';
 import { WPN } from '../data/weapons.js';
 import { HUMAN_AMMO_DROP } from '../data/humans.js';
-import { BALANCE } from '../data/difficulty.js';
+import { BALANCE, RESEARCHES, PERKS } from '../data/difficulty.js';
 import { TRANSMISSION_WAVES } from '../data/transmissions.js';
 import { mkZombie } from '../entities/zombie.js';
 import { mkHuman } from '../entities/human.js';
 import { mkSoldier } from '../entities/soldier.js';
 import { pushRadio } from '../audio/radio.js';
+
+// Read the multiplier from a completed research node by effect-key.
+// Defaults to 1 when no node touches this key. Kept local to avoid
+// pulling the bigger getResearchEffect() helper into the hot loop.
+function researchMul(gs, key) {
+  const ids = (gs && gs.research && gs.research.completed) || [];
+  let m = 1;
+  for (const id of ids) {
+    const r = RESEARCHES.find(r => r.id === id);
+    if (r && r.effects && key in r.effects) m *= r.effects[key];
+  }
+  return m;
+}
+
+// Multiplier / bonus aggregated from a soldier's owned perks.
+function perkMul(sol, key) {
+  const owned = (sol && sol.upgrades) || null; if (!owned) return 1;
+  let m = 1;
+  for (const p of PERKS) { if (owned[p.id] && key in p) m *= p[key]; }
+  return m;
+}
+function perkBonus(sol, key) {
+  const owned = (sol && sol.upgrades) || null; if (!owned) return 0;
+  let b = 0;
+  for (const p of PERKS) { if (owned[p.id] && key in p) b += p[key]; }
+  return b;
+}
+
+// Effective reload time + weapon range. Folds in research effects
+// AND per-soldier perks. `sol` may be null for non-soldier callers.
+function effRl(gs, sol, w) {
+  return w.rl * researchMul(gs, 'reloadMul') * perkMul(sol, 'reloadMul');
+}
+function effRange(gs, sol, weaponKey, w) {
+  let bonus = 0;
+  if (weaponKey === 'sniper') {
+    const ids = (gs && gs.research && gs.research.completed) || [];
+    for (const id of ids) {
+      const r = RESEARCHES.find(r => r.id === id);
+      if (r && r.effects && 'sniperRangeBonus' in r.effects) bonus += r.effects.sniperRangeBonus;
+    }
+  }
+  bonus += perkBonus(sol, 'rangeBonus');
+  return w.range + bonus;
+}
 
 // Helper for soldier "I'm hit / I'm down" callouts. Toggles a flag on
 // the soldier so the line fires once per low-HP descent and resets
@@ -235,7 +280,7 @@ export function update(gs, now, dt) {
       const w = WPN[s.weapon];
       s.recoil = Math.max(0, (s.recoil || 0) - dt);
       if (s.state === 'reload') {
-        if (now - s.reloadStart >= w.rl) { s.ammo = s.maxAmmo; s.state = 'idle'; s.reloadTriggered = false; }
+        if (now - s.reloadStart >= effRl(gs, s, w)) { s.ammo = s.maxAmmo; s.state = 'idle'; s.reloadTriggered = false; }
         return;
       }
       if (s.ammo <= 0) {
@@ -243,7 +288,7 @@ export function update(gs, now, dt) {
         if (refill > 0) {
           gs.resources.sniperAmmo -= refill;
           s.state = 'reload'; s.reloadStart = now; s.ammo = refill;
-          if (!s.reloadTriggered) { s.reloadTriggered = true; gs.soundQ.push({ t: 'reload', w: s.weapon, dur: w.rl }); pushRadio(gs, 'reload', { speaker: s }); }
+          if (!s.reloadTriggered) { s.reloadTriggered = true; gs.soundQ.push({ t: 'reload', w: s.weapon, dur: effRl(gs, s, w) }); pushRadio(gs, 'reload', { speaker: s }); }
           gs.effects.push({ type: 'txt', x: s.x + 30, y: GY - 160, v: 'RELOAD!', col: C.wrn, at: now, dur: 800 });
         } else {
           // Out of sniper ammo — descend
@@ -263,9 +308,10 @@ export function update(gs, now, dt) {
       // battlefield and the bullet-life math (range = distance-to-tgt
       // below) gave it effectively infinite reach. Now the same range
       // gate that the ground soldiers use applies here too.
+      const wRange = effRange(gs, s, s.weapon, w);
       const pool = gs.isHumanWave
-        ? gs.humans.filter(z => z.state !== 'dead' && z.x > WX && Math.abs(z.x - s.x) <= w.range)
-        : gs.zombies.filter(z => z.state !== 'dead' && z.x > WX && Math.abs(z.x - s.x) <= w.range);
+        ? gs.humans.filter(z => z.state !== 'dead' && z.x > WX && Math.abs(z.x - s.x) <= wRange)
+        : gs.zombies.filter(z => z.state !== 'dead' && z.x > WX && Math.abs(z.x - s.x) <= wRange);
       if (pool.length === 0) return;
       const tgt = pool.sort((a, b) => b.x - a.x)[0];
       s.facing = 1;
@@ -280,7 +326,7 @@ export function update(gs, now, dt) {
         // cross the whole map — that was the "sniper reaches the end
         // of the world" bug the player reported.
         const distToTgt = Math.max(40, Math.abs(tgt.x - sx));
-        const travelDist = Math.min(distToTgt, w.range);
+        const travelDist = Math.min(distToTgt, wRange);
         gs.bullets.push({
           id: uid(), x: sx + 24, y: sy - 2,
           dx: w.spd, dy: (by1 - (sy - 2)) / (distToTgt / w.spd),
@@ -316,9 +362,10 @@ export function update(gs, now, dt) {
     const w = WPN[s.weapon];
 
     // Target zombies during normal waves, humans during human waves
+    const wRangeG = effRange(gs, s, s.weapon, w);
     const enms = gs.isHumanWave
-      ? gs.humans.filter(z => z.state !== 'dead' && Math.abs(z.x - s.x) <= w.range && z.x > WX)
-      : gs.zombies.filter(z => z.state !== 'dead' && Math.abs(z.x - s.x) <= w.range && z.x > WX);
+      ? gs.humans.filter(z => z.state !== 'dead' && Math.abs(z.x - s.x) <= wRangeG && z.x > WX)
+      : gs.zombies.filter(z => z.state !== 'dead' && Math.abs(z.x - s.x) <= wRangeG && z.x > WX);
     const tgt = enms.sort((a, b) => {
       const lbonus = (b.lane === s.lane ? 0 : 1) - (a.lane === s.lane ? 0 : 1);
       return lbonus || Math.abs(a.x - s.x) - Math.abs(b.x - s.x);
@@ -332,7 +379,7 @@ export function update(gs, now, dt) {
     s.facing = tgt.x > s.x ? 1 : -1;
 
     if (s.state === 'reload') {
-      if (now - s.reloadStart >= w.rl) { s.ammo = s.maxAmmo; s.state = 'idle'; s.reloadTriggered = false; }
+      if (now - s.reloadStart >= effRl(gs, s, w)) { s.ammo = s.maxAmmo; s.state = 'idle'; s.reloadTriggered = false; }
       return;
     }
 
@@ -367,10 +414,10 @@ export function update(gs, now, dt) {
         gs.bullets.push({
           id: uid(),
           x: bxStart, y: by0,
-          dy: (by1 - by0) / Math.max(1, w.range / w.spd),
+          dy: (by1 - by0) / Math.max(1, wRangeG / w.spd),
           dx: s.facing * w.spd * Math.cos(sp2),
           dmg: w.pel ? w.dmg / w.pel : w.dmg,
-          life: Math.ceil(w.range / w.spd * 1.15),
+          life: Math.ceil(wRangeG / w.spd * 1.15),
           targetLane: tgt.lane,
           shooterId: s.id,
         });
@@ -381,7 +428,7 @@ export function update(gs, now, dt) {
         if (refill > 0) {
           s.state = 'reload'; s.reloadStart = now; gs.resources.ammo -= refill; s.ammo = refill;
           s.knifeReady = false;
-          if (!s.reloadTriggered) { s.reloadTriggered = true; gs.soundQ.push({ t: 'reload', w: s.weapon, dur: w.rl }); pushRadio(gs, 'reload', { speaker: s }); }
+          if (!s.reloadTriggered) { s.reloadTriggered = true; gs.soundQ.push({ t: 'reload', w: s.weapon, dur: effRl(gs, s, w) }); pushRadio(gs, 'reload', { speaker: s }); }
           gs.effects.push({ type: 'txt', x: s.x, y: laneY(s.lane) - 80, v: 'RELOAD!', col: C.wrn, at: now, dur: 800 });
         } else {
           // Empty stash too — soldier holsters firearm and the knife
@@ -425,13 +472,18 @@ export function update(gs, now, dt) {
       z.state !== 'dead' && Math.abs(z.x - b.x) < 20 && z.lane === b.targetLane
     );
     if (hit) {
-      hit.hp -= b.dmg; hit.hurtTimer = 210;
+      // Apply Combat Drills (all soldiers) and AP Rounds (rifle vs tank).
+      const shooter = b.shooterId ? gs.soldiers.find(x => x.id === b.shooterId) : null;
+      let dmg = b.dmg * researchMul(gs, 'soldierDamageMul') * perkMul(shooter, 'damageMul');
+      if (shooter && shooter.weapon === 'rifle' && !gs.isHumanWave && hit.type === 'tank') {
+        dmg *= researchMul(gs, 'rifleVsTankMul');
+      }
+      hit.hp -= dmg; hit.hurtTimer = 210;
       gs.soundQ.push({ t: 'hit', now });
       gs.effects.push({ type: 'blood', x: b.x, y: b.y, drops: Array.from({ length: 7 }, () => ({ x: 0, y: 0, vx: (Math.random() - 0.5) * 3.5, vy: -Math.random() * 2.5 - 0.5, r: 1.5 + Math.random() * 3 })), at: now, dur: 680 });
       gs.effects.push({ type: 'hit', x: b.x, y: b.y, at: now, dur: 200 });
-      gs.effects.push({ type: 'txt', x: hit.x, y: laneY(hit.lane) - 60, v: `-${Math.round(b.dmg)}`, col: C.bld, at: now, dur: 720 });
+      gs.effects.push({ type: 'txt', x: hit.x, y: laneY(hit.lane) - 60, v: `-${Math.round(dmg)}`, col: C.bld, at: now, dur: 720 });
       if (hit.hp <= 0) {
-        const shooter = b.shooterId ? gs.soldiers.find(x => x.id === b.shooterId) : null;
         killTarget(gs, hit, now, shooter);
       }
       return false;
@@ -464,6 +516,22 @@ export function update(gs, now, dt) {
   }
   if (gs.waveComplete && now - gs.waveClearAt > 3000) {
     gs.waveComplete = false; gs.waveClearAt = null; gs.wave++; gs.day++;
+    // Research tick: 1 wave-clear = 1 progress on the active node.
+    // On completion, apply persistent effects (Reinforced Walls bumps
+    // baseMaxHp + heals up to the new cap immediately).
+    if (gs.research && gs.research.activeId) {
+      gs.research.progress = (gs.research.progress || 0) + 1;
+      const node = RESEARCHES.find(r => r.id === gs.research.activeId);
+      if (node && gs.research.progress >= node.waves) {
+        const completed = Array.isArray(gs.research.completed) ? gs.research.completed : [];
+        if (!completed.includes(node.id)) completed.push(node.id);
+        gs.research = { activeId: null, progress: 0, completed };
+        if (node.effects && node.effects.baseHpBonus) {
+          gs.baseMaxHp += node.effects.baseHpBonus;
+          gs.baseHp = Math.min(gs.baseMaxHp, gs.baseHp + node.effects.baseHpBonus);
+        }
+      }
+    }
     // Wave 30 was the final extraction battle. Surviving = mission
     // success — flip to the victory phase instead of going back to
     // management. The React layer will route this to the wave-30
