@@ -284,7 +284,10 @@ export function mkMission(soldier, dest, wave = 1, magsPerSoldier = 2) {
     // mag goes empty, one spare gets consumed by the reload. When
     // spare and loaded are both 0, knifeReady stays true and the
     // soldier visually holsters their firearm + brandishes a knife.
-    magsLeft: Math.max(0, magsPerSoldier - 1),
+    // playMission's loadout step sets orig._sortieMags = actual mags
+    // issued (capped by stash). Falls back to magsPerSoldier for any
+    // soldier that wasn't pre-loaded.
+    magsLeft: Math.max(0, ((orig._sortieMags ?? magsPerSoldier) | 0) - 1),
     knifeReady: false,
     // Jump physics: jumpY is the render-only y-offset (negative =
     // above ground), vy is vertical velocity. Followers don't jump,
