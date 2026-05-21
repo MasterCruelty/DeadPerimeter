@@ -161,6 +161,20 @@ export function mkMission(soldier, dest, wave = 1, magsPerSoldier = 2) {
     pickups.push({ id: uid(), x: MISSION_W - 320 + rng(-40, 40), type: 'lostSoldier', value: 1, collected: false, lane: 0 });
   }
 
+  // Vaccine campaign — hospital scenario gets one guaranteed vaccine
+  // pickup deep in the map. Picking it up arms the carrier mechanic
+  // (renderer draws a vial above their head; on death the vial drops
+  // and any party member can pick it back up). The campaign's tier
+  // resolution at the end reads m._vaccineCollected to decide whether
+  // the vaccine made it out.
+  if (dest._vaccineSegment === 'hospital') {
+    pickups.push({
+      id: uid(), x: MISSION_W - 180, type: 'vaccine',
+      value: 1, collected: false, lane: 0,
+      _vaccine: true,
+    });
+  }
+
   // Mission objective: 70% normal "reach the goal", 30% "defend".
   // DEFEND missions cut the travel short: the lead reaches a hastily
   // built sandbag emplacement around 45% of the map, then has to hold
@@ -692,6 +706,29 @@ export function updateMission(m, now, dt) {
       });
     }
   }
+  // Vaccine carrier death — if the vial-holder has died (lead or
+  // follower), drop the vaccine as a fresh pickup at their last X so
+  // a teammate can grab it. Runs each frame so it catches deaths from
+  // any source (zombie melee, hostile bullet, hazard).
+  if (m._vaccineCollected && m._vaccineCarrierId && !m._vaccineDropped) {
+    const carrier = [m.soldier, ...(m.followers || [])].find(p => p && p.id === m._vaccineCarrierId);
+    if (!carrier || carrier.hp <= 0 || carrier.state === 'dead') {
+      const dropX = carrier ? carrier.x : m.soldier.x;
+      m.pickups.push({
+        id: uid(), x: dropX, type: 'vaccine',
+        value: 1, collected: false, lane: 0,
+        _vaccine: true, _droppedAt: now,
+      });
+      m._vaccineDropped = true;
+      m._vaccineCarrierId = null;
+      m.effects.push({
+        type: 'txt', x: dropX, y: MGY - 60,
+        v: '💉 VACCINE DROPPED — RECOVER IT',
+        col: '#ff8844', at: now, dur: 2600,
+      });
+    }
+  }
+
   // Top-of-frame guard: if the lead died (any cause), promote a
   // follower so the player keeps an avatar. Only fail when nobody
   // is left standing.
@@ -1587,6 +1624,15 @@ export function updateMission(m, now, dt) {
       } else if (p.type === 'lostSoldier') {
         m.collected.lostSoldier = true;
         m.effects.push({ type: 'txt', x: p.x, y: MGY - 70, v: 'LOST SOLDIER!', col: '#ffd54a', at: now, dur: 1200 });
+      } else if (p.type === 'vaccine') {
+        // Vaccine sample (hospital scenario): stamp the carrier so
+        // the renderer can draw the vial above their head, and so
+        // the campaign knows whether to count the run as "vaccine
+        // delivered" at the end.
+        m._vaccineCollected = true;
+        m._vaccineCarrierId = grabber.id;
+        m._vaccineDropped = false;
+        m.effects.push({ type: 'txt', x: p.x, y: MGY - 70, v: '💉 VACCINE SECURED', col: '#88ff88', at: now, dur: 1800 });
       } else {
         m.collected[p.type] += p.value;
         m.effects.push({ type: 'txt', x: p.x, y: MGY - 70, v: `+${p.value} ${p.type}`, col: C.acc, at: now, dur: 900 });
@@ -1625,6 +1671,28 @@ export function updateMission(m, now, dt) {
 }
 
 // ── Hazards (mines + acid pools) ─────────────────────────────────
+// Small floating vial drawn above the vaccine carrier's head so the
+// player can tell at a glance who's currently holding the sample
+// (matters when followers swap leads after a death). The glow pulses
+// to draw the eye.
+function dVaccineVial(ctx, x, now) {
+  const bob = Math.sin(now / 220) * 1.6;
+  const pulse = 0.55 + 0.45 * (Math.sin(now / 180) * 0.5 + 0.5);
+  const y = MGY - 76 + bob;
+  ctx.save();
+  ctx.fillStyle = `rgba(120,255,140,${0.30 * pulse})`;
+  ctx.beginPath(); ctx.arc(x, y + 4, 10 + pulse * 2, 0, Math.PI * 2); ctx.fill();
+  // Vial body (small cylinder with a darker cap)
+  ctx.fillStyle = '#88ff88';
+  ctx.fillRect(x - 3, y - 2, 6, 9);
+  ctx.fillStyle = '#226622';
+  ctx.fillRect(x - 4, y - 5, 8, 3);
+  // Liquid highlight
+  ctx.fillStyle = 'rgba(255,255,255,0.55)';
+  ctx.fillRect(x - 2, y, 1, 5);
+  ctx.restore();
+}
+
 function dHazard(ctx, h, now) {
   if (h.type === 'mine') {
     if (h.triggered) return; // exploded mines fade away with the blast effect
@@ -2524,10 +2592,21 @@ export function dMissionWorld(ctx, m, now) {
     // road (-34), standingY = the new upper building floor (~-80).
     const yOff = (p.standingY || 0) + ((p.lane === 1) ? -34 : 0);
     ctx.save(); ctx.translate(p.x, MGY - 30 + bob + yOff);
-    ctx.fillStyle = p.type === 'civilian' ? 'rgba(136,221,255,0.18)' : 'rgba(114,188,64,0.18)';
-    ctx.beginPath(); ctx.arc(0, 0, 18, 0, Math.PI * 2); ctx.fill();
+    // Vaccine vial gets a bigger, brighter pulsing halo so the player
+    // can find it through the hospital interior clutter — and so a
+    // dropped vial is impossible to miss in the middle of a fight.
+    if (p.type === 'vaccine') {
+      const pulse = 0.55 + 0.45 * (Math.sin(now / 180) * 0.5 + 0.5);
+      ctx.fillStyle = `rgba(120,255,140,${0.22 * pulse})`;
+      ctx.beginPath(); ctx.arc(0, 0, 28 + pulse * 4, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = `rgba(120,255,140,${0.45 * pulse})`;
+      ctx.beginPath(); ctx.arc(0, 0, 16, 0, Math.PI * 2); ctx.fill();
+    } else {
+      ctx.fillStyle = p.type === 'civilian' ? 'rgba(136,221,255,0.18)' : 'rgba(114,188,64,0.18)';
+      ctx.beginPath(); ctx.arc(0, 0, 18, 0, Math.PI * 2); ctx.fill();
+    }
     ctx.fillStyle = 'rgba(20,30,15,0.85)'; ctx.fillRect(-12, -12, 24, 24);
-    ctx.strokeStyle = p.type === 'civilian' ? '#88ddff' : C.acc; ctx.lineWidth = 1.5;
+    ctx.strokeStyle = p.type === 'vaccine' ? '#88ff88' : p.type === 'civilian' ? '#88ddff' : C.acc; ctx.lineWidth = 1.5;
     ctx.strokeRect(-12, -12, 24, 24);
     ctx.font = '14px monospace'; ctx.textAlign = 'center'; ctx.fillStyle = '#fff';
     ctx.fillText(objIcons[p.type] || '?', 0, 5);
@@ -2601,6 +2680,7 @@ export function dMissionWorld(ctx, m, now) {
     const fc = { ...f, lane: 0, onExpedition: false, state: f.state };
     ctx.save(); ctx.translate(0, f._laneY || 0);
     dSoldier(ctx, fc, now);
+    if (m._vaccineCarrierId === f.id) dVaccineVial(ctx, f.x, now);
     ctx.restore();
   });
 
@@ -2614,6 +2694,7 @@ export function dMissionWorld(ctx, m, now) {
       + (m.soldier.standingY || 0),
     );
     dSoldier(ctx, sCopy, now, true); // pass selection ring to mark the lead
+    if (m._vaccineCarrierId === m.soldier.id) dVaccineVial(ctx, m.soldier.x, now);
     ctx.restore();
   }
 
