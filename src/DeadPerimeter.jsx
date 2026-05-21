@@ -37,6 +37,20 @@ import { mkMission, updateMission, dMissionWorld, dMissionHUD } from './update/m
 
 import { finishMission } from './expedition/missionFinish.js';
 
+// "2h 14m" / "47 min" / "—" depending on how long the run took. Combines
+// the persisted playMs (sessions before this one) with the live delta
+// since the current session started.
+function fmtPlayTime(gs) {
+  if (!gs) return '—';
+  const startedAt = gs.startedAt || Date.now();
+  const total = (gs.playMs || 0) + Math.max(0, Date.now() - startedAt);
+  const mins = Math.floor(total / 60000);
+  if (mins < 60) return `${mins} min`;
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return `${h}h ${m}m`;
+}
+
 export default function DeadPerimeter() {
   const cvs = useRef(null), gsRef = useRef(null), rafId = useRef(null), prevT = useRef(0), mutedR = useRef(false);
   const missionRef = useRef(null);
@@ -1895,12 +1909,24 @@ export default function DeadPerimeter() {
 
       {scr === 'gameover' && (
         <div style={wrap}>
-          <div style={{ ...panel, textAlign: 'center', maxWidth: '520px' }}>
+          <div style={{ ...panel, textAlign: 'center', maxWidth: '620px' }}>
             <div style={{ fontSize: '48px', marginBottom: '6px' }}>💀</div>
             <div style={{ ...h1, color: C.dng, fontSize: '22px' }}>FORT OMEGA FALLEN</div>
             <hr style={hr} />
-            <div style={row}>{[['Days', gs?.day], ['Waves Cleared', (gs?.wave || 1) - 1], ['Kills', gs?.kills], ['Score', gs?.score]].map(([l, v]) => (
+            <div style={row}>{[
+              ['Days', gs?.day],
+              ['Waves Cleared', (gs?.wave || 1) - 1],
+              ['Kills', gs?.kills],
+              ['Score', gs?.score],
+            ].map(([l, v]) => (
               <div key={l} style={{ ...card, flex: 1, textAlign: 'center' }}><span style={lbl}>{l}</span><div style={{ ...val, fontSize: '20px' }}>{v}</div></div>
+            ))}</div>
+            <div style={{ ...row, marginTop: '6px' }}>{[
+              ['Play Time', fmtPlayTime(gs)],
+              ['Soldiers Lost', gs?.soldiersLost || 0],
+              ['Civilians Lost', gs?.civiliansLost || 0],
+            ].map(([l, v]) => (
+              <div key={l} style={{ ...card, flex: 1, textAlign: 'center' }}><span style={lbl}>{l}</span><div style={{ ...val, fontSize: '18px' }}>{v}</div></div>
             ))}</div>
             <hr style={hr} />
             <button style={btn('#5a1a1a', '#883030')} onClick={newGame}>↺ TRY AGAIN</button>
@@ -1910,7 +1936,7 @@ export default function DeadPerimeter() {
 
       {scr === 'victory' && (
         <div style={wrap}>
-          <div style={{ ...panel, textAlign: 'center', maxWidth: '560px' }}>
+          <div style={{ ...panel, textAlign: 'center', maxWidth: '640px' }}>
             <div style={{ fontSize: '48px', marginBottom: '6px' }}>🚁</div>
             <div style={{ ...h1, color: '#88aaff', fontSize: '22px' }}>EXTRACTION COMPLETE</div>
             <div style={{ color: C.txt, fontSize: '11px', marginTop: '8px', opacity: 0.7, lineHeight: '1.5' }}>
@@ -1924,6 +1950,15 @@ export default function DeadPerimeter() {
                 ['Kills', gs?.kills],
                 ['Score', gs?.score],
                 ['Survivors', (gs?.soldiers?.filter(s => s.state !== 'dead').length || 0) + (gs?.reserve?.length || 0)],
+              ].map(([l, v]) => (
+                <div key={l} style={{ ...card, flex: 1, textAlign: 'center' }}><span style={lbl}>{l}</span><div style={{ ...val, fontSize: '18px' }}>{v}</div></div>
+              ))}
+            </div>
+            <div style={{ ...row, marginTop: '6px' }}>
+              {[
+                ['Play Time', fmtPlayTime(gs)],
+                ['Soldiers Lost', gs?.soldiersLost || 0],
+                ['Civilians Lost', gs?.civiliansLost || 0],
               ].map(([l, v]) => (
                 <div key={l} style={{ ...card, flex: 1, textAlign: 'center' }}><span style={lbl}>{l}</span><div style={{ ...val, fontSize: '18px' }}>{v}</div></div>
               ))}
