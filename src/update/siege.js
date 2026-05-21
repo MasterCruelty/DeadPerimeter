@@ -533,12 +533,14 @@ export function update(gs, now, dt) {
         }
       }
     }
-    // Wave 30 was the final extraction battle. Surviving = mission
-    // success — flip to the victory phase instead of going back to
-    // management. The React layer will route this to the wave-30
-    // extraction cinematic.
+    // Wave 30 was the final stand at Fort Omega. Surviving means
+    // Central Command's vaccine sample is ready to deliver — flip to
+    // the briefing phase. The React layer routes this to the briefing
+    // panel, then to the playable vaccine campaign (3 scenarios:
+    // highway → hospital → rooftop evac), then to the victory screen
+    // with the achieved ending tier.
     if (gs.wave > BALANCE.maxWaves) {
-      gs.phase = 'extraction';
+      gs.phase = 'vaccine-briefing';
       return;
     }
     gs.phase = 'management';
