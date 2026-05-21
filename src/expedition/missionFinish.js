@@ -2,6 +2,7 @@ import { rng } from '../constants.js';
 import { RECRUIT_NAMES, RECRUIT_WEAPONS, CIVILIAN_WEAPONS, VETERAN_WEAPONS, KIND_HP } from '../data/expeditions.js';
 import { BALANCE } from '../data/difficulty.js';
 import { mkSoldier } from '../entities/soldier.js';
+import { recordDeath } from '../entities/gameState.js';
 
 export function finishMission(m, gs) {
   // Write each party member's mission state back onto the original soldier
@@ -11,7 +12,11 @@ export function finishMission(m, gs) {
     const orig = gs.soldiers.find(s => s.id === mSol.origId);
     if (!orig) return;
     if (mSol.hp <= 0 || mSol.state === 'dead') {
+      // Was this soldier alive before the mission? Only count NEW deaths so
+      // a body left behind on a previous failed expedition isn't tallied twice.
+      const wasAlive = orig.state !== 'dead';
       orig.hp = 0; orig.state = 'dead';
+      if (wasAlive) recordDeath(gs, orig);
     } else {
       orig.hp = Math.max(1, mSol.hp);
       orig.ammo = mSol.ammo;

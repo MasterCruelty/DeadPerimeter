@@ -1,6 +1,15 @@
 import { WX } from '../constants.js';
 import { mkSoldier } from './soldier.js';
 
+// Bump the right loss counter when a roster member dies. Centralised so
+// each death site is one call and the civilian-vs-soldier split is in
+// one place.
+export const recordDeath = (gs, victim) => {
+  if (!gs || !victim) return;
+  if (victim.civilian) gs.civiliansLost = (gs.civiliansLost || 0) + 1;
+  else gs.soldiersLost = (gs.soldiersLost || 0) + 1;
+};
+
 export const mkGS = () => {
   const delta = mkSoldier('Delta', 'sniper', 0, 100, 0, false, true);
   delta.x = WX - 40; delta.state = 'idle';
@@ -41,5 +50,11 @@ export const mkGS = () => {
     workbench: { built: false },
     researchLab: { built: false },
     research: { activeId: null, progress: 0, completed: [] },
+    // End-of-run stats. startedAt is wall-clock at newGame; on save/load
+    // we persist the elapsed time so closing the tab doesn't inflate it.
+    startedAt: Date.now(),
+    playMs: 0,
+    soldiersLost: 0,
+    civiliansLost: 0,
   };
 };
