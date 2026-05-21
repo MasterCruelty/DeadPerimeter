@@ -7,10 +7,10 @@
 export const DIFFICULTY = {
   // Zombie counts per wave n
   walkerBase: 5,     // walkers spawned even at wave 1
-  walkerPerWave: 2,  // extra walkers per subsequent wave
-  runnerFromWave: 2, // runners start showing up at this wave
+  walkerPerWave: 1.5,  // extra walkers per subsequent wave
+  runnerFromWave: 5, // runners start showing up at this wave
   runnerPerWave: 1.5,
-  tankFromWave: 6,   // tanks start at this wave (was 4)
+  tankFromWave: 10,   // tanks start at this wave 
   tankPerWave: 0.5,  // extra tank every two waves beyond tankFromWave
 
   // Spawn cadence (ms between successive spawns)
@@ -28,9 +28,9 @@ export const DIFFICULTY = {
 // Balance knobs touched by Batch A (gameplay tuning, May 2026).
 export const BALANCE = {
   // Barricades
-  maxBarricades: 4,                 // hard cap. Was 2, label said 4.
-  barricadeReflectDmg: 4,           // dmg dealt back to a melee attacker on hit
-  behindBarricadeDmgMul: 0.30,      // a soldier shielded by a barricade in the same
+  maxBarricades: 6,                 // hard cap. Was 2, label said 4.
+  barricadeReflectDmg: 6,           // dmg dealt back to a melee attacker on hit
+  behindBarricadeDmgMul: 0.20,      // a soldier shielded by a barricade in the same
                                     // lane takes only 30% of the incoming melee dmg
 
   // Mission (playable expedition)
@@ -41,20 +41,20 @@ export const BALANCE = {
                                     // if they're badly outnumbered)
 
   // Reserve / contingent
-  maxActiveSoldiers: 6,             // dispatched to Fort Omega at any one time
-  maxReserveSoldiers: 10,           // bench size (extras beyond this are discarded)
+  maxActiveSoldiers: 10,             // dispatched to Fort Omega at any one time
+  maxReserveSoldiers: 20,           // bench size (extras beyond this are discarded)
 
   // Expeditions
   expeditionsPerDay: 2,             // max sorties before the next wave (= one day)
-  maxExpeditionParty: 3,            // soldiers per playable sortie (lead + up to 2 AI followers)
+  maxExpeditionParty: 5,            // soldiers per playable sortie (lead + up to 2 AI followers)
 
   // Turrets (machine-gun fixed emplacements)
-  maxTurrets: 2,
+  maxTurrets: 3,
   turretCostMaterials: 25,
   turretCostAmmo: 20,
   turretRate: 220,                  // ms between shots
-  turretDmg: 8,
-  turretRange: 450,
+  turretDmg: 30,
+  turretRange: 350,
 
   // Helicopter civilian evac
   evacMinReserve: 3,                // need at least this many civs to call evac
@@ -70,7 +70,7 @@ export const BALANCE = {
 
   // Daily food consumption (deducted at the start of each management phase
   // after a wave clear, except after wave 1 which is the tutorial).
-  foodPerPersonPerDay: 2,
+  foodPerPersonPerDay: 5,
   starveDmg: 15,                    // hp lost by anyone who didn't eat
 
   // Wall repair (manual, from the command center)
@@ -88,7 +88,7 @@ export const BALANCE = {
   // post-action calories). Counters the food-inflation problem where
   // the stash kept growing because expeditions only added food but
   // never spent it.
-  sortieFoodCostPerSoldier: 3,
+  sortieFoodCostPerSoldier: 5,
 
   // Workshop / Research lab one-time build costs.
   workbenchCost:    { materials: 30 },
