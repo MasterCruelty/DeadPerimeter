@@ -6,6 +6,7 @@ import { TRANSMISSION_WAVES } from '../data/transmissions.js';
 import { mkZombie } from '../entities/zombie.js';
 import { mkHuman } from '../entities/human.js';
 import { mkSoldier } from '../entities/soldier.js';
+import { recordDeath } from '../entities/gameState.js';
 import { pushRadio } from '../audio/radio.js';
 
 // Read the multiplier from a completed research node by effect-key.
@@ -141,7 +142,7 @@ export function update(gs, now, dt) {
               ? Math.max(1, Math.round(z.z.dmg * BALANCE.behindBarricadeDmgMul))
               : z.z.dmg;
             sol.hp -= dmg; sol.hurtTimer = 360; gs.soundQ.push({ t: 'zatk' });
-            if (sol.hp <= 0) { sol.hp = 0; sol.state = 'dead'; z.targetSolId = null; z.state = 'walk'; }
+            if (sol.hp <= 0) { sol.hp = 0; sol.state = 'dead'; z.targetSolId = null; z.state = 'walk'; recordDeath(gs, sol); }
             else hurtCallout(gs, sol);
           } else {
             const ns2 = gs.soldiers.find(s => s.state !== 'dead' && !s.onExpedition && s.lane === z.lane && Math.abs(s.x - z.x) < 55);
@@ -224,7 +225,7 @@ export function update(gs, now, dt) {
               sol.hp -= dmg; sol.hurtTimer = 360; gs.soundQ.push({ t: 'zatk' });
               if (sol.hp > 0) hurtCallout(gs, sol);
               gs.effects.push({ type: 'slash', x: sol.x - h.facing * 10, y: laneY(sol.lane) - 28, at: now, dur: 230 });
-              if (sol.hp <= 0) { sol.hp = 0; sol.state = 'dead'; h.targetSolId = null; h.state = 'walk'; }
+              if (sol.hp <= 0) { sol.hp = 0; sol.state = 'dead'; h.targetSolId = null; h.state = 'walk'; recordDeath(gs, sol); }
             } else {
               const ns2 = gs.soldiers.find(s => s.state !== 'dead' && !s.onExpedition && s.lane === h.lane && Math.abs(s.x - h.x) < 55);
               if (ns2) { h.targetSolId = ns2.id; }
@@ -460,7 +461,7 @@ export function update(gs, now, dt) {
         gs.soundQ.push({ t: 'hit', now });
         gs.effects.push({ type: 'hit', x: b.x, y: b.y, at: now, dur: 200 });
         gs.effects.push({ type: 'txt', x: hit.x, y: laneY(hit.lane) - 60, v: `-${Math.round(b.dmg)}`, col: C.dng, at: now, dur: 720 });
-        if (hit.hp <= 0) { hit.hp = 0; hit.state = 'dead'; }
+        if (hit.hp <= 0) { hit.hp = 0; hit.state = 'dead'; recordDeath(gs, hit); }
         return false;
       }
       return true;
@@ -532,12 +533,14 @@ export function update(gs, now, dt) {
         }
       }
     }
-    // Wave 30 was the final extraction battle. Surviving = mission
-    // success — flip to the victory phase instead of going back to
-    // management. The React layer will route this to the wave-30
-    // extraction cinematic.
+    // Wave 30 was the final stand at Fort Omega. Surviving means
+    // Central Command's vaccine sample is ready to deliver — flip to
+    // the briefing phase. The React layer routes this to the briefing
+    // panel, then to the playable vaccine campaign (3 scenarios:
+    // highway → hospital → rooftop evac), then to the victory screen
+    // with the achieved ending tier.
     if (gs.wave > BALANCE.maxWaves) {
-      gs.phase = 'extraction';
+      gs.phase = 'vaccine-briefing';
       return;
     }
     gs.phase = 'management';

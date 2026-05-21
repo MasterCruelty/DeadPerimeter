@@ -36,6 +36,24 @@ import { update } from './update/siege.js';
 import { mkMission, updateMission, dMissionWorld, dMissionHUD } from './update/mission.js';
 
 import { finishMission } from './expedition/missionFinish.js';
+import {
+  mkVaccineCampaign, advanceVaccineScenario, finishVaccineCampaign,
+} from './expedition/vaccineCampaign.js';
+import { VACCINE_SCENARIOS } from './data/vaccineMission.js';
+
+// "2h 14m" / "47 min" / "—" depending on how long the run took. Combines
+// the persisted playMs (sessions before this one) with the live delta
+// since the current session started.
+function fmtPlayTime(gs) {
+  if (!gs) return '—';
+  const startedAt = gs.startedAt || Date.now();
+  const total = (gs.playMs || 0) + Math.max(0, Date.now() - startedAt);
+  const mins = Math.floor(total / 60000);
+  if (mins < 60) return `${mins} min`;
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return `${h}h ${m}m`;
+}
 
 export default function DeadPerimeter() {
   const cvs = useRef(null), gsRef = useRef(null), rafId = useRef(null), prevT = useRef(0), mutedR = useRef(false);
@@ -44,7 +62,9 @@ export default function DeadPerimeter() {
   const introRef = useRef(null);               // opening cinematic state, if any
   const defeatRef = useRef(null);              // game-over cinematic state, if any
   const transmissionRef = useRef(null);        // intermediate radio cinematic (waves 10/20/25)
-  const extractionRef = useRef(null);          // wave-30 convoy finale cinematic
+  const extractionRef = useRef(null);          // (legacy) wave-30 convoy cinematic — unused now that the vaccine campaign is playable
+  const vaccineRef = useRef(null);             // active wave-30 vaccine campaign (3 sequential scenarios)
+  const vaccineResultRef = useRef(null);       // { tier, survivors, scenariosCleared } when the campaign ends
   const placementRef = useRef(null);           // active build-placement, if any: { kind, validRange, mouseWorldX }
   const inputRef = useRef({ left: false, right: false, shoot: false });
   const pausedRef = useRef(false);
@@ -325,6 +345,54 @@ export default function DeadPerimeter() {
     setExpResult(result); setExpPhase('done'); setExpEvents([]); setExpVisible(0);
     setUi({ ...gs, soldiers: gs.soldiers.map(s => ({ ...s })) });
     setScr('expedition');
+  }, []);
+
+  // Vaccine campaign — start the playable wave-30 finale. Builds the
+  // first of three scenarios (highway/hospital/rooftop), wires its
+  // mission into missionRef so the regular siege loop renders + drives
+  // it, and stashes the campaign wrapper on vaccineRef for the scenario
+  // advance + finalize handlers to read.
+  const startVaccineMission = useCallback(() => {
+    const gs = gsRef.current; if (!gs) return;
+    const campaign = mkVaccineCampaign(gs, 3);
+    if (!campaign) return;
+    vaccineRef.current = campaign;
+    missionRef.current = campaign.current;
+    inputRef.current = { left: false, right: false, shoot: false, up: false, down: false };
+    gs.phase = 'vaccine-mission';
+    setUi({ ...gs, soldiers: gs.soldiers.map(s => ({ ...s })) });
+    setScr('mission');
+  }, []);
+
+  // Called when the current scenario's state flips to won / lost.
+  // If won and there's another scenario, advance — otherwise wrap up
+  // the campaign and route to victory (any tier) or gameover (failure
+  // = total wipe before any scenario was cleared).
+  const advanceOrFinishVaccine = useCallback(() => {
+    const campaign = vaccineRef.current; if (!campaign) return;
+    const gs = gsRef.current; if (!gs) return;
+    const m = campaign.current;
+    if (m.state === 'won') {
+      const next = advanceVaccineScenario(campaign, gs);
+      if (next) {
+        missionRef.current = next;
+        // Stay on the mission screen; the new scenario renders in the
+        // same canvas with its own biome / layout.
+        setUi({ ...gs, soldiers: gs.soldiers.map(s => ({ ...s })) });
+        return;
+      }
+    }
+    // No next scenario (we won the last one, or the party wiped). Wrap up.
+    // Even a campaign wipe routes to the victory screen — the fort held,
+    // but the convoy didn't make it. The screen shows the 'failure' tier
+    // text instead of the misleading "FORT OMEGA FALLEN" gameover panel.
+    const result = finishVaccineCampaign(campaign, gs);
+    vaccineResultRef.current = result;
+    vaccineRef.current = null;
+    missionRef.current = null;
+    gs.phase = 'victory';
+    setUi({ ...gs, soldiers: gs.soldiers.map(s => ({ ...s })) });
+    setScr('victory');
   }, []);
 
   const recruit = useCallback(() => {
@@ -1116,8 +1184,13 @@ export default function DeadPerimeter() {
           if (gs.phase === 'gameover' && !defeatRef.current) {
             defeatRef.current = { startedAt: 0 };
             setScr('defeat');
+          } else if (gs.phase === 'vaccine-briefing') {
+            // Wave-30 cleared. Show the playable-mission briefing panel;
+            // the player clicks DEPLOY to actually start the campaign.
+            setScr('vaccine-briefing');
           } else if (gs.phase === 'extraction' && !extractionRef.current) {
-            // Wave-30 finale: convoy cinematic, then victory screen.
+            // (Legacy path — replaced by the playable vaccine campaign.
+            // Left intact in case a stale save lands here.)
             extractionRef.current = mkExtraction(gs);
             setScr('extraction');
           } else if (gs.phase === 'management' && gs.pendingTransmission && !transmissionRef.current) {
@@ -1452,7 +1525,16 @@ export default function DeadPerimeter() {
                   <button style={mbtn} onClick={toggleVoice} title="Radio voice (TTS)">{voiceOn ? '🗣' : '🚫'}</button>
                 )}
               </>
-            ) : (
+            ) : vaccineRef.current ? (() => {
+              const camp = vaccineRef.current;
+              const m = camp.current;
+              const isLast = camp.currentIndex >= VACCINE_SCENARIOS.length - 1;
+              const won = m && m.state === 'won';
+              const label = won
+                ? (isLast ? '✦ COMPLETE EXTRACTION ✦' : `→ ADVANCE TO ${(VACCINE_SCENARIOS[camp.currentIndex + 1].name).toUpperCase()}`)
+                : '✦ END CAMPAIGN ✦';
+              return <button style={btn(won ? '#1a3a18' : '#3a1818')} onClick={advanceOrFinishVaccine}>{label}</button>;
+            })() : (
               <button style={btn('#1a3a18')} onClick={finalizeMission}>✦ RETURN TO BASE ✦</button>
             )}
           </div>
@@ -1893,14 +1975,66 @@ export default function DeadPerimeter() {
 
       {scr === 'expedition' && ExpeditionScreen}
 
+      {scr === 'vaccine-briefing' && (() => {
+        const aliveSquad = (gs?.soldiers || []).filter(s => s.state !== 'dead').length;
+        const inReserve  = (gs?.reserve || []).length;
+        const total = aliveSquad + inReserve;
+        return (
+          <div style={wrap}>
+            <div style={{ ...panel, maxWidth: '660px' }}>
+              <div style={{ textAlign: 'center', fontSize: '46px', marginBottom: '6px' }}>📡</div>
+              <div style={{ ...h1, color: '#88aaff', fontSize: '22px', textAlign: 'center' }}>FORT OMEGA — FINAL TRANSMISSION</div>
+              <hr style={hr} />
+              <div style={{ color: C.txt, fontSize: '12px', lineHeight: '1.6', opacity: 0.9 }}>
+                Central Command, on the encrypted band:
+                <div style={{ color: '#aaccff', marginTop: '8px', fontStyle: 'italic', paddingLeft: '12px', borderLeft: `2px solid ${C.uib}` }}>
+                  &ldquo;Fort Omega, this is Central. The vaccine sample at Memorial Hospital is the last working batch on the East Coast. We need it at LZ Bravo within the hour. Push down Highway 17, recover the vial, hold the rooftop for evac. Whoever&rsquo;s still standing &mdash; go.&rdquo;
+                </div>
+                <div style={{ marginTop: '12px' }}>
+                  Three legs:
+                  <ol style={{ marginTop: '6px', paddingLeft: '18px', lineHeight: '1.7' }}>
+                    {VACCINE_SCENARIOS.map((s, i) => (
+                      <li key={s.name}><b style={{ color: s.riskColor }}>{s.icon} {s.name}</b> — <span style={{ opacity: 0.8 }}>{s.desc}</span></li>
+                    ))}
+                  </ol>
+                </div>
+              </div>
+              <hr style={hr} />
+              <div style={row}>
+                <div style={{ ...card, flex: 1, textAlign: 'center' }}><span style={lbl}>Going</span><div style={{ ...val, fontSize: '20px' }}>{total}</div></div>
+                <div style={{ ...card, flex: 1, textAlign: 'center' }}><span style={lbl}>Soldiers</span><div style={{ ...val, fontSize: '20px' }}>{aliveSquad}</div></div>
+                <div style={{ ...card, flex: 1, textAlign: 'center' }}><span style={lbl}>Civilians</span><div style={{ ...val, fontSize: '20px' }}>{inReserve}</div></div>
+                <div style={{ ...card, flex: 1, textAlign: 'center' }}><span style={lbl}>Mags / Soldier</span><div style={{ ...val, fontSize: '20px' }}>3</div></div>
+              </div>
+              <hr style={hr} />
+              <div style={{ textAlign: 'center' }}>
+                <button style={btn('#1a3a5a', '#4474aa')} onClick={startVaccineMission}>📡 DEPLOY — MOVE OUT</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {scr === 'gameover' && (
         <div style={wrap}>
-          <div style={{ ...panel, textAlign: 'center', maxWidth: '520px' }}>
+          <div style={{ ...panel, textAlign: 'center', maxWidth: '620px' }}>
             <div style={{ fontSize: '48px', marginBottom: '6px' }}>💀</div>
             <div style={{ ...h1, color: C.dng, fontSize: '22px' }}>FORT OMEGA FALLEN</div>
             <hr style={hr} />
-            <div style={row}>{[['Days', gs?.day], ['Waves Cleared', (gs?.wave || 1) - 1], ['Kills', gs?.kills], ['Score', gs?.score]].map(([l, v]) => (
+            <div style={row}>{[
+              ['Days', gs?.day],
+              ['Waves Cleared', (gs?.wave || 1) - 1],
+              ['Kills', gs?.kills],
+              ['Score', gs?.score],
+            ].map(([l, v]) => (
               <div key={l} style={{ ...card, flex: 1, textAlign: 'center' }}><span style={lbl}>{l}</span><div style={{ ...val, fontSize: '20px' }}>{v}</div></div>
+            ))}</div>
+            <div style={{ ...row, marginTop: '6px' }}>{[
+              ['Play Time', fmtPlayTime(gs)],
+              ['Soldiers Lost', gs?.soldiersLost || 0],
+              ['Civilians Lost', gs?.civiliansLost || 0],
+            ].map(([l, v]) => (
+              <div key={l} style={{ ...card, flex: 1, textAlign: 'center' }}><span style={lbl}>{l}</span><div style={{ ...val, fontSize: '18px' }}>{v}</div></div>
             ))}</div>
             <hr style={hr} />
             <button style={btn('#5a1a1a', '#883030')} onClick={newGame}>↺ TRY AGAIN</button>
@@ -1908,13 +2042,27 @@ export default function DeadPerimeter() {
         </div>
       )}
 
-      {scr === 'victory' && (
+      {scr === 'victory' && (() => {
+        const r = vaccineResultRef.current;
+        const tierMeta = {
+          gold:    { emoji: '🏆', title: 'VACCINE DELIVERED — FULL EXTRACTION', color: '#f0c850',
+            blurb: 'Vial intact. Squad mostly intact. LZ Bravo lifts you out and Central Command broadcasts the formula across what\'s left of the network. Fort Omega was worth it.' },
+          silver:  { emoji: '🥈', title: 'VACCINE DELIVERED — HEAVY LOSSES', color: '#c8c8c8',
+            blurb: 'The vial made it onto the chopper. Most of you didn\'t. Central Command will name a street after every one of them — once there are streets again.' },
+          bronze:  { emoji: '🥉', title: 'EVAC — VACCINE LOST EN ROUTE', color: '#c8884a',
+            blurb: 'You made it out, but the sample didn\'t. Central Command will try again from another vault. Fort Omega bought them more time.' },
+          failure: { emoji: '☠', title: 'CONVOY LOST', color: '#aa3030',
+            blurb: 'Fort Omega held. The road did not. The vial is somewhere on the asphalt of Highway 17, and Central Command is calling for volunteers from another garrison. You bought them everything you had.' },
+        };
+        const meta = (r && tierMeta[r.tier]) || { emoji: '🚁', title: 'EXTRACTION COMPLETE', color: '#88aaff',
+          blurb: 'You held the wall for 30 waves. Whoever made it out of Fort Omega is on the road now.' };
+        return (
         <div style={wrap}>
-          <div style={{ ...panel, textAlign: 'center', maxWidth: '560px' }}>
-            <div style={{ fontSize: '48px', marginBottom: '6px' }}>🚁</div>
-            <div style={{ ...h1, color: '#88aaff', fontSize: '22px' }}>EXTRACTION COMPLETE</div>
+          <div style={{ ...panel, textAlign: 'center', maxWidth: '640px' }}>
+            <div style={{ fontSize: '48px', marginBottom: '6px' }}>{meta.emoji}</div>
+            <div style={{ ...h1, color: meta.color, fontSize: '22px' }}>{meta.title}</div>
             <div style={{ color: C.txt, fontSize: '11px', marginTop: '8px', opacity: 0.7, lineHeight: '1.5' }}>
-              You held the wall for 30 waves. Central Command's last transmission asked you to carry a vaccine sample to the rendezvous. Whoever made it out of Fort Omega is on the road now.
+              {meta.blurb}
             </div>
             <hr style={hr} />
             <div style={row}>
@@ -1928,11 +2076,23 @@ export default function DeadPerimeter() {
                 <div key={l} style={{ ...card, flex: 1, textAlign: 'center' }}><span style={lbl}>{l}</span><div style={{ ...val, fontSize: '18px' }}>{v}</div></div>
               ))}
             </div>
+            <div style={{ ...row, marginTop: '6px' }}>
+              {[
+                ['Play Time', fmtPlayTime(gs)],
+                ['Soldiers Lost', gs?.soldiersLost || 0],
+                ['Civilians Lost', gs?.civiliansLost || 0],
+                ['Convoy Cleared', r ? `${r.scenariosCleared} / 3` : '—'],
+                ['Vaccine', r ? (r.vaccineDelivered ? '✓' : '✗') : '—'],
+              ].map(([l, v]) => (
+                <div key={l} style={{ ...card, flex: 1, textAlign: 'center' }}><span style={lbl}>{l}</span><div style={{ ...val, fontSize: '18px' }}>{v}</div></div>
+              ))}
+            </div>
             <hr style={hr} />
             <button style={btn('#1a3a5a', '#4474aa')} onClick={newGame}>↻ NEW OPERATION</button>
           </div>
         </div>
-      )}
+        );
+      })()}
     </div>
   );
 }

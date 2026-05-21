@@ -60,6 +60,12 @@ export function saveGame(gs) {
         progress: gs.research?.progress ?? 0,
         completed: Array.isArray(gs.research?.completed) ? [...gs.research.completed] : [],
       },
+      // Roll the live session's elapsed time into playMs at save time so
+      // closing the tab doesn't lose it. startedAt is reset to "now" on
+      // reload so the next session starts a fresh delta.
+      playMs: (gs.playMs || 0) + Math.max(0, Date.now() - (gs.startedAt || Date.now())),
+      soldiersLost: gs.soldiersLost || 0,
+      civiliansLost: gs.civiliansLost || 0,
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot));
     return true;
@@ -114,6 +120,10 @@ export function loadGame(mkGS) {
       progress: data.research?.progress ?? 0,
       completed: Array.isArray(data.research?.completed) ? [...data.research.completed] : [],
     };
+    gs.playMs = data.playMs || 0;
+    gs.startedAt = Date.now();
+    gs.soldiersLost = data.soldiersLost || 0;
+    gs.civiliansLost = data.civiliansLost || 0;
     gs.phase = 'management';
     return gs;
   } catch (_e) {
