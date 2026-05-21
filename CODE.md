@@ -27,39 +27,53 @@ React reconciliation.
 ```
 ┌──────────────────────────── browser tab ─────────────────────────────┐
 │                                                                      │
-│   ┌────────────── React tree ────────────────────┐                   │
-│   │ DeadPerimeter.jsx                            │                   │
-│   │   useState: scr, ui, muted, paused, hasSave  │  snapshots every  │
-│   │   useRef:   gsRef, missionRef, evacRef,      │◄── 250 ms via     │
-│   │             introRef, defeatRef, inputRef,   │    setUi()        │
-│   │             expSolsRef, expDestsRef          │                   │
-│   │                                              │                   │
-│   │   ┌───── requestAnimationFrame loop ─┐       │                   │
-│   │   │  override refs first             │       │                   │
-│   │   │  then update(gs) + processSounds │       │                   │
-│   │   │  then draw layers                │       │                   │
-│   │   └──────────────────────────────────┘       │                   │
-│   └──┬──────────────────────────────────────────┘                   │
-│      │ mutates                                                      │
-│      ▼                                                              │
-│   ┌────────────── gsRef.current ─────────────────┐                  │
-│   │ phase, resources, soldiers, reserve,         │                  │
-│   │ zombies, humans, barricades, turrets,        │                  │
-│   │ bullets, effects, soundQ, isHumanWave,       │                  │
-│   │ radioMsg, expeditionsToday, lastEvacWave …   │                  │
-│   └──────────────────────────────────────────────┘                  │
+│   ┌────────────── React tree ──────────────────────┐                 │
+│   │ DeadPerimeter.jsx                              │                 │
+│   │   useState: scr, ui, muted, paused, voiceOn,   │  snapshots      │
+│   │             hasSave, expSoldierIdxs, expDests, │◄── every 250 ms │
+│   │             expResult, expPhase, magsPerSoldier│    via setUi()  │
+│   │                                                │                 │
+│   │   useRef:  cvs, gsRef, rafId, prevT, mutedR,   │                 │
+│   │            pausedRef, missionRef, evacRef,     │                 │
+│   │            introRef, defeatRef, transmissionRef│                 │
+│   │            extractionRef, vaccineRef,          │                 │
+│   │            vaccineResultRef, placementRef,     │                 │
+│   │            inputRef, expSolsRef, expDstRef,    │                 │
+│   │            expDestsRef, magsRef                │                 │
+│   │                                                │                 │
+│   │   ┌──── requestAnimationFrame loop ─────┐      │                 │
+│   │   │  override refs first (in order)     │      │                 │
+│   │   │  then update(gs) + processSounds    │      │                 │
+│   │   │  then draw layers                   │      │                 │
+│   │   └─────────────────────────────────────┘      │                 │
+│   └──┬─────────────────────────────────────────────┘                 │
+│      │ mutates                                                       │
+│      ▼                                                               │
+│   ┌────────────── gsRef.current ──────────────────────┐              │
+│   │ phase, day, wave, baseHp, baseMaxHp,              │              │
+│   │ resources, soldiers (with upgrades), reserve,     │              │
+│   │ zombies, humans, barricades, turrets,             │              │
+│   │ bullets, effects, soundQ, isHumanWave,            │              │
+│   │ radioMsg, cameraX, expeditionsToday,              │              │
+│   │ transmissionsDone, pendingTransmission,           │              │
+│   │ workbench, researchLab, research,                 │              │
+│   │ startedAt, playMs, soldiersLost, civiliansLost …  │              │
+│   └───────────────────────────────────────────────────┘              │
 │                                                                      │
-│   ┌─── localStorage (entities/persistence.js) ───┐                  │
-│   │ key: "dead-perimeter-save-v1"                │                  │
-│   │ saved on management entry, recruit, build,   │                  │
-│   │ heal. cleared on game over / NEW GAME.       │                  │
-│   └──────────────────────────────────────────────┘                  │
+│   ┌─── localStorage (entities/persistence.js) ───┐                   │
+│   │ key: "dead-perimeter-save-v3"                │                   │
+│   │ saved on management entry, recruit, build,   │                   │
+│   │ heal, bench / activate, EVAC, scenario       │                   │
+│   │ advance. Cleared on game-over / victory.     │                   │
+│   └──────────────────────────────────────────────┘                   │
 │                                                                      │
-│   ┌─── Web Audio (audio/AudioEngine.js, lazy) ───┐                  │
-│   │ master → fx + bg; per-frame queues drained   │                  │
-│   │ by processSounds(); radioChatter + heli loop │                  │
-│   │ + wind / cityHum loops managed from gs.      │                  │
-│   └──────────────────────────────────────────────┘                  │
+│   ┌─── Web Audio (audio/AudioEngine.js, lazy) ───┐                   │
+│   │ master → fx + bg; per-frame queues drained   │                   │
+│   │ by processSounds(); radioChatter + heli loop │                   │
+│   │ + wind / cityHum loops managed from gs.      │                   │
+│   │ Optional: radioVoice.js → SpeechSynthesis    │                   │
+│   │ for transmission dialog (toggled by 🗣).     │                   │
+│   └──────────────────────────────────────────────┘                   │
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -68,38 +82,53 @@ React reconciliation.
 ```
 RAF tick (now, dt)
    │
-   ├── introRef.current ?   ── yes ──► dIntroScene  + processSounds  ─► return
-   ├── defeatRef.current ?  ── yes ──► dDefeatScene + processSounds  ─► return
-   ├── evacRef.current ?    ── yes ──► dEvacScene   + processSounds  ─► return
-   ├── missionRef.current ? ── yes ──► updateMission + dMission*     ─► return
+   ├── introRef.current ?        ──► dIntroScene        + processSounds  ─► return
+   ├── defeatRef.current ?       ──► dDefeatScene       + processSounds  ─► return
+   ├── evacRef.current ?         ──► dEvacScene         + processSounds  ─► return
+   ├── transmissionRef.current ? ──► dTransmissionScene + processSounds  ─► return
+   ├── extractionRef.current ?   ──► dExtractionScene   + processSounds  ─► return
+   ├── missionRef.current ?      ──► updateMission      + dMission*      ─► return
    │
    ├── gs.phase === 'siege' ?
    │     │
-   │     ├── pausedRef.current ?  ── yes ──► skip update & sounds (still render)
+   │     ├── pausedRef.current ?  ──► skip update & sounds (still render)
    │     │
    │     ├── update(gs, now, dt)
-   │     │     ├── drain spawnQueue → push to gs.zombies | gs.humans
+   │     │     ├── drain spawnQueue → push to gs.zombies | gs.humans (at WORLD_W edge)
    │     │     ├── tick zombies (walk → attack)
    │     │     ├── tick humans  (walk → attack; gunmen → bullets)
    │     │     ├── tick soldiers (incl. rooftop sniper, ground melee)
    │     │     ├── tick turrets (fire at closest enemy in range)
-   │     │     ├── advance bullets, branch on b.hostile / b.spit
+   │     │     ├── advance bullets across full WORLD_W (no viewport cull)
+   │     │     ├── apply perk effects via getSoldierPerkEffect at fire time
+   │     │     ├── apply research multipliers via getResearchEffect
    │     │     ├── hurtCallout + maybeKillChatter (radio events)
    │     │     ├── auto-promote reserve when active count < cap
    │     │     ├── garbage-collect dead bodies / effects
-   │     │     ├── decide wave clear → schedule phase='management'
+   │     │     ├── decide wave clear:
+   │     │     │     ├── apply daily food consumption + report
+   │     │     │     ├── apply per-wave research progress tick
+   │     │     │     ├── apply wave-clear ammo bonus
+   │     │     │     ├── if wave 10/20/25 → set gs.pendingTransmission
+   │     │     │     ├── if wave > maxWaves → phase = 'vaccine-briefing'
+   │     │     │     ├── else → phase = 'management'
+   │     │     ├── starvation damage if food = 0
+   │     │     ├── click-to-place dispatch (placementRef → barricade / turret)
    │     │     └── push sound events to gs.soundQ
    │     │
    │     ├── processSounds(gs.soundQ, audio, mutedRef)  ── drains queue
    │     │
    │     ├── phase transition?
-   │     │     ├── management → saveGame(gs)
-   │     │     ├── gameover   → clearSave() + start defeat cinematic
-   │     │     └── setScr(gs.phase)
+   │     │     ├── management   → saveGame(gs) + setScr('management')
+   │     │     ├── gameover     → clearSave() + start defeat cinematic
+   │     │     ├── vaccine-briefing → setScr('vaccine-briefing')
+   │     │     ├── (legacy) extraction → mkExtraction + setScr('extraction')
+   │     │     └── otherwise    → setScr(gs.phase)
    │     │
    │     └── draw: dBg → dBase → (per lane back→front) zombies → humans
    │              → soldiers → barricades → turrets → effects → bullets
-   │              → dSquadMarker → dHUD → pause overlay
+   │              → placement ghost (if active) → dSquadMarker → dHUD →
+   │              dRadioSubtitle → pause overlay
    │
    └── requestAnimationFrame(loop)
 ```
@@ -114,26 +143,50 @@ or mission and drains its own sound queue:
 | --- | --- | --- | --- | --- |
 | `introRef` | `newGame()` | `finishIntro()` (SKIP or natural end) | 50 s | Opening cinematic |
 | `defeatRef` | siege loop on `gs.phase === 'gameover'` | `finishDefeat()` | 24 s | Game-over cinematic |
-| `evacRef` | `callEvac()` from management | `applyEvac()` (SKIP or natural end) | 5.4 s | Helicopter evac |
-| `missionRef` | `playMission()` from expedition | `finalizeMission()` | until win/loss | Playable side-scroll mission |
+| `evacRef` | `callEvac()` from management | `applyEvac()` (SKIP or natural end) | 5.4 s | Helicopter civilian evac |
+| `transmissionRef` | siege loop on `gs.pendingTransmission` (waves 10 / 20 / 25) | `finishTransmission()` | ~14-21 s | Central Command radio overlay + supply drop |
+| `extractionRef` | (legacy) siege loop on `gs.phase === 'extraction'` for stale saves | `finishExtraction()` | ~22 s | Old wave-30 convoy cinematic |
+| `missionRef` | `playMission()` from expedition or `startVaccineMission()` from briefing | `finalizeMission()` / `advanceOrFinishVaccine()` | until win/loss | Playable side-scroll mission |
 
-Each ref-state holds a `soundQ`, a `startedAt`, and a `_fired` Set for
-fire-once audio events.
+Vaccine state is held separately on `vaccineRef` (the campaign object,
+holding all three scenarios and the shared carrier state) and
+`vaccineResultRef` (the final tier object for the victory screen). The
+active scenario is what `missionRef` points to during a vaccine campaign.
+
+Each ref-state holds a `soundQ`, a `startedAt`, and (for some) a `_fired`
+Set for fire-once audio events.
 
 ### 1.3 Persistence model
 
 We save **between waves**, never mid-wave. The serialised shape
 (`entities/persistence.js`) covers exactly the durable management-screen
-state: resources, soldiers (snapshot of equipment/hp, transient fields
-reset on load), reserve, barricades, turrets, wave/day, score/kills,
-used recruit names, `lastEvacWave`.
+state. Save format version is bumped whenever the shape changes; older
+versions are silently discarded (the menu just shows no `CONTINUE`
+button).
 
-- Saves happen automatically on: wave clear (entering `management`),
-  recruit, barricade built, turret built, soldier healed, soldier
-  benched / activated, EVAC completed.
-- Saves are cleared on: `gameover`, `NEW GAME` button.
-- The menu shows `↻ CONTINUE SAVED RUN` when a save is present.
-- Loaded games **skip the intro cinematic**.
+**Format history**
+- **v1** — base game state.
+- **v2** — added workshop fields (`workbench`, `researchLab`, `research`).
+- **v3 (current)** — added per-soldier `upgrades` map + end-of-run stats
+  (`playMs`, `soldiersLost`, `civiliansLost`).
+
+**Persisted fields (v3)**
+`day, wave, baseHp, baseMaxHp, resources, soldiers (with upgrades, kind,
+veteran, civilian, onRoof, hp, maxHp, ammo, maxAmmo, weapon, lane, x,
+destX, facing, state, name, id), barricades, turrets, score, kills,
+reserve (name/weapon/civilian/veteran/hp), expeditionsToday,
+lastEvacWave, lastFoodReport, transmissionsDone, lastSupplyDrop,
+usedNames (serialised as Array), workbench, researchLab, research,
+playMs, soldiersLost, civiliansLost, savedAt, v.`
+
+Saves happen automatically on: wave clear (entering `management`),
+recruit, barricade built, turret built, soldier healed, soldier
+benched / activated, EVAC completed. Saves are cleared on `gameover`
+and on `NEW GAME` button. Loaded games **skip the intro cinematic**.
+
+`gs.playMs` rolls the live session delta into the persisted total at
+save time, and `gs.startedAt` resets to `Date.now()` on load so the
+next session starts a fresh delta.
 
 ### 1.4 Audio model
 
@@ -151,6 +204,13 @@ the looping nodes alive across frames without re-queuing.
 `audio/radio.js` adds the tactical-radio chatter layer: `pushRadio()`
 queues a `chatter` event and stores a subtitle on `state.radioMsg`.
 
+`audio/radioVoice.js` is the optional Web Speech TTS layer used by the
+transmission cinematics. It wraps each `SpeechSynthesisUtterance` in a
+low-pass + bandpass "comms envelope" via a `MediaStreamDestination` →
+`AudioContext` chain so the synthesised speech matches the procedural
+radio aesthetic. Falls back to silent if `window.speechSynthesis` is
+unavailable. Controlled by a 🗣 / 🚫 button in the HUD.
+
 ---
 
 ## 2. Module reference
@@ -165,8 +225,10 @@ Pure data + helpers. No imports of other game modules.
 | Export | Purpose |
 | --- | --- |
 | `CW, CH` | Canvas width/height (900×530). |
+| `WORLD_W` | Siege world width (1980). The camera scrolls within this; `cameraX` is the offset. |
 | `GY` | Ground Y for the FRONT lane (400). |
 | `WX` | Right edge of Fort Omega's wall (162). |
+| `WEAPON_SCALE` | Shared weapon-sprite scale (0.78). |
 | `LANES` | Array of 3 lane descriptors: `dy` (Y offset from `GY`), `sc` (sprite scale 1.0/0.8/0.64), `gshade` (ground strip color). |
 | `laneY(lane)` | `GY + LANES[lane].dy`. |
 | `laneSc(lane)` | `LANES[lane].sc`. |
@@ -183,13 +245,17 @@ Static configuration tables. Nothing here mutates at runtime.
 `WPN`: per-weapon stats — `name, dmg, range, rate (ms), ammo (mag
 size), rl (reload ms), spd (bullet px/frame), sp (spread radians),
 pel` (pellet count, shotgun only), `ammoCost` (mag refill cost).
-Weapons: `rifle, pistol, shotgun, sniper`.
+Weapons: `rifle, pistol, shotgun, sniper`. The sniper's base range
+is **700** (buffed from 220 in commit `2be7cd4`).
 
 #### `data/zombies.js`
-`ZTP`: per-type zombie stats. Walker / runner / tank are siege regulars;
-spitter (ranged acid) and brute (HIGH-risk boss) are mission-only. Each
-entry has `hp, spd, dmg, sc, cc` plus ranged-zombie extras (`ranged,
-spitRange, spitRate, spitSpd`) where applicable.
+`ZTP`: per-type zombie stats.
+- `walker` — hp 60, spd 0.55, dmg 6.
+- `runner` — hp 35, spd 1.30, dmg 4.
+- `tank`   — hp 150, spd 0.28, dmg 18.
+- `brute`  — hp 600, spd 0.40, dmg 30 (HIGH-risk boss + wave-30 rooftop).
+- `spitter`— hp 80, spd 0.50, dmg 4, ranged with `spitRange/spitRate/
+  spitSpd`. Mission-only.
 
 #### `data/humans.js`
 - `HTP` — knifeman / gunman stats.
@@ -198,27 +264,55 @@ spitRange, spitRate, spitSpd`) where applicable.
 - `isHumanWaveNumber(n)` — predicate.
 
 #### `data/biomes.js`
-`BIOMES` — three palettes (hospital, armory, downtown). Each carries
-`sky` gradient, `ground` gradient, `groundLine`, `bldgFill / bldgRoof /
-bldgWindow`, `bldgCount`, `bldgHRange`, `accentLight`, obstacle types
-(`propType`, `propsPerStep`). `DEFAULT_BIOME = 'downtown'`.
+`BIOMES` — **6 palettes**: three outdoor (`hospital, armory, downtown`)
+and three indoor (`police_interior, armory_interior, office_interior`).
+Each carries `sky` gradient, `ground` gradient, `groundLine`, `bldgFill
+/ bldgRoof / bldgWindow`, `bldgCount`, `bldgHRange`, `accentLight`,
+obstacle types (`propType`, `propsPerStep`). Indoor biomes also carry
+floor / wall tones for the upper-floor renderer. `DEFAULT_BIOME =
+'downtown'`.
 
 #### `data/difficulty.js`
-`DIFFICULTY` — wave-generation knobs (`mkWave` and `mkHumanWave` read
-these). `BALANCE` — gameplay caps + rewards (`maxActiveSoldiers,
-maxReserveSoldiers, expeditionsPerDay, evacMinReserve,
-evacWaveCooldown, evacFoodPerCiv, …, missionGoalKillRatio,
-partyRewardDiminish, behindBarricadeDmgMul`).
+Five exports:
+
+- `DIFFICULTY` — wave-generation knobs (`mkWave` and `mkHumanWave` read
+  these).
+- `BALANCE` — gameplay caps + rewards + costs. Notable keys:
+  `maxWaves (30)`, `maxActiveSoldiers (6)`, `maxReserveSoldiers (10)`,
+  `expeditionsPerDay (2)`, `maxExpeditionParty (3)`, `maxTurrets (2)`,
+  `maxBarricades (4)`, `evacMinReserve (3)`, `evacWaveCooldown (3)`,
+  `evac*PerCiv`, `foodPerPersonPerDay (2)`, `starveDmg (15)`,
+  `wallRepairCost (8)`, `wallRepairHp (30)`, `waveClearAmmo (25)`,
+  `sortieFoodCostPerSoldier (3)`, `missionGoalKillRatio (0.45)`,
+  `missionActivationRange (700)`, `behindBarricadeDmgMul (0.30)`,
+  `barricadeReflectDmg (4)`, `workbenchCost`, `researchLabCost`,
+  `megaWaveMultiplier (2.5)`.
+- `CRAFT_RECIPES` — five workbench recipes (rifleMag, pistolMag,
+  sniperBox, turretBelt, firstAid).
+- `RESEARCHES` — seven research nodes with `id, name, desc, cost, waves,
+  effects`. One active at a time; progress = wave-clears since start.
+- `PERKS` — seven per-soldier weapon perks. Each entry has `id, name,
+  icon, cost, weapons` (`'all'` or array of weapon keys), `desc`, and
+  effect keys (`maxHpBonus, maxAmmoBonus, damageMul, rangeBonus,
+  reloadMul`).
+
+Helpers:
+- `getSoldierPerkEffect(sol, key, defaultValue)` — sums perk effects on
+  that soldier (mul keys compound, bonus keys add).
+- `getResearchEffect(gs, key, defaultValue)` — sums completed-research
+  effects (mul keys compound, bonus keys add).
 
 #### `data/expeditions.js`
-- `DEST_POOL` — 16 city locations grouped by risk tier
-  (`{ LOW: [...5 pharmacy/supermarket/etc.], MED: [...6], HIGH: [...5] }`).
-  Each has `name, icon, biome, loot[], desc`.
+- `DEST_POOL` — 16 city locations grouped by risk tier (5 LOW, 6 MED,
+  5 HIGH). Includes three **indoor** biomes (`police_interior`,
+  `armory_interior`, `office_interior`) that trigger outdoor → indoor
+  multi-segment mission generation.
 - `RISK_BASE` — per-tier mechanics (`riskColor, solDmg, missionLen, zSpawn`).
 - `rollDestinations()` — picks one per tier into the live 3-card list.
 - `lootSummary(loot)` — pretty-prints the icon list for the card.
 - `MISSION_W=1900, MISSION_VIEW=CW, MGY=GY`.
-- `objIcons` — emoji map for pickup types (including 'lostSoldier' 🪖).
+- `objIcons` — emoji map for pickup types (including 'lostSoldier' 🪖
+  and 'vaccine' 💉).
 - `STARS, BLDGS` — procedural background coords.
 - `RECRUIT_NAMES, RECRUIT_WEAPONS, CIVILIAN_WEAPONS, VETERAN_WEAPONS`,
   `KIND_HP = { recruit: 100, civilian: 70, veteran: 120 }`.
@@ -226,10 +320,27 @@ partyRewardDiminish, behindBarricadeDmgMul`).
 - `rollEncounter(risk)` — returns `{ type: 'hostile' | 'trader', offer? }`
   or null with MED 28 % / HIGH 40 % chance.
 
+#### `data/transmissions.js`
+- `TRANSMISSION_WAVES = [10, 20, 25]` — waves that auto-queue a Central
+  Command cinematic on clear.
+- `TRANSMISSIONS` — object keyed by wave number, each with
+  `{ title, sender, lines: [{ at, speaker, pitch, text }], durMs,
+  dropAt, landAt, supplyDrop }`. `at` is ms from cinematic start.
+  `supplyDrop` is applied to `gs.resources` on `finishTransmission`.
+
+#### `data/vaccineMission.js`
+- `VACCINE_SCENARIOS` — three destination objects fed sequentially to
+  `mkMission` by `vaccineCampaign.js`. Each has the regular destination
+  shape (`name, icon, biome, loot, desc, risk, riskColor, missionLen,
+  zSpawn`) plus a `_vaccineSegment: 'highway' | 'hospital' | 'rooftop'`
+  tag that `mkMission` reads to apply scenario-specific overrides
+  (rooftop forces DEFEND, no fork lanes, hospital spawns the vaccine
+  pickup).
+
 ### 2.3 `src/audio/`
 
 #### `audio/AudioEngine.js`
-Classes: `AudioEngine`. Free functions: `getAM()`, `processSounds(q, am, mutedRef)`.
+Class: `AudioEngine`. Free functions: `getAM()`, `processSounds(q, am, mutedRef)`.
 
 - Lazily created on first `getAM()`. Returns `null` if `AudioContext`
   fails (e.g. CSP).
@@ -241,25 +352,35 @@ Classes: `AudioEngine`. Free functions: `getAM()`, `processSounds(q, am, mutedRe
 Event types recognised:
 - Combat: `shot, shell, reload, hit, zdie, groan, zatk, bhit, wclr`.
 - Cinematic / ambient: `heliStart, heliStop, siren, scream, crackle,
-  windStart, windStop, cityHum, cityHumStop, titleSting`.
+  windStart, windStop, cityHum, cityHumStop, titleSting, chuteRustle`.
 - Voice: `chatter` (delegates to `radioChatter`).
 
 Looping events (`heliStart, windStart, cityHum`) hold their own
-nodes on the engine instance until `*Stop` is queued; the queue draining
-is what keeps loops alive vs. tearing them down.
+nodes on the engine instance until `*Stop` is queued.
 
 #### `audio/radio.js`
 - `RADIO_LINES` — pool of short tactical lines by category:
   `advance, retreat, reload, hurt, kill, evacIn, evacBoard, evacOut,
   deploy, lowAmmo, baseHit, defeat`.
 - `pushRadio(state, category, opts)` — picks a line (or uses
-  `opts.line` override), computes a pitch (explicit `opts.pitch` ->
-  `opts.speaker.voicePitch` -> text hash), and:
+  `opts.line` override), computes a pitch (explicit `opts.pitch` →
+  `opts.speaker.voicePitch` → text hash), and:
   - Schedules a `chatter` audio event on `state.soundQ`.
   - Stores `state.radioMsg = { text, at, dur, category }` so the HUD
     can render the subtitle.
-  Includes a per-state cooldown (`state._lastRadioAt`, default 1300 ms)
-  so callouts never overlap.
+  Includes a per-state cooldown (`state._lastRadioAt`, default 1300 ms).
+
+#### `audio/radioVoice.js`
+Optional Web Speech TTS layer. Free functions:
+- `isRadioVoiceAvailable()` — probes for `window.speechSynthesis`.
+- `speakRadioLine(text, opts)` — speaks a string through a synthesised
+  utterance bracketed by low-pass + bandpass filtering for the "comms"
+  texture. `opts = { pitch, rate, voice? }`. No-op when speech synth
+  unavailable or the global voice toggle is off.
+
+Used by `render/transmission.js` to speak Central Command's scripted
+lines at their `at` offsets. The toggle lives on `voiceOn` state in
+`DeadPerimeter.jsx`.
 
 ### 2.4 `src/entities/`
 
@@ -267,14 +388,14 @@ Pure factory functions. No rendering, no audio.
 
 | Module | Export | Returns |
 | --- | --- | --- |
-| `soldier.js` | `mkSoldier(name, weapon, destX, hp?, lane?, civilian?, onRoof?, opts?)` | Soldier object. Stamps `kind` (recruit / civilian / veteran), `maxHp` from `KIND_HP`, deterministic `voicePitch`, all transient state zeroed. |
-| `zombie.js` | `mkZombie(type)` | Zombie object spawning at `x = CW+50`, random lane, jittered speed. |
+| `soldier.js` | `mkSoldier(name, weapon, destX, hp?, lane?, civilian?, onRoof?, opts?)` | Soldier object. Stamps `kind` (recruit / civilian / veteran), `maxHp` from `KIND_HP`, deterministic `voicePitch`, empty `upgrades: {}` perk map, all transient state zeroed. |
+| `zombie.js` | `mkZombie(type)` | Zombie object spawning at `x = WORLD_W` (siege edge), random lane, jittered speed. |
 | `human.js` | `mkHuman(type)` | Hostile human with `hostile: true`. |
 | `barricade.js` | `mkBarricade(x)` | 140-HP perspective wall spanning all lanes. |
 | `turret.js` | `mkTurret(x, lane)` | Machine-gun emplacement. |
 | `wave.js` | `mkWave(n)`, `mkHumanWave(n)`, `isHumanWaveNumber(n)` | Spawn queues sorted by `at` (ms offset from wave start). |
-| `gameState.js` | `mkGS()` | Fresh game state. Includes 4 starting soldiers, starting resources, empty arrays. |
-| `persistence.js` | `hasSavedGame()`, `saveGame(gs)`, `loadGame(mkGS)`, `clearSave()` | localStorage helpers. Saves are versioned (`v: 1`); shape change should bump the key. |
+| `gameState.js` | `mkGS()`, `recordDeath(gs, victim)` | Fresh game state (4 starting soldiers, starting resources, empty arrays, workshop flags off, stats at 0). `recordDeath` bumps `gs.civiliansLost` or `gs.soldiersLost` based on `victim.civilian`. |
+| `persistence.js` | `hasSavedGame()`, `saveGame(gs)`, `loadGame(mkGS)`, `clearSave()` | localStorage helpers. v3 format; reads older versions return null (caller falls back to a fresh game). |
 
 ### 2.5 `src/render/`
 
@@ -283,15 +404,16 @@ Canvas draw functions. They receive `ctx` plus the entity (or `gs`) and
 in (with the exception of the override-ref cinematics).
 
 #### `background.js`
-`dBg(ctx)` — sky, stars, ruined buildings, lane strips, ground gradient,
-faint lane labels.
+`dBg(ctx, cameraX?)` — sky, stars, ruined buildings, lane strips, ground
+gradient, faint lane labels. Stars and skyline span the full `WORLD_W`
+so panning reveals new content.
 
 #### `base.js`
-`dBase(ctx, hp, mhp)` — Fort Omega wall. Now includes: brick courses
-with offset masonry pattern, four loophole firing slits, battle-damage
-streaks, reinforced gate panel with padlock, two-row sandbag base course
+`dBase(ctx, hp, mhp)` — Fort Omega wall: brick courses with offset
+masonry pattern, four loophole firing slits, battle-damage streaks,
+reinforced gate panel with padlock, two-row sandbag base course
 extending past the wall, concertina razor wire along the parapet, three
-mounted floodlights with light cones, a wooden corner watchtower with
+mounted floodlights with light cones, wooden corner watchtower with
 lit window + antenna + side-mounted searchlight, faded "Ω" star
 insignia, "FORT OMEGA" plaque with corner rivets, HP strip on the
 parapet.
@@ -306,13 +428,9 @@ shotgun, sniper. Local coordinates; caller applies translate/scale.
 - `s.state === 'dead'` → flat corpse with rifle next to body.
 - else → animated walking / shoot / idle / knife / reload sprite.
 
-Palette by flag:
-- `s.civilian` → brown jacket + blue jeans + red baseball cap.
-- `s.bandit` → dark maroon jacket + near-black pants and helmet.
-- `s.police && !s.swat` → classic NHPD peaked cap (navy crown + black
-  visor + gold badge).
-- `s.police && s.swat` → tactical helmet with black strap + small peak.
-- else → standard military variant from a hash of name (`HELMET_VARIANTS`).
+Palette by flag: `s.civilian`, `s.bandit`, `s.police && !s.swat`
+(peaked cap), `s.police && s.swat` (tactical helmet), else standard
+military variant from a hash of name.
 
 `variantFor(s)` is a deterministic per-soldier sprite-variant helper
 (jacket / helmet / beard) hashed from `s.name`.
@@ -328,7 +446,8 @@ pistol + muzzle flash when `h.lastShot < 90 ms`.
 
 #### `turret.js`
 `dTurret(ctx, t, now)` — emplacement body + rotating barrel + flash on
-fire.
+fire. Also renders the click-to-place ghost preview when a turret
+placement is in progress.
 
 #### `effects.js`
 `dBarricade(ctx, b)` (3-lane perspective wall), `dBlt(ctx, b)` (bullet
@@ -342,42 +461,43 @@ button, wave-clear overlay, red "HOSTILE SURVIVORS" banner during
 `dSquadMarker(ctx, target, lane, now)` — squad-target arrow in the
 active lane.
 `dRadioSubtitle(ctx, state, now)` — renders `state.radioMsg` as a
-"📻 Speaker: line!" lozenge near the bottom of the canvas with category-
-tinted color and fade in/out. Used from siege HUD, mission HUD, evac,
-defeat.
+"📻 Speaker: line!" lozenge near the bottom of the canvas with
+category-tinted color and fade in/out. Used from siege HUD, mission
+HUD, evac, defeat, transmission.
 
 #### `evac.js`
 `dEvacScene(ctx, evac, now)` + `EVAC_DURATION = 5400`. Procedural UH-60
-Black Hawk silhouette: angular fuselage with raked nose pointing right,
-twin engine humps, 4-blade main rotor with motion blur, horizontal
-stabilizer + tail rotor, military wheel landing gear, white army-star
-insignia, "OMEGA-1" hull stencil, red beacon + green nav lights, optional
-engine glow during arrive / depart. Three phases (arrive → board →
-leave) with rope-ladder boarding civilians and a ground-shadow ellipse
-projected to GY with altitude-scaled alpha.
+Black Hawk silhouette over three phases (arrive → board → leave) with
+rope-ladder boarding civilians and ground-shadow projection.
 
 #### `intro.js`
 `dIntroScene(ctx, intro, now)` + `INTRO_DURATION = 50000`. 14 scripted
 SHOT entries (each with `from / to / draw / banner`). Shots reuse the
 real `dSoldier` / `dZombie` renderers via a shared `dSpriteAt(drawFn,
-ctx, entity, screenX, screenFootY, scale, now)` helper, so the
-cinematic characters are visually identical to gameplay sprites.
-Custom drawings remain for environment (cars, fires, mug, newspaper,
-phone, etc.). `mkIntroSoldier()` / `mkIntroZombie()` are minimal record
-builders that satisfy the dSoldier / dZombie field expectations.
-Audio scheduled via `scheduleIntroAudio()` with a fire-once Set.
+ctx, entity, screenX, screenFootY, scale, now)` helper. Audio
+scheduled via `scheduleIntroAudio()` with a fire-once Set.
 
 #### `defeat.js`
 `dDefeatScene(ctx, defeat, now)` + `DEFEAT_DURATION = 24000`. Four
-phases (breach / overrun / lastStand / silence). Defenders are a
-scripted array (`DEFENDERS = [Alpha, Delta, Bravo, Charlie]` with
-cumulative `fallAt` times), `KILLERS` is the list of zombie attackers
-attached to each defender at their `hurtAt`, and `DEAD_ZOMBIES` is the
-list of corpses on the road from cop fire. `dDefeatSoldier` calls real
-`dSoldier` with `shoot / idle / knife / dead` based on time. Helpers
-`dCombatBackdrop`, `dCombatWall`, `dInnerFires`, `dHordeWave` keep the
-phase functions thin. `scheduleDefenderVoices()` fires the defenders'
-radio lines at their `hurtAt` times.
+phases (breach / overrun / lastStand / silence). Defenders fall on
+scripted timeline with killers attached. Per-defender voice lines fire
+at their `hurtAt` times.
+
+#### `transmission.js`
+`dTransmissionScene(ctx, tr, now)` + transmission-specific duration
+read from `tr.data.durMs`. Full-screen "INCOMING TRANSMISSION" panel
+with header, scrolling waveform driven by current line index, dialog
+lines printed at their `at` offsets, parachuted supply crate animation
+during `dropAt → landAt`. Audio: chatter SFX bracketing each line +
+optional `speakRadioLine` via `audio/radioVoice.js`.
+
+#### `extraction.js`
+(Legacy) `dExtractionScene(ctx, e, now)` + `EXTRACTION_DURATION = 22000`
++ `EXTRACTION_SCRIPT`. Convoy of one or three vehicles depending on
+survivor count, rolling out of Fort Omega with scripted dialog over
+22 s. Kept on the codepath only to gracefully handle stale saves whose
+`gs.phase === 'extraction'`; new runs go straight to the playable
+vaccine campaign and never visit this code.
 
 ### 2.6 `src/update/`
 
@@ -391,135 +511,202 @@ Order of operations in one call:
 
 1. Early return if `gs.phase !== 'siege'`.
 2. `gs.waveTime += dt`; decrement shake timer.
-3. Drain `gs.spawnQueue` — push new zombies or humans depending on
-   `gs.isHumanWave`.
+3. Drain `gs.spawnQueue` — push new zombies (at `x = WORLD_W`) or humans.
 4. Random ambient groan.
 5. **Zombie loop**: `walk → attack`. Target priority: same-lane soldier
    > same-lane barricade > base wall.
-6. **Human loop** (only when `gs.isHumanWave`):
-   - Knifemen behave like fast walkers.
-   - Gunmen stop at `meta.range`, fire hostile bullets, drop target if
-     it dies / leaves lane.
+6. **Human loop** (only when `gs.isHumanWave`): knifemen behave like
+   fast walkers, gunmen stop at `meta.range` and fire hostile bullets.
 7. **Soldier loop**:
    - Rooftop sniper: own branch with sniper-ammo refill, descend on
-     dry pool, target-furthest selection.
+     dry pool, target-furthest selection. Range = base 700 + perks +
+     research bonus.
    - Ground soldier: walk-collision against barricades, target-prioritise
      same-lane enemies, reload on dry mag, knife melee when both ammo
      and reserve dry. `hurtCallout` fires once when HP < 35 % of max.
+     Damage / range / reload all run through `getSoldierPerkEffect` +
+     `getResearchEffect`.
 8. **Turret loop**: fire at closest in-range enemy using `turretAmmo`.
-9. **Bullet loop**:
-   - Hostile bullets → soldier collisions in `b.targetLane`.
-   - Friendly bullets → enemy collisions; on kill, `killTarget()` credits
-     the shooter, awards score, possibly rolls a random kill chatter,
-     and (for humans) drops `rng(HUMAN_AMMO_DROP[0..1])` ammo.
+9. **Bullet loop**: hostile / spit / friendly branches. Friendly bullets
+   travel the full `WORLD_W`. On kill, `killTarget()` credits the
+   shooter, awards score, possibly rolls a random kill chatter, and
+   (for humans) drops `rng(HUMAN_AMMO_DROP[0..1])` ammo. **Every soldier
+   death** (lines 144, 227, 463) calls `recordDeath(gs, sol)`.
 10. Dead-body caps (60 zombies / 30 humans). Effects GC'd by `dur`.
 11. Reserve auto-promotion: if active count < `BALANCE.maxActiveSoldiers`
     and reserve has entries, promote one.
 12. Wave-clear check: spawn queue empty + no live enemies → `waveComplete`.
-    After 3 s, increment day/wave, give bonus ammo + food, climb Delta
-    back up, switch `phase = 'management'`.
+    After 3 s: increment day/wave, give bonus ammo, tally + apply daily
+    food consumption, tick active research progress, climb Delta back
+    up, possibly queue a transmission (wave 10/20/25), switch
+    `gs.phase` to `'management'` — **or** to `'vaccine-briefing'` if
+    `gs.wave > BALANCE.maxWaves`.
 13. Game-over check: base HP ≤ 0 OR every non-expedition soldier dead.
 
-#### `update/mission.js` — `mkMission(party, dest, wave)` + `updateMission(m, now, dt)`
+#### `update/mission.js` — `mkMission(party, dest, wave, magsPerSoldier?)` + `updateMission(m, now, dt)`
 
 `mkMission` builds a 1900 px playable level for a multi-soldier party:
 - Picks lead (player-controlled) + followers (AI).
+- **Multi-segment generation**: if `dest.biome` is an indoor biome
+  (`*_interior`), the map splits at an `entranceX` boundary — outdoor
+  in front, real building interior behind. Includes multi-floor
+  platforms, ladders, stairs.
 - Pre-places zombies, pickups, hazards (mines + acid pools), obstacles,
-  decorative props per the destination's biome.
-- Rolls `objective` (reach / defend at `MISSION_W * 0.45`) and `fork`
-  (50 % chance for MED+HIGH non-defend).
+  decorative props, **searchable loot containers** (lockers, ammo crates,
+  glass cases, workbenches, etc.) per biome.
+- Rolls `objective`:
+  - vaccine rooftop scenario → forced 'defend' with 75 s hold.
+  - other vaccine scenarios → forced 'reach'.
+  - regular mission → 30 % chance 'defend' on MED+HIGH.
+- Rolls `fork` (50 % chance for MED+HIGH non-defend non-vaccine).
 - For defend missions, pre-places a 3-6 zombie ambush past the anchor.
 - Rolls a survivor encounter (MED 28 % / HIGH 40 %), spawns the camp
   humans, and clears zombies within a 220 px radius around the camp.
 - Spawns a HIGH-risk Brute boss near the goal.
-- Computes wave-scaled spitter dmg + rate and stamps them on each
-  spitter instance.
+- For the hospital vaccine scenario, spawns a guaranteed `vaccine`
+  pickup at `MISSION_W - 180`.
 - Stamps `voicePitch` on the lead + followers via `mkSoldier`.
+- Reads `_sortieMags` on each party member (set by `playMission`) to
+  seed `magsLeft`; mission ammo is finite.
 
 `updateMission` per frame:
-- Top-of-frame guard: if lead is dead, promote a follower via
-  `promoteLeadOnDeath`; mission only fails on full party wipe.
+- Init banner: on first tick, if `m._vaccineScenarioName` is set, push
+  a big yellow text banner with that scenario name.
+- **Vaccine carrier death check**: if `m._vaccineCollected &&
+  !m._vaccineDropped` and the carrier is dead, drop a fresh `vaccine`
+  pickup at their X and clear the carrier id.
+- Top-of-frame guard: if lead is dead, `promoteLeadOnDeath`. Mission
+  fails only on full party wipe.
 - Trader proximity opens the dialog and pauses world simulation.
 - Encounter proximity sweep clears any zombies that wandered into the
   camp area (220 px radius).
-- Lead movement (including fork-lane switch via `W` / `S`).
+- Lead movement (including fork-lane switch via `W` / `S`, ladder climb,
+  jump on `Space`).
 - Follower AI: track lead, fire on hostiles in range, switch to knife
   on dry mag.
 - Zombie AI: walk-to-target, ranged spitter logic, melee on contact.
+  Zombies on platforms or with ladders below them will climb to reach
+  party members on a different floor.
 - Hostile-human AI: walk to weapon's ideal range, then stop and fire.
 - Bullet loop with branches: spit → damage party / rescuables; hostile →
   damage party; friendly → mine detonate → human → zombie. Kill chatter
   on confirmed kills.
 - Hazard ticks: mine proximity trigger (or bullet trigger); acid pool
   slow + dot.
-- Pickup collection (lane-gated for fork pickups).
-- Defend timer + scripted wave spawner past the anchor.
-- Win condition: `s.x >= MISSION_W - 50` (reach) or defend timer
-  elapsed.
+- Pickup collection (lane-gated for fork pickups, floor-gated for
+  upper-floor pickups via `standingY` match). Vaccine pickup arms the
+  carrier mechanic.
+- **Searchable container progress** — hold proximity for ~700 ms with
+  a progress bar; on completion, roll loot from the container-type
+  table.
+- Defend timer + scripted wave spawner past the anchor. At
+  `elapsed >= 32000` AND `m._vaccineIndex === 2`, spawn the **rooftop
+  Brute boss** (single-shot, guarded by `_vaccineBruteSpawned`).
+- **APC extraction** when defend hold ends: spawn the APC entity, drive
+  it in from the Fort Omega side, embark soldiers, drive it back across
+  the map. Mission only flips to `'won'` after the convoy has cleared
+  the screen.
+- Win condition: `s.x >= MISSION_W - 50` (reach) or extraction complete
+  (defend).
 
 `dMissionWorld` + `dMissionHUD` paint the parallax background +
-foreground entities + top HUD (progress bar repurposed as defend timer
-during DEFEND missions).
+foreground entities + multi-floor buildings + ladders + platforms +
+`dVaccineVial` over the carrier's head + top HUD (progress bar
+repurposed as defend timer during DEFEND missions).
 
 ### 2.7 `src/expedition/`
 
-- `auto.js` — `resolveExpedition(soldier, dest, gs)` rolls
-  threshold-based outcome with preparation-scaled damage and rewards
-  scaled by wave (+5 % per wave above 1, capped at +100 %). Veteran
-  rescue chance: LOW 0 %, MED 12 %, HIGH 25 %.
-  `resolvePartyExpedition(soldiers, dest, gs)` aggregates with
-  diminishing-returns reward merging.
 - `missionFinish.js` — `finishMission(m, gs)` transfers collected
   resources from a playable mission back into the game state, handles
   recruit pickup (`civilian` → civilian kind, `lostSoldier` → veteran),
-  pushes results to active duty or reserve as space allows.
-- `events.js` — `genEvents()` builds the narrative log for the
-  expedition "running" UI animation.
+  pushes results to active duty or reserve as space allows. Hooks
+  `recordDeath(gs, orig)` in the writeBack path for every party member
+  who died on the mission (guarded against double-counting bodies left
+  behind on a previous run).
+- `vaccineCampaign.js` — wave-30 finale.
+  - `mkVaccineCampaign(gs, mags = 3)` — gathers every alive squad
+    member + every reserve member (civilians + extras temporarily
+    promoted to soldiers via `mkSoldier`), issues 3 mags each from the
+    stash, builds scenario 0 (Highway 17) via `mkMission` with the
+    first vaccine destination. Returns `{ vaccine, party, mags,
+    current, currentIndex, scenariosCleared, vaccinePickedUp,
+    vaccineCarrierId }`.
+  - `advanceVaccineScenario(campaign, gs)` — writes back HP/ammo/state
+    from the just-cleared scenario, calls `recordDeath` for any new
+    casualties, then mints a fresh `mkMission` for the next scenario
+    using the surviving subset. Carries the vaccine state forward: if
+    a carrier survived, the matching origId becomes the new carrier in
+    the next scenario.
+  - `finishVaccineCampaign(campaign, gs)` — final wrap-up. Writes back
+    HP/ammo to gs.soldiers, demotes reserve-origin survivors back into
+    `gs.reserve`, computes outcome tier:
+    - `gold` if all 3 scenarios cleared + vaccine delivered + ≥4
+      survivors.
+    - `silver` if all 3 cleared + vaccine delivered + 1-3 survivors.
+    - `bronze` if ≥2 cleared but vaccine lost / dropped on a body.
+    - `failure` otherwise (party wiped early).
+  Returns `{ tier, survivors, scenariosCleared, vaccineDelivered }`.
 
 ### 2.8 `src/DeadPerimeter.jsx`
 
 Thin React component that wires everything together. Hooks:
 
 - `useRef` — `cvs, gsRef, rafId, prevT, mutedR, pausedRef, missionRef,
-  evacRef, introRef, defeatRef, inputRef, expSolsRef, expDstRef,
-  expDestsRef`.
-- `useState` — `scr, ui, muted, paused, hasSave, expSoldierIdxs,
-  expDestIdx, expDests, expEvents, expVisible, expResult, expPhase`.
+  evacRef, introRef, defeatRef, transmissionRef, extractionRef,
+  vaccineRef, vaccineResultRef, placementRef, inputRef, expSolsRef,
+  expDstRef, expDestsRef, magsRef`.
+- `useState` — `scr, ui, muted, paused, voiceOn, hasSave,
+  expSoldierIdxs, expDestIdx, expDests, expEvents, expVisible,
+  expResult, expPhase, magsPerSoldier, missionTick`.
 - `useCallback` — every event handler: `newGame, continueGame,
   startWave, sendExpedition, playMission, finalizeMission,
-  finishIntro, finishDefeat, applyEvac, skipEvac, callEvac,
-  resolveTrade, recruit, buildBarricade, buildTurret, healSoldier,
-  moveSquad, toggleMute, togglePause, benchSoldier, activateReserve,
-  toggleSoldier, pickDest`.
+  startVaccineMission, advanceOrFinishVaccine, finishIntro,
+  finishDefeat, finishTransmission, finishExtraction, applyEvac,
+  skipEvac, callEvac, resolveTrade, recruit, buildBarricade,
+  buildTurret, cancelPlacement, confirmPlacement, healSoldier,
+  moveSquad, toggleMute, togglePause, toggleVoice, benchSoldier,
+  activateReserve, toggleSoldier, pickDest, repairWall, craft,
+  startResearch, buyPerk, buildWorkbench, buildResearchLab`.
 - `useEffect` — load `hasSavedGame()` on mount; expedition animation
   ticker; mission "is-finished" poll; the main RAF + event-listener
   setup/teardown.
 
-Event handlers attached to the canvas: `click`, `mousedown`, plus
-`touchstart`/`touchend`/`touchcancel` for mobile. Window-level
-listeners: `keydown` (Esc, A/D/W/S/arrows, Space), `keyup`, `mouseup`.
+Event handlers attached to the canvas: `click`, `mousedown`, `mousemove`
+(for placement preview), plus `touchstart`/`touchend`/`touchcancel` for
+mobile. Window-level listeners: `keydown` (Esc, A/D/W/S/arrows, Space),
+`keyup`, `mouseup`.
 
-JSX renders these screens (controlled by `scr` state):
+JSX renders these screens (controlled by `scr` state, **13 unique
+values**):
 1. `menu` — title + `BEGIN OPERATION` + `CONTINUE SAVED RUN`.
 2. `intro` — canvas (50 s opening cinematic).
 3. `management` — resources, soldiers + reserve, barricades, turrets,
    base HP, recruit / barricade / turret / heal / EVAC / expedition /
-   deploy buttons. Red banner when `isHumanWaveNumber(gs.wave)`.
+   deploy / repair-wall / workbench / research-lab / perks / crafting /
+   research-queue buttons. Red banner when `isHumanWaveNumber(gs.wave)`.
 4. `siege` — canvas + control row (RETREAT, soldier badges, ADVANCE,
-   PAUSE/RESUME, MUTE).
-5. `expedition` — pickers (party + 3 rolled destinations) + AUTO-DISPATCH
-   / PLAY LIVE / event log / result summary.
-6. `mission` — canvas + bottom hint + RETURN TO BASE button.
-7. `evac` — canvas (5.4 s helicopter cinematic) + SKIP.
-8. `defeat` — canvas (24 s game-over cinematic) + SKIP.
-9. `gameover` — stats + TRY AGAIN.
+   PAUSE/RESUME, MUTE, voice toggle).
+5. `placement` — canvas with build-ghost preview, click to commit.
+6. `expedition` — pickers (party + 3 rolled destinations) + magazine
+   selector + PLAY LIVE / event log / result summary.
+7. `mission` — canvas + bottom hint + RETURN TO BASE (regular) /
+   ADVANCE TO … (vaccine scenario won) / COMPLETE EXTRACTION (vaccine
+   final won) / END CAMPAIGN (vaccine lost) button.
+8. `transmission` — canvas (wave 10/20/25 radio overlay) + SKIP.
+9. `evac` — canvas (5.4 s helicopter cinematic) + SKIP.
+10. `extraction` — (legacy) canvas + SKIP.
+11. `vaccine-briefing` — Central Command briefing panel + DEPLOY.
+12. `defeat` — canvas (24 s game-over cinematic) + SKIP.
+13. `gameover` / `victory` — stats panels. Victory reads
+    `vaccineResultRef.current` to show tier-specific (gold/silver/
+    bronze/failure) emoji + header + blurb + `Convoy Cleared N/3` +
+    `Vaccine ✓/✗`.
 
 ---
 
 ## 3. Invariants
 
-The codebase relies on these rules. Breaking any of them is a
-regression.
+The codebase relies on these rules. Breaking any of them is a regression.
 
 1. **Module dependency direction is strictly top-down**: `constants` →
    `data` → `entities` → `render` / `update` / `expedition` / `audio` →
@@ -528,31 +715,42 @@ regression.
    over it.
 3. **React state is for the UI shell**, not for gameplay. Mutation must
    not flow through `setState`.
-4. **Override refs are checked BEFORE `gs.phase`** in the loop:
-   intro → defeat → evac → mission → siege. Whichever ref is set owns
-   the canvas exclusively.
+4. **Override refs are checked BEFORE `gs.phase`** in the loop, in this
+   order: intro → defeat → evac → transmission → extraction → mission →
+   siege. Whichever ref is set owns the canvas exclusively.
 5. **`gs.soundQ` is drained every frame** by `processSounds`. Pushing a
    sound during render is safe but pointless.
 6. **Bullet collisions branch on `b.hostile` / `b.spit`**: hostile
-   bullets damage party / rescuables / soldiers; spit globs damage
-   the same set with green effects; friendly bullets cascade through
-   mine → human → zombie checks.
+   bullets damage party / rescuables / soldiers; spit globs damage the
+   same set with green effects; friendly bullets cascade through mine
+   → human → zombie checks.
 7. **`gs.isHumanWave` is set in `startWave`**, never derived mid-update.
 8. **Rooftop sniper** does not respect lane scaling — drawn at
    `(WX-40, GY-160)` at full size.
 9. **Soldier states**: `walk | idle | shoot | reload | knife | dead`.
    Dead soldiers stay in `gs.soldiers` forever as memorials.
 10. **Lane scaling is on the canvas transform**, not pre-baked into
-    sprite coordinates.
+    sprite coordinates. Multi-floor Y is a separate `standingY` offset.
 11. **Mission lead promotion** is checked at the top of `updateMission`
-    every frame and at every damage site. Mission fails only when
-    `aliveParty(m).length === 0`.
+    every frame. Mission fails only when `aliveParty(m).length === 0`.
 12. **Cinematic audio loops** (heli, wind, cityHum) MUST be paired —
     every `*Start` event must be followed by a `*Stop` somewhere in the
     same cinematic, or the loop leaks across into siege.
 13. **pushRadio cooldown** is per-state. State here is `gs` (siege),
-    `m` (mission), `evac`, `defeat`, or `intro`. Mixing them is fine
-    because each carries its own `_lastRadioAt`.
+    `m` (mission), `evac`, `defeat`, `intro`, or `transmission`. Each
+    carries its own `_lastRadioAt`.
+14. **`recordDeath(gs, victim)` is the single death-tracking entry
+    point** — every site that flips a soldier to `state = 'dead'` calls
+    it so the civilians-vs-soldiers split lives in one place.
+15. **Perk and research effects** flow through `getSoldierPerkEffect` /
+    `getResearchEffect`. Combat code must NOT hard-code WPN values;
+    always read through the helper so workshop progression actually
+    applies.
+16. **Vaccine campaign reuses `mkMission`** via per-scenario
+    destinations with a `_vaccineSegment` tag and runtime flags on
+    `m` (`_vaccineCampaign, _vaccineIndex, _vaccineCollected,
+    _vaccineCarrierId, _vaccineDropped, _vaccineBruteSpawned,
+    _vaccineScenarioName`). No parallel mission engine.
 
 ---
 
@@ -572,7 +770,8 @@ regression.
 - **Soldier walk collision** stops at `bar.x ± 13` from a barricade.
 - **The mission soldier is a copy** of the siege soldier (via
   `buildMissionSoldier`). Side effects on the original are written back
-  only by `finishMission`.
+  only by `finishMission` (regular missions) or by
+  `advanceVaccineScenario` / `finishVaccineCampaign` (vaccine).
 - **Cinematic refs share canvas state.** If one cinematic forgets to
   clean up `ctx.save()` calls, the next one will see a corrupted
   transform. Wrap each scene in `ctx.save()` / `ctx.restore()`.
@@ -580,6 +779,12 @@ regression.
   with scale `s`, pre-translate by `(x, footY - GY*s)` then scale, so
   the drawer's internal `translate(s.x, laneY(0))` lands the feet at
   `(x, footY)` exactly. Lane 0 is required (the helper sets it).
+- **`playMs` accounting** rolls only at save time. If the player rage-
+  closes the tab without triggering a save, the current session's
+  elapsed time is lost (next session starts fresh).
+- **Bullets travel the full `WORLD_W`**, not just the visible viewport
+  (commit `6a15fa9`). Don't reintroduce viewport-relative culling on
+  the siege bullet loop.
 
 ---
 
@@ -590,64 +795,109 @@ regression.
 1. Add an entry in `data/weapons.js`.
 2. Add a polygon sprite branch in `render/weapons.js`.
 3. Add it to `RECRUIT_WEAPONS` / `CIVILIAN_WEAPONS` / `VETERAN_WEAPONS`
-   in `data/expeditions.js` to make it spawn on the relevant soldier
-   kinds.
+   in `data/expeditions.js`.
+4. If you want a perk to apply only to this weapon, add the weapon key
+   to that perk's `weapons` array in `PERKS` (`data/difficulty.js`).
 
 ### 5.2 Add a new zombie type
 
 1. Add an entry in `data/zombies.js`.
-2. Add it to `mkWave` in `entities/wave.js` so it spawns in the queue.
+2. Add it to `mkWave` in `entities/wave.js` so it spawns in the siege
+   queue.
 3. If it needs unique rendering, branch on `z.type` in `render/zombie.js`.
 4. If it's a mission-only enemy (boss / ranged), add the spawn logic in
-   `update/mission.js` `mkMission`.
+   `update/mission.js` `mkMission` or the defend wave spawner.
 
 ### 5.3 Add a new mission destination
 
 Append to one of `DEST_POOL.{LOW, MED, HIGH}` in `data/expeditions.js`
 with `{ name, icon, biome, loot[], desc }`. `rollDestinations()` picks
-it up automatically. If you want a new biome, also add an entry to
-`BIOMES` in `data/biomes.js`.
+it up automatically. For a new indoor biome, also add an entry to
+`BIOMES` in `data/biomes.js` (key ending in `_interior` to trigger the
+multi-segment generator).
 
 ### 5.4 Tune difficulty
 
 Edit `data/difficulty.js`. `DIFFICULTY` controls wave generation;
 `BALANCE` controls soldier caps, sortie limits, evac math, mission
-goal-kill ratio, party reward diminish, and barricade damage
-multipliers.
+goal-kill ratio, barricade damage multipliers, food economy, wall
+repair, etc.
 
 ### 5.5 Add a new radio chatter category
 
 1. Append to `RADIO_LINES` in `audio/radio.js`.
 2. Call `pushRadio(state, 'newCategory', { speaker })` at the right
    game-state event.
-3. Optionally tint the subtitle by adding a branch in
-   `dRadioSubtitle` (`render/hud.js`).
+3. Optionally tint the subtitle by adding a branch in `dRadioSubtitle`
+   (`render/hud.js`).
 
 ### 5.6 Add a new saved field
 
 1. Add the field to `mkGS` in `entities/gameState.js`.
 2. Add it to both `saveGame` and `loadGame` in
    `entities/persistence.js`.
-3. Bump `STORAGE_KEY` to `-v2` so old saves are discarded gracefully.
+3. Bump `STORAGE_KEY` (e.g. `-v4`) so old saves are discarded gracefully.
 
-### 5.7 Add a new shot to the opening intro
+### 5.7 Add a new perk
+
+1. Append to `PERKS` in `data/difficulty.js` with `id, name, icon, cost,
+   weapons` (`'all'` or array of weapon keys), `desc`, and the relevant
+   effect keys (one of `maxHpBonus, maxAmmoBonus, damageMul, rangeBonus,
+   reloadMul`).
+2. If the effect key is new, hook it where it should apply (combat
+   code that does e.g. `getSoldierPerkEffect(s, 'rangeBonus', 0)`).
+3. The buy button + cost-gating UI in the management screen reads
+   `PERKS` directly — no extra wiring.
+
+### 5.8 Add a new research node
+
+1. Append to `RESEARCHES` in `data/difficulty.js` with `id, name, desc,
+   cost, waves, effects { … }`.
+2. Hook the effect at the call site via `getResearchEffect(gs, 'key',
+   defaultValue)`.
+3. Research panel UI reads `RESEARCHES` directly.
+
+### 5.9 Add a new craft recipe
+
+Append to `CRAFT_RECIPES` in `data/difficulty.js` with `id, icon, name,
+cost {…}, output {…}`. The workbench UI in `DeadPerimeter.jsx` iterates
+and renders one button per recipe.
+
+### 5.10 Add a new shot to the opening intro
 
 1. Insert a new `{ from, to, draw, banner }` entry into `SHOTS` in
    `render/intro.js` (cumulative ms from intro start, total =
    `INTRO_DURATION`).
 2. Write the drawer fn — reuse `dSpriteAt(dSoldier|dZombie, ...)` for
-   characters and `centerText()` for any titles (wrap text in
-   `ctx.setTransform(1,0,0,1,0,0)` if you want screen-space titles
-   under a zoomed scene).
+   characters and `centerText()` for any titles.
 3. Add the banner branch in `dBannerText` if you need a tagline.
 4. Add audio cues to `scheduleIntroAudio` via `fireOnce(intro, key,
    condition, evt)`.
 
-### 5.8 Change canvas dimensions
+### 5.11 Add a new transmission cinematic
 
-Update `CW, CH, GY, WX` in `constants.js`. Most code reads them by
-import; the few places that bake them in (e.g. `LANES[*].dy`) are right
-next to the constants.
+1. Append a wave key to `TRANSMISSION_WAVES` and a corresponding entry
+   in `TRANSMISSIONS` in `data/transmissions.js` with `title, sender,
+   lines[], durMs, dropAt, landAt, supplyDrop`.
+2. The siege loop will detect the new wave automatically and queue it
+   via `gs.pendingTransmission`. No extra wiring.
+
+### 5.12 Add a new vaccine scenario / change the wave-30 chain
+
+Append to `VACCINE_SCENARIOS` in `data/vaccineMission.js` with a
+destination shape (`name, icon, biome, loot, desc, risk, riskColor,
+missionLen, zSpawn, _vaccineSegment`). For scenario-specific overrides
+(forced objective, special pickup, scripted boss), branch on
+`dest._vaccineSegment` in `update/mission.js` `mkMission` and in
+`updateMission`. The campaign factory in
+`expedition/vaccineCampaign.js` plays scenarios in order — bumping the
+array length is enough.
+
+### 5.13 Change canvas / world dimensions
+
+Update `CW, CH, GY, WX, WORLD_W` in `constants.js`. Most code reads
+them by import; the few places that bake them in (e.g. `LANES[*].dy`)
+are right next to the constants.
 
 ---
 
@@ -658,13 +908,17 @@ next to the constants.
 | Lane depth | `constants.js` (LANES), every `render/*.js`, `update/siege.js` |
 | Rooftop sniper | `render/soldier.js` (`dRooftopSniper`), `update/siege.js` (onRoof branch) |
 | Civilian / veteran / bandit palettes | `render/soldier.js` (flag-driven branches), `entities/soldier.js` |
-| Barricades | `entities/barricade.js`, `render/effects.js` (`dBarricade`), `update/siege.js` |
-| Turrets | `entities/turret.js`, `render/turret.js`, `update/siege.js` (turret loop) |
-| Auto-dispatch | `expedition/auto.js`, `expedition/events.js`, `DeadPerimeter.jsx` (`sendExpedition`) |
+| Barricades + turrets + click-to-place | `entities/barricade.js`, `entities/turret.js`, `render/turret.js`, `render/effects.js`, `update/siege.js`, `DeadPerimeter.jsx` (`buildBarricade`, `buildTurret`, `confirmPlacement`, `cancelPlacement`, `placementRef`) |
+| Camera scroll | `constants.js` (`WORLD_W`), `update/siege.js` (cameraX clamp), `DeadPerimeter.jsx` (pan key handlers) |
 | Playable missions | `update/mission.js`, `expedition/missionFinish.js`, `DeadPerimeter.jsx` (`playMission`, `finalizeMission`) |
+| Pre-mission magazine loadout | `DeadPerimeter.jsx` (`magsRef`, `magsPerSoldier` state, `playMission` ammo issue), `update/mission.js` (`buildMissionSoldier` reads `_sortieMags`) |
+| Multi-floor + platforms + ladders + jump | `update/mission.js` (platforms[], ladders[], jump impulse, climb checks, Y-level combat) |
+| Indoor multi-segment missions | `data/biomes.js` (`*_interior`), `data/expeditions.js` (indoor dests), `update/mission.js` (entranceX + indoor generator) |
+| Searchable loot containers | `update/mission.js` (`obstacles[].searchable`, progress bar, on-complete loot roll) |
+| APC extraction after defend | `update/mission.js` (defend timer → `m.extraction = { … }`, APC entity, embark, drive-out) |
 | Mines / acid pools | `update/mission.js` (`mkMission` hazards, hazard loop, bullet → mine check) |
-| Spitter / Brute | `data/zombies.js`, `update/mission.js` (mkMission spawn + spitter AI block) |
-| DEFEND objective | `update/mission.js` (objective rolling + ambush spawn + defend tick + sandbag render) |
+| Spitter / Brute | `data/zombies.js`, `update/mission.js` (mkMission spawn + spitter AI block + scripted rooftop brute) |
+| DEFEND objective | `update/mission.js` (objective rolling + ambush spawn + defend tick + sandbag render + APC dispatch) |
 | Fork (high/low) | `update/mission.js` (fork rolling, lane switch input, pickup lane gate, render) |
 | Survivor encounters | `data/expeditions.js` (`TRADE_OFFERS`, `rollEncounter`), `update/mission.js` (humans block, AI loop, trade dialog), `DeadPerimeter.jsx` (`resolveTrade`) |
 | Lead promotion | `update/mission.js` (`promoteLeadOnDeath` + top-of-frame guard) |
@@ -672,12 +926,19 @@ next to the constants.
 | Helicopter EVAC | `render/evac.js`, `DeadPerimeter.jsx` (`callEvac`, `applyEvac`, `skipEvac`, `evacRef`) |
 | Opening intro | `render/intro.js`, `DeadPerimeter.jsx` (`newGame` → `introRef`, `finishIntro`) |
 | Defeat cinematic | `render/defeat.js`, `DeadPerimeter.jsx` (siege transition → `defeatRef`, `finishDefeat`) |
+| Transmission cinematics | `data/transmissions.js`, `render/transmission.js`, `audio/radioVoice.js`, `update/siege.js` (queue at wave 10/20/25), `DeadPerimeter.jsx` (`transmissionRef`, `finishTransmission`) |
+| Wave-30 vaccine campaign | `data/vaccineMission.js`, `expedition/vaccineCampaign.js`, `update/siege.js` (phase trigger), `update/mission.js` (`_vaccineSegment` / `_vaccineCampaign` branches + carrier + dropped-vial + rooftop brute), `DeadPerimeter.jsx` (`startVaccineMission`, `advanceOrFinishVaccine`, `vaccineRef`, `vaccineResultRef`, briefing panel, tier-aware victory panel) |
+| Workshop progression | `data/difficulty.js` (`PERKS`, `RESEARCHES`, `CRAFT_RECIPES`, `getSoldierPerkEffect`, `getResearchEffect`), `entities/soldier.js` (`upgrades`), `DeadPerimeter.jsx` (`buyPerk`, `startResearch`, `craft`, `buildWorkbench`, `buildResearchLab` + UI panels), `update/siege.js` (effect lookups at fire / reload) |
+| End-of-run stats | `entities/gameState.js` (`startedAt`, `playMs`, `soldiersLost`, `civiliansLost`, `recordDeath`), `entities/persistence.js` (persist + roll playMs), `update/siege.js` + `expedition/missionFinish.js` (death hooks), `DeadPerimeter.jsx` (`fmtPlayTime`, victory + gameover stat rows) |
 | Radio chatter + subtitles | `audio/radio.js`, `render/hud.js` (`dRadioSubtitle`), call sites in `update/siege.js` + `update/mission.js` + `DeadPerimeter.jsx` (`moveSquad`) |
 | Per-soldier voice pitch | `entities/soldier.js` (`pickVoicePitch`), `audio/radio.js` (speaker handling), `audio/AudioEngine.js` (`radioChatter` numeric pitch support) |
+| Web Speech TTS for transmissions | `audio/radioVoice.js`, `render/transmission.js`, `DeadPerimeter.jsx` (`voiceOn`, `toggleVoice`) |
 | Reserve roster | `entities/gameState.js` (`reserve` array), `entities/persistence.js`, `DeadPerimeter.jsx` (`benchSoldier`, `activateReserve`) |
-| Save / load | `entities/persistence.js`, `DeadPerimeter.jsx` (`continueGame`, autosave hooks) |
+| Save / load (v3) | `entities/persistence.js`, `DeadPerimeter.jsx` (`continueGame`, autosave hooks) |
 | Pause | `DeadPerimeter.jsx` (`togglePause`, Esc handler, render guard, overlay) |
 | Mobile touch | `DeadPerimeter.jsx` (`onTouchStart` / `onTouchEnd`) |
+| Wall repair | `DeadPerimeter.jsx` (`repairWall`), `data/difficulty.js` (`wallRepairCost`, `wallRepairHp`, `wallRepairBonus` from research) |
+| Daily food consumption + starvation | `update/siege.js` (wave-clear tally + per-person deduction + `starveDmg` on zero) |
 
 ---
 
@@ -685,6 +946,10 @@ next to the constants.
 
 - **GS** — game state, the single mutable object held in `gsRef.current`.
 - **Lane** — depth row; 0 = FRONT (largest sprites), 1 = MID, 2 = BACK.
+- **WORLD_W** — siege world width (1980 px). Camera scrolls within it.
+- **standingY** — per-entity Y offset for multi-floor / platform
+  positioning in missions. Negative = elevated.
+- **forkLane** — 0/1 for low/high road in fork-section missions.
 - **Hostile** — bullets coming **from** humans **toward** soldiers.
 - **Spit** — acid globs fired by Spitter zombies; behave like hostile
   bullets but green and arcing.
@@ -706,7 +971,33 @@ next to the constants.
   via W/S.
 - **Lead** — `m.soldier`, the player-controlled soldier in a playable
   mission. Promoted from a follower if the original lead dies.
-- **Override ref** — `introRef / defeatRef / evacRef / missionRef`, any
-  of which takes the canvas exclusively when set.
+- **Override ref** — `introRef / defeatRef / evacRef / transmissionRef /
+  extractionRef / missionRef`, any of which takes the canvas
+  exclusively when set.
 - **Radio chatter** — procedural "tactical voice" SFX paired with a HUD
   subtitle, fired by `pushRadio(state, category, opts)`.
+- **Transmission** — wave-10/20/25 full-screen Central Command radio
+  cinematic with optional Web Speech TTS and a parachuted supply drop
+  at the end.
+- **Workbench** — one-shot build that unlocks per-soldier weapon
+  perks + the crafting panel.
+- **Research Lab** — one-shot build that unlocks the research queue
+  (one active node at a time, progress = wave-clears).
+- **Perk** — per-soldier weapon upgrade. Sparse map at
+  `soldier.upgrades[perkId] = true`. Effects read via
+  `getSoldierPerkEffect`.
+- **Research** — global multiplier / bonus. Effects read via
+  `getResearchEffect(gs, key, default)`.
+- **Vaccine carrier** — the party member currently holding the vaccine
+  vial in the wave-30 hospital + rooftop scenarios. Tracked on
+  `m._vaccineCarrierId`. Dies → vial drops as a pickup, can be
+  recovered by a teammate.
+- **APC extraction** — armoured truck that rolls in at the end of a
+  successful DEFEND mission; soldiers board it, then it drives back
+  across the map. Mission `won` only after the truck clears the
+  screen.
+- **Ending tier** — gold / silver / bronze / failure outcome of the
+  wave-30 vaccine campaign, computed by `finishVaccineCampaign`.
+- **recordDeath** — `entities/gameState.js` helper called at every
+  soldier-death site to maintain the `soldiersLost` vs `civiliansLost`
+  split.
