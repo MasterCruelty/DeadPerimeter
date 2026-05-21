@@ -166,15 +166,28 @@ export function mkMission(soldier, dest, wave = 1, magsPerSoldier = 2) {
   // built sandbag emplacement around 45% of the map, then has to hold
   // the position for `defendDuration` ms against waves of zombies
   // pouring in from the deeper city to the right.
-  const objective = (dest.risk !== 'LOW' && Math.random() < 0.30) ? 'defend' : 'reach';
+  //
+  // Vaccine campaign scenarios override the random objective: rooftop
+  // is always defend (hold the LZ until the chopper arrives); highway
+  // and hospital are always reach (push through to the next leg).
+  const vacSeg = dest._vaccineSegment || null;
+  let objective;
+  if (vacSeg === 'rooftop') objective = 'defend';
+  else if (vacSeg) objective = 'reach';
+  else objective = (dest.risk !== 'LOW' && Math.random() < 0.30) ? 'defend' : 'reach';
   const defendAnchor = MISSION_W * 0.45;
-  const defendDuration = 45000;
+  // Rooftop hold is 75 s — long enough for the boss horde, short
+  // enough that the player doesn't get bored. Regular defends stay at 45 s.
+  const defendDuration = vacSeg === 'rooftop' ? 75000 : 45000;
 
   // Branching path: random 50% on MED/HIGH (mutually exclusive with defend
   // because the defend anchor sits inside the fork range). Two parallel
   // lanes between fork.startX and fork.endX. Each lane has its own pickup
   // cluster; the player picks via W/S on the keyboard.
-  const fork = (objective !== 'defend' && dest.risk !== 'LOW' && Math.random() < 0.50)
+  //
+  // Vaccine campaign segments disable the fork: the player is moving
+  // a sample through a scripted route, not picking between loot lanes.
+  const fork = (objective !== 'defend' && dest.risk !== 'LOW' && !vacSeg && Math.random() < 0.50)
     ? { startX: MISSION_W * 0.40, endX: MISSION_W * 0.62 }
     : null;
 
@@ -667,7 +680,18 @@ function aiShoot(m, who, now, dt) {
 export function updateMission(m, now, dt) {
   if (m.state !== 'active') return;
   if (m.dialog) return; // Pause world simulation while a survivor dialog is open
-  if (!m.startedAt) m.startedAt = now;
+  if (!m.startedAt) {
+    m.startedAt = now;
+    // Vaccine campaign scenarios pop a big intro banner on the first
+    // frame so the player knows which leg they just transitioned to.
+    if (m._vaccineScenarioName) {
+      m.effects.push({
+        type: 'txt', x: m.soldier.x, y: MGY - 140,
+        v: m._vaccineScenarioName.toUpperCase(),
+        col: '#ffcc44', at: now, dur: 3200,
+      });
+    }
+  }
   // Top-of-frame guard: if the lead died (any cause), promote a
   // follower so the player keeps an avatar. Only fail when nobody
   // is left standing.

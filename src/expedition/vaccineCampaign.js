@@ -51,6 +51,7 @@ export function mkVaccineCampaign(gs, mags = 3) {
   const first = mkMission(party, VACCINE_SCENARIOS[0], gs.wave || 1, mags);
   first._vaccineCampaign = true;
   first._vaccineIndex = 0;
+  first._vaccineScenarioName = VACCINE_SCENARIOS[0].name;
   return {
     vaccine: true,
     party,
@@ -92,6 +93,7 @@ export function advanceVaccineScenario(campaign, gs) {
   const next = mkMission(survivors, VACCINE_SCENARIOS[nextIdx], gs.wave || 1, campaign.mags);
   next._vaccineCampaign = true;
   next._vaccineIndex = nextIdx;
+  next._vaccineScenarioName = VACCINE_SCENARIOS[nextIdx].name;
   campaign.current = next;
   campaign.currentIndex = nextIdx;
   return next;
