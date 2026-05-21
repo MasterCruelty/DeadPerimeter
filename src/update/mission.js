@@ -1193,6 +1193,36 @@ export function updateMission(m, now, dt) {
         });
         m.activatedCount++;
       }
+      // Vaccine rooftop boss — once at ~32 s into the hold (40% in),
+      // a brute lumbers up the stairs. Single-spawn (guarded by
+      // _vaccineBruteSpawned) with a dedicated "BRUTE INBOUND" callout
+      // so the player has time to focus fire before it reaches the line.
+      if (m._vaccineIndex === 2 && elapsed >= 32000 && !m._vaccineBruteSpawned) {
+        m._vaccineBruteSpawned = now;
+        const bz = ZTP.brute;
+        m.zombies.push({
+          id: uid(), type: 'brute', z: bz,
+          x: m.defendAnchor + 360,
+          hp: bz.hp, maxHp: bz.hp,
+          spd: bz.spd,
+          state: 'walk', facing: -1,
+          walkPhase: Math.random() * Math.PI * 2,
+          atkTimer: 0, hurtTimer: 0, deadAt: 0, lane: 0,
+          activated: true,
+        });
+        m.activatedCount++;
+        m.effects.push({
+          type: 'txt', x: m.defendAnchor, y: MGY - 120,
+          v: '⚠ BRUTE INBOUND — FOCUS FIRE',
+          col: '#ff3322', at: now, dur: 3600,
+        });
+        // Screen-shake feel via a follow-up callout 2.5 s later
+        m.effects.push({
+          type: 'txt', x: m.defendAnchor, y: MGY - 96,
+          v: 'HEAVY ON THE STAIRS', col: '#ff8844',
+          at: now + 800, dur: 2400,
+        });
+      }
       // Hold's done — call in the armored extraction. Spawning stops
       // (no new zombies past this point), an APC drives in from the
       // Fort Omega side, soldiers board, then it drives back. m.state
