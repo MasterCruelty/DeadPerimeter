@@ -383,14 +383,16 @@ export default function DeadPerimeter() {
       }
     }
     // No next scenario (we won the last one, or the party wiped). Wrap up.
+    // Even a campaign wipe routes to the victory screen — the fort held,
+    // but the convoy didn't make it. The screen shows the 'failure' tier
+    // text instead of the misleading "FORT OMEGA FALLEN" gameover panel.
     const result = finishVaccineCampaign(campaign, gs);
     vaccineResultRef.current = result;
     vaccineRef.current = null;
     missionRef.current = null;
-    if (result.tier === 'failure') gs.phase = 'gameover';
-    else gs.phase = 'victory';
+    gs.phase = 'victory';
     setUi({ ...gs, soldiers: gs.soldiers.map(s => ({ ...s })) });
-    setScr(gs.phase);
+    setScr('victory');
   }, []);
 
   const recruit = useCallback(() => {
@@ -2049,6 +2051,8 @@ export default function DeadPerimeter() {
             blurb: 'The vial made it onto the chopper. Most of you didn\'t. Central Command will name a street after every one of them — once there are streets again.' },
           bronze:  { emoji: '🥉', title: 'EVAC — VACCINE LOST EN ROUTE', color: '#c8884a',
             blurb: 'You made it out, but the sample didn\'t. Central Command will try again from another vault. Fort Omega bought them more time.' },
+          failure: { emoji: '☠', title: 'CONVOY LOST', color: '#aa3030',
+            blurb: 'Fort Omega held. The road did not. The vial is somewhere on the asphalt of Highway 17, and Central Command is calling for volunteers from another garrison. You bought them everything you had.' },
         };
         const meta = (r && tierMeta[r.tier]) || { emoji: '🚁', title: 'EXTRACTION COMPLETE', color: '#88aaff',
           blurb: 'You held the wall for 30 waves. Whoever made it out of Fort Omega is on the road now.' };
@@ -2077,6 +2081,8 @@ export default function DeadPerimeter() {
                 ['Play Time', fmtPlayTime(gs)],
                 ['Soldiers Lost', gs?.soldiersLost || 0],
                 ['Civilians Lost', gs?.civiliansLost || 0],
+                ['Convoy Cleared', r ? `${r.scenariosCleared} / 3` : '—'],
+                ['Vaccine', r ? (r.vaccineDelivered ? '✓' : '✗') : '—'],
               ].map(([l, v]) => (
                 <div key={l} style={{ ...card, flex: 1, textAlign: 'center' }}><span style={lbl}>{l}</span><div style={{ ...val, fontSize: '18px' }}>{v}</div></div>
               ))}
