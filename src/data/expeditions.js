@@ -79,7 +79,7 @@ export function rollDestinations() {
 export const MISSION_W = 1900;
 export const MISSION_VIEW = CW;
 export const MGY = GY;
-export const objIcons = { medicine: '💊', ammo: '🔫', food: '🥫', materials: '🔧', sniperAmmo: '🎯', turretAmmo: '🟠', civilian: '👤', lostSoldier: '🪖' };
+export const objIcons = { medicine: '💊', ammo: '🔫', food: '🥫', materials: '🔧', sniperAmmo: '🎯', turretAmmo: '🟠', civilian: '👤', lostSoldier: '🪖', vaccine: '💉' };
 
 // Stars and skyline now span the full WORLD_W so the camera-scroll
 // reveals more of the city without exposing a "wall of pixels" edge.

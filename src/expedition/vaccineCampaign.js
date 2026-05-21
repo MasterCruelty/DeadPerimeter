@@ -90,10 +90,34 @@ export function advanceVaccineScenario(campaign, gs) {
   if (nextIdx >= VACCINE_SCENARIOS.length) return null;
   const survivors = campaign.party.filter(s => s.state !== 'dead');
   if (survivors.length === 0) return null;
+  // Roll the vaccine state from the cleared scenario forward. If the
+  // sample was secured in the hospital, the carrier (or whoever's still
+  // alive if the original carrier didn't make it) keeps holding it
+  // through the rooftop scenario.
+  const prevHadVaccine = m._vaccineCollected && !m._vaccineDropped;
+  let carryCarrier = null;
+  if (prevHadVaccine) {
+    const prevCarrier = [m.soldier, ...(m.followers || [])].find(p => p && p.id === m._vaccineCarrierId);
+    carryCarrier = (prevCarrier && prevCarrier.hp > 0 && prevCarrier.state !== 'dead')
+      ? prevCarrier.origId
+      : null;
+  }
+  campaign.vaccinePickedUp = campaign.vaccinePickedUp || !!m._vaccineCollected;
   const next = mkMission(survivors, VACCINE_SCENARIOS[nextIdx], gs.wave || 1, campaign.mags);
   next._vaccineCampaign = true;
   next._vaccineIndex = nextIdx;
   next._vaccineScenarioName = VACCINE_SCENARIOS[nextIdx].name;
+  // If the vaccine was picked up in a previous scenario, hand it off
+  // to a survivor in the new scenario so the carrier mechanic stays
+  // continuous (no need to spawn another pickup).
+  if (prevHadVaccine) {
+    const newCarrier = [next.soldier, ...(next.followers || [])]
+      .find(p => carryCarrier && p.origId === carryCarrier)
+      || next.soldier;
+    next._vaccineCollected = true;
+    next._vaccineCarrierId = newCarrier.id;
+    next._vaccineDropped = false;
+  }
   campaign.current = next;
   campaign.currentIndex = nextIdx;
   return next;
@@ -142,10 +166,19 @@ export function finishVaccineCampaign(campaign, gs) {
   }
   const cleared = campaign.scenariosCleared + (m.state === 'won' ? 1 : 0);
   const survivors = stillAlive.length;
+  // Vaccine "delivered" means: the sample was picked up at the hospital
+  // AND the carrier was still holding it (vial not dropped on a dead
+  // body) AND the rooftop scenario was cleared. Anything else = lost.
+  const vaccineDelivered = !!(
+    campaign.vaccinePickedUp
+    && cleared >= VACCINE_SCENARIOS.length
+    && m._vaccineCollected
+    && !m._vaccineDropped
+  );
   let tier;
-  if (cleared >= VACCINE_SCENARIOS.length && survivors >= 4) tier = 'gold';
-  else if (cleared >= VACCINE_SCENARIOS.length && survivors >= 1) tier = 'silver';
+  if (vaccineDelivered && survivors >= 4) tier = 'gold';
+  else if (vaccineDelivered && survivors >= 1) tier = 'silver';
   else if (cleared >= 2 && survivors >= 1) tier = 'bronze';
   else tier = 'failure';
-  return { tier, survivors, scenariosCleared: cleared };
+  return { tier, survivors, scenariosCleared: cleared, vaccineDelivered };
 }
