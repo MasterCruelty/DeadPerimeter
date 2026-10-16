@@ -3,7 +3,7 @@ import { WPN } from '../data/weapons.js';
 import { ZTP } from '../data/zombies.js';
 import { MISSION_W, MISSION_VIEW, MGY, objIcons, rollEncounter } from '../data/expeditions.js';
 import { BIOMES, DEFAULT_BIOME } from '../data/biomes.js';
-import { BALANCE } from '../data/difficulty.js';
+import { BALANCE, RESEARCHES, getSoldierPerkEffect } from '../data/difficulty.js';
 import { dZombie } from '../render/zombie.js';
 import { dSoldier } from '../render/soldier.js';
 import { dFx, dBlt } from '../render/effects.js';
@@ -55,12 +55,33 @@ function promoteLeadOnDeath(m, now) {
   return true;
 }
 
+// Combat modifiers a soldier carries into a mission: their own weapon
+// perks (workbench) and the base-wide research. Previously missions read
+// raw WPN stats, so perks / research did nothing outside the siege.
+function missionModifiers(orig, researchCompleted) {
+  const done = Array.isArray(researchCompleted) ? researchCompleted : [];
+  const res = (key, def) => done.reduce((v, id) => {
+    const r = RESEARCHES.find(x => x.id === id);
+    if (!r || !r.effects || !(key in r.effects)) return v;
+    return key.endsWith('Mul') ? v * r.effects[key] : v + r.effects[key];
+  }, def);
+  const isSniper = orig.weapon === 'sniper';
+  return {
+    dmgMul: getSoldierPerkEffect(orig, 'damageMul', 1) * res('soldierDamageMul', 1),
+    rlMul: getSoldierPerkEffect(orig, 'reloadMul', 1) * res('reloadMul', 1),
+    rangeBonus: getSoldierPerkEffect(orig, 'rangeBonus', 0) + (isSniper ? res('sniperRangeBonus', 0) : 0),
+    tankMul: orig.weapon === 'rifle' ? res('rifleVsTankMul', 1) : 1,
+  };
+}
+const effRl = (who, w) => w.rl * (who.rlMul || 1);
+const effRange = (who, w) => w.range + (who.rangeBonus || 0);
+
 // magsPerSoldier: how many magazines each party member carries into
 // the mission. 1 = only the loaded mag (no reloads possible). 2 =
 // loaded + 1 spare. Etc. Tunable from the expedition loadout UI.
 // Mission soldiers carry a finite ammo budget now — no more infinite
 // auto-reload — so the player has to weigh stash spend vs mission risk.
-export function mkMission(soldier, dest, wave = 1, magsPerSoldier = 2) {
+export function mkMission(soldier, dest, wave = 1, magsPerSoldier = 2, researchCompleted = []) {
   const zombies = [], pickups = [], obstacles = [];
 
   // Spitters are the most punishing zombie kind (ranged + chip damage).
@@ -473,6 +494,7 @@ export function mkMission(soldier, dest, wave = 1, magsPerSoldier = 2) {
     // Mission fork lane (0 = low / default, 1 = high). _laneY is the
     // smoothed render offset toward the target lane.
     forkLane: 0, _laneY: 0,
+    ...missionModifiers(orig, researchCompleted),
   });
 
   const msol = buildMissionSoldier(lead, 0);
@@ -619,14 +641,15 @@ function aliveTargets(m) {
 function aiShoot(m, who, now, dt) {
   const w = WPN[who.weapon];
   // Reload completion
-  if (who.state === 'reload' && now - who.reloadStart >= w.rl) {
+  if (who.state === 'reload' && now - who.reloadStart >= effRl(who, w)) {
     who.state = 'idle'; who.reloadTriggered = false;
   }
   if (who.state === 'reload') return;
 
   // Pick nearest activated zombie in range
+  const range = effRange(who, w);
   const tgt = m.zombies
-    .filter(z => z.state !== 'dead' && z.activated && Math.abs(z.x - who.x) <= w.range)
+    .filter(z => z.state !== 'dead' && z.activated && Math.abs(z.x - who.x) <= range)
     .sort((a, b) => Math.abs(a.x - who.x) - Math.abs(b.x - who.x))[0];
 
   if (!tgt) {
@@ -637,7 +660,8 @@ function aiShoot(m, who, now, dt) {
 
   if (who.ammo <= 0) {
     // Knife melee fallback (same logic as the lead)
-    const meleeTgt = m.zombies.find(z => z.state !== 'dead' && Math.abs(z.x - who.x) < 52);
+    const meleeTgt = m.zombies.find(z => z.state !== 'dead' && z.activated && Math.abs(z.x - who.x) < 52
+      && Math.abs((z.standingY || 0) - (who.standingY || 0)) < 22);
     if (meleeTgt) {
       who.facing = meleeTgt.x > who.x ? 1 : -1;
       who.knifeTimer = (who.knifeTimer || 0) + dt;
@@ -670,9 +694,10 @@ function aiShoot(m, who, now, dt) {
         id: uid(), x: bx, y: bulletY,
         dx: who.facing * w.spd * Math.cos(sp2),
         dy: w.spd * Math.sin(sp2),
-        dmg: w.pel ? w.dmg / w.pel : w.dmg,
+        dmg: (w.pel ? w.dmg / w.pel : w.dmg) * (who.dmgMul || 1),
+        tankMul: who.tankMul || 1,
         shooterY,
-        life: Math.ceil(w.range / w.spd * 1.15),
+        life: Math.ceil(range / w.spd * 1.15),
       });
     }
     m.effects.push({ type: 'shell', x: who.x - who.facing * 8, y: MGY - 26, vx: -who.facing * (1.4 + Math.random()), at: now, dur: 780 });
@@ -680,7 +705,7 @@ function aiShoot(m, who, now, dt) {
       if ((who.magsLeft || 0) > 0) {
         who.state = 'reload'; who.reloadStart = now; who.ammo = who.maxAmmo;
         who.magsLeft -= 1;
-        m.soundQ.push({ t: 'reload', w: who.weapon, dur: w.rl });
+        m.soundQ.push({ t: 'reload', w: who.weapon, dur: effRl(who, w) });
       } else {
         // No more mags — holster firearm, knife is ready.
         who.knifeReady = true;
@@ -772,8 +797,11 @@ export function updateMission(m, now, dt) {
   const onAcid = (m.hazards || []).some(h => h.type === 'acid' && Math.abs(s.x - h.x) <= h.w / 2);
   const moveSpd = 2.4 * (dt / 16) * (onAcid ? 0.5 : 1);
   if (s.state !== 'reload' && s.state !== 'knife') {
-    if (m.inputRight) { s.x += moveSpd; s.facing = 1; if (s.state === 'idle') s.state = 'walk'; }
-    else if (m.inputLeft) { s.x -= moveSpd; s.facing = -1; if (s.state === 'idle') s.state = 'walk'; }
+    // Holding fire locks the facing so the lead can backpedal while
+    // shooting (kiting a Brute / Tank) instead of turning around.
+    const lockFacing = m.inputShoot && s.ammo > 0;
+    if (m.inputRight) { s.x += moveSpd * (lockFacing && s.facing < 0 ? 0.7 : 1); if (!lockFacing) s.facing = 1; if (s.state === 'idle') s.state = 'walk'; }
+    else if (m.inputLeft) { s.x -= moveSpd * (lockFacing && s.facing > 0 ? 0.7 : 1); if (!lockFacing) s.facing = -1; if (s.state === 'idle') s.state = 'walk'; }
     else if (s.state === 'walk') s.state = 'idle';
   }
   s.x = Math.max(40, Math.min(MISSION_W - 40, s.x));
@@ -1079,7 +1107,7 @@ export function updateMission(m, now, dt) {
       z.atkTimer += dt;
       z.facing = dx > 0 ? 1 : -1;
       if (Math.abs(dx) > 50 || !sameLevel) { z.state = 'walk'; z.atkTimer = 0; return; }
-      if (z.atkTimer > 1000) {
+      if (z.atkTimer > (meta.atkRate || 1000)) {
         z.atkTimer = 0;
         tgt.hp -= z.z.dmg; tgt.hurtTimer = 320;
         m.soundQ.push({ t: 'zatk' });
@@ -1111,8 +1139,9 @@ export function updateMission(m, now, dt) {
         m.bullets.push({
           id: uid(), x: bx, y: bulletY,
           dx: s.facing * w.spd * Math.cos(sp2), dy: w.spd * Math.sin(sp2),
-          dmg: w.pel ? w.dmg / w.pel : w.dmg,
-          life: Math.ceil(w.range / w.spd * 1.15),
+          dmg: (w.pel ? w.dmg / w.pel : w.dmg) * (s.dmgMul || 1),
+          tankMul: s.tankMul || 1,
+          life: Math.ceil(effRange(s, w) / w.spd * 1.15),
           shooterY,
         });
       }
@@ -1121,7 +1150,7 @@ export function updateMission(m, now, dt) {
         if ((s.magsLeft || 0) > 0) {
           s.state = 'reload'; s.reloadStart = now; s.ammo = s.maxAmmo;
           s.magsLeft -= 1;
-          m.soundQ.push({ t: 'reload', w: s.weapon, dur: w.rl });
+          m.soundQ.push({ t: 'reload', w: s.weapon, dur: effRl(s, w) });
           pushRadio(m, 'reload', { speaker: s });
         } else {
           // Out of mags — holster the firearm. Knife is now the
@@ -1134,10 +1163,11 @@ export function updateMission(m, now, dt) {
     } else if (now - s.lastShot > w.rate * 0.5) s.state = 'walk';
   }
   if (s.state === 'shoot' && now - s.shootAt > 200) s.state = m.inputLeft || m.inputRight ? 'walk' : 'idle';
-  if (s.state === 'reload' && now - s.reloadStart >= w.rl) s.state = 'idle';
+  if (s.state === 'reload' && now - s.reloadStart >= effRl(s, w)) s.state = 'idle';
 
   if (s.ammo <= 0 && s.state !== 'reload') {
-    const meleeTgt = m.zombies.find(z => z.state !== 'dead' && Math.abs(z.x - s.x) < 52);
+    const meleeTgt = m.zombies.find(z => z.state !== 'dead' && z.activated && Math.abs(z.x - s.x) < 52
+      && Math.abs((z.standingY || 0) - ((s.standingY || 0) + (s.jumpY || 0))) < 22);
     if (meleeTgt) {
       s.facing = meleeTgt.x > s.x ? 1 : -1;
       s.knifeTimer = (s.knifeTimer || 0) + dt;
@@ -1555,13 +1585,18 @@ export function updateMission(m, now, dt) {
       return Math.abs(zStandingY - shooterY) < 22;
     });
     if (hit) {
-      hit.hp -= b.dmg; hit.hurtTimer = 210; m.soundQ.push({ t: 'hit', now });
+      const dmg = b.dmg * (hit.type === 'tank' ? (b.tankMul || 1) : 1);
+      hit.hp -= dmg; hit.hurtTimer = 210; m.soundQ.push({ t: 'hit', now });
       m.effects.push({ type: 'blood', x: b.x, y: b.y, drops: Array.from({ length: 6 }, () => ({ x: 0, y: 0, vx: (Math.random() - 0.5) * 3.5, vy: -Math.random() * 2.5 - 0.5, r: 1.5 + Math.random() * 3 })), at: now, dur: 600 });
       m.effects.push({ type: 'hit', x: b.x, y: b.y, at: now, dur: 200 });
-      m.effects.push({ type: 'txt', x: hit.x, y: MGY - 60, v: `-${Math.round(b.dmg)}`, col: C.bld, at: now, dur: 680 });
+      m.effects.push({ type: 'txt', x: hit.x, y: MGY - 60 + (hit.standingY || 0), v: `-${Math.round(dmg)}`, col: C.bld, at: now, dur: 680 });
       if (hit.hp <= 0) {
         hit.hp = 0; hit.state = 'dead'; hit.deadAt = now;
         m.soundQ.push({ t: 'zdie', zt: hit.type });
+        if (hit.type === 'brute') {
+          m.effects.push({ type: 'txt', x: hit.x, y: MGY - 110, v: '☠ BRUTE DOWN', col: '#ffcc44', at: now, dur: 2400 });
+          pushRadio(m, 'kill', { line: 'Big one is down!', speaker: m.soldier, cooldown: 0 });
+        }
         m.killedCount++;
         missionKillChatter(m, m.soldier);
       }
@@ -1678,7 +1713,10 @@ export function updateMission(m, now, dt) {
   // win when the survive timer expires (handled above).
   if (m.objective !== 'defend' && s.x >= MISSION_W - 50) {
     const need = Math.ceil(m.activatedCount * BALANCE.missionGoalKillRatio);
-    if (m.killedCount >= need) {
+    // The HIGH-risk Brute guards the exit: it has to go down before
+    // the party can extract (it used to be skippable by walking past).
+    const bossAlive = m.zombies.some(z => z.type === 'brute' && z.state !== 'dead');
+    if (m.killedCount >= need && !bossAlive) {
       // Tally rescuables that made it to within the goal zone alive.
       m.collected.rescuedCivs = (m.rescuables || []).filter(r =>
         r.state === 'following' && r.hp > 0 && r.x > MISSION_W - 250
@@ -1692,7 +1730,7 @@ export function updateMission(m, now, dt) {
         const left = need - m.killedCount;
         m.effects.push({
           type: 'txt', x: s.x, y: MGY - 70,
-          v: `${left} HOSTILE${left === 1 ? '' : 'S'} LEFT`,
+          v: left > 0 ? `${left} HOSTILE${left === 1 ? '' : 'S'} LEFT` : 'BRUTE BLOCKS THE EXIT',
           col: '#cc3333', at: now, dur: 1400,
         });
       }
@@ -2806,86 +2844,154 @@ export function dMissionWorld(ctx, m, now) {
 export function dMissionHUD(ctx, m, now) {
   const CW_ = 900;
   dRadioSubtitle(ctx, m, now);
-  ctx.fillStyle = 'rgba(0,0,0,0.78)'; ctx.fillRect(0, 0, CW_, 40);
-  ctx.strokeStyle = C.uib; ctx.lineWidth = 1; ctx.strokeRect(0, 0, CW_, 40);
-  ctx.fillStyle = C.acc; ctx.font = 'bold 12px monospace';
-  ctx.fillText(`MISSION: ${m.dest.name.toUpperCase()}`, 12, 18);
-  ctx.fillStyle = C.txt; ctx.font = '10px monospace';
-  ctx.fillText(`AGENT ${m.soldier.name}`, 12, 32);
+  const hg = ctx.createLinearGradient(0, 0, 0, 40);
+  hg.addColorStop(0, 'rgba(6,10,6,0.94)'); hg.addColorStop(1, 'rgba(0,0,0,0.74)');
+  ctx.fillStyle = hg; ctx.fillRect(0, 0, CW_, 40);
+  ctx.strokeStyle = C.uib; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(0, 40.5); ctx.lineTo(CW_, 40.5); ctx.stroke();
 
-  const px = 180, pw = 450, ph = 10;
-  ctx.fillStyle = '#1a1a1a'; ctx.fillRect(px, 14, pw, ph);
-  // In DEFEND mode once the timer starts, the bar tracks survival time
-  // instead of map progress so the player can see the countdown.
+  // ── Destination + objective (truncated so it never runs into the bar)
+  const riskCol = m.dest.risk === 'HIGH' ? '#dd4444' : m.dest.risk === 'MED' ? C.wrn : C.acc;
+  ctx.font = 'bold 12px monospace'; ctx.fillStyle = C.acc; ctx.textAlign = 'left';
+  let title = `${m.dest.icon ? m.dest.icon + ' ' : ''}${m.dest.name.toUpperCase()}`;
+  while (ctx.measureText(title).width > 196 && title.length > 4) title = title.slice(0, -2) + '…';
+  ctx.fillText(title, 12, 17);
+  ctx.font = '9px monospace';
+  ctx.fillStyle = riskCol; ctx.fillText(`${m.dest.risk || ''}`, 12, 32);
+  ctx.fillStyle = C.txt;
+  ctx.fillText(m.objective === 'defend' ? '· HOLD THE FLAG' : '· REACH THE EXIT', 48, 32);
+
+  // ── Route bar with markers (entrance, fork, defend flag, exit, party, boss)
+  const px = 226, pw = 340, ph = 8, py = 11;
+  const mx = x => px + (x / MISSION_W) * pw;
+  ctx.fillStyle = '#141612'; ctx.fillRect(px, py, pw, ph);
   let pct;
   if (m.objective === 'defend' && m.defendStartedAt) {
     pct = Math.min(1, (now - m.defendStartedAt) / m.defendDuration);
-    ctx.fillStyle = '#ff8844';
+    ctx.fillStyle = '#ff8844'; ctx.fillRect(px, py, pw * pct, ph);
   } else {
     pct = m.soldier.x / MISSION_W;
-    ctx.fillStyle = C.acc;
+    ctx.fillStyle = 'rgba(114,188,64,0.55)'; ctx.fillRect(px, py, pw * pct, ph);
   }
-  ctx.fillRect(px, 14, pw * pct, ph);
-  ctx.strokeStyle = C.uib; ctx.strokeRect(px, 14, pw, ph);
-  ctx.fillStyle = C.acc; ctx.fillText('★', px + pw + 4, 23);
+  ctx.strokeStyle = C.uib; ctx.strokeRect(px + 0.5, py + 0.5, pw - 1, ph - 1);
+  if (m.entranceX > 0) { ctx.fillStyle = '#aa8844'; ctx.fillRect(mx(m.entranceX) - 1, py - 2, 2, ph + 4); }
+  if (m.fork) { ctx.fillStyle = 'rgba(204,136,0,0.45)'; ctx.fillRect(mx(m.fork.startX), py + ph - 2, mx(m.fork.endX) - mx(m.fork.startX), 2); }
+  if (m.objective === 'defend') { ctx.fillStyle = '#ff8800'; ctx.font = '9px monospace'; ctx.textAlign = 'center'; ctx.fillText('⚑', mx(m.defendAnchor), py + 7); }
+  else { ctx.fillStyle = C.acc; ctx.font = '10px monospace'; ctx.textAlign = 'center'; ctx.fillText('★', px + pw + 7, py + 8); }
+  m.zombies.forEach(z => {
+    if (z.state === 'dead' || !z.activated) return;
+    ctx.fillStyle = z.type === 'brute' ? '#ff5533' : 'rgba(220,70,60,0.85)';
+    const r = z.type === 'brute' ? 2.5 : 1.2;
+    ctx.fillRect(mx(z.x) - r, py + ph / 2 - r, r * 2, r * 2);
+  });
+  [m.soldier, ...(m.followers || [])].forEach(p => {
+    if (!p || p.hp <= 0 || p.state === 'dead') return;
+    ctx.fillStyle = p === m.soldier ? '#ffffff' : '#7cf060';
+    ctx.fillRect(mx(p.x) - 1.5, py - 1, 3, ph + 2);
+  });
+  ctx.textAlign = 'left';
 
   // Hostiles-cleared counter (the goal-gate condition).
   const need = Math.ceil(m.activatedCount * BALANCE.missionGoalKillRatio);
   const cleared = Math.min(m.killedCount, need);
   ctx.fillStyle = m.killedCount >= need && need > 0 ? C.acc : C.wrn;
   ctx.font = '9px monospace';
-  ctx.fillText(`HOSTILES ${cleared}/${need || 0}`, px, 35);
-
-  // Rescuables status (✓ following / total alive)
-  const rcs = (m.rescuables || []).filter(r => r.state !== 'dead' && r.hp > 0);
-  if (rcs.length > 0 || (m.rescuables || []).length > 0) {
-    const total = (m.rescuables || []).length;
-    const following = rcs.filter(r => r.state === 'following').length;
-    ctx.fillStyle = '#88ddff'; ctx.font = '9px monospace';
-    ctx.fillText(`👤 RESCUE ${following}/${total}`, px + 130, 35);
+  ctx.fillText(`HOSTILES ${cleared}/${need || 0}`, px, 33);
+  const total = (m.rescuables || []).length;
+  if (total > 0) {
+    const following = (m.rescuables || []).filter(r => r.state === 'following' && r.hp > 0).length;
+    ctx.fillStyle = '#88ddff';
+    ctx.fillText(`👤 RESCUE ${following}/${total}`, px + 110, 33);
+  }
+  if (m._vaccineCampaign) {
+    ctx.fillStyle = m._vaccineCollected && !m._vaccineDropped ? '#88ff88' : m._vaccineDropped ? '#ff8844' : 'rgba(184,204,170,0.6)';
+    ctx.fillText(m._vaccineCollected ? (m._vaccineDropped ? '💉 VIAL DROPPED' : '💉 VIAL SECURED') : '💉 VIAL —', px + 222, 33);
   }
 
-  ctx.fillStyle = C.txt; ctx.font = '10px monospace';
-  ctx.fillText(`HP ${m.soldier.hp}/${m.soldier.maxHp}`, CW_ - 200, 18);
-  ctx.fillStyle = m.soldier.ammo === 0 ? C.dng : m.soldier.ammo <= 4 ? C.wrn : C.acc;
-  ctx.fillText(`AMMO ${m.soldier.ammo}/${m.soldier.maxAmmo}`, CW_ - 200, 32);
+  // ── Lead status: HP + ammo + spare magazines
+  const s = m.soldier;
+  const hpPct = Math.max(0, s.hp / (s.maxHp || 100));
+  const hpCol = hpPct > 0.6 ? C.acc : hpPct > 0.3 ? C.wrn : C.dng;
+  ctx.font = 'bold 10px monospace'; ctx.fillStyle = C.txt;
+  ctx.fillText(s.name.toUpperCase(), 590, 14);
+  ctx.fillStyle = '#141612'; ctx.fillRect(660, 7, 90, 7);
+  ctx.fillStyle = hpCol; ctx.fillRect(660, 7, 90 * hpPct, 7);
+  ctx.fillStyle = C.txt; ctx.font = '9px monospace';
+  ctx.fillText(`${Math.max(0, Math.round(s.hp))}`, 754, 14);
+  const knife = s.ammo <= 0 && (s.magsLeft || 0) <= 0;
+  ctx.fillStyle = knife ? C.dng : s.ammo <= 4 ? C.wrn : C.acc; ctx.font = 'bold 10px monospace';
+  ctx.fillText(knife ? '🔪 KNIFE' : s.state === 'reload' ? 'RELOADING…' : `AMMO ${s.ammo}/${s.maxAmmo}`, 590, 31);
+  ctx.fillStyle = (s.magsLeft || 0) === 0 ? C.dng : C.txt; ctx.font = '9px monospace';
+  ctx.fillText(`MAGS ${'▮'.repeat(Math.min(6, s.magsLeft || 0))}${(s.magsLeft || 0) === 0 ? '0' : ''}`, 690, 31);
 
-  ctx.fillStyle = '#88ddff'; ctx.font = '10px monospace';
-  let cx = CW_ - 90;
+  // ── Loot collected this sortie
+  ctx.font = '10px monospace';
+  let cx = 790, row = 0;
+  ctx.fillStyle = '#88ddff';
   Object.entries(m.collected).forEach(([k, v]) => {
-    if (v && v > 0) {
-      const lbl = k === 'civilian' ? '👤' : objIcons[k] || k[0];
-      ctx.fillText(`${lbl}${v === true ? '' : v}`, cx, k === 'civilian' ? 32 : 18);
-      cx += 22;
-    }
+    if (!v || v <= 0 || k === 'rescuedCivs') return;
+    const lbl = k === 'civilian' ? '👤' : k === 'lostSoldier' ? '🎖' : objIcons[k] || k[0];
+    const txt = `${lbl}${v === true ? '' : v}`;
+    const w = ctx.measureText(txt).width + 8;
+    if (cx + w > CW_ - 4 && row === 0) { row = 1; cx = 790; }
+    ctx.fillText(txt, cx, row ? 32 : 16);
+    cx += w;
   });
 
-  // Defend timer overlay
+  // ── Party panel (followers) under the HUD
+  const party = (m.followers || []).filter(f => f && f.hp > 0 && f.state !== 'dead');
+  party.forEach((f, i) => {
+    const y = 46 + i * 15;
+    const fp = Math.max(0, f.hp / (f.maxHp || 100));
+    ctx.fillStyle = 'rgba(4,10,4,0.72)'; ctx.fillRect(8, y, 150, 13);
+    ctx.fillStyle = C.txt; ctx.font = '9px monospace';
+    ctx.fillText(f.name.slice(0, 9), 12, y + 10);
+    ctx.fillStyle = '#141612'; ctx.fillRect(74, y + 4, 40, 4);
+    ctx.fillStyle = fp > 0.6 ? C.acc : fp > 0.3 ? C.wrn : C.dng; ctx.fillRect(74, y + 4, 40 * fp, 4);
+    const dry = f.ammo <= 0 && (f.magsLeft || 0) <= 0;
+    ctx.fillStyle = dry ? C.dng : 'rgba(184,204,170,0.75)';
+    ctx.fillText(dry ? '🔪' : `${f.ammo}+${f.magsLeft || 0}m`, 118, y + 10);
+  });
+
+  // ── Boss health bar
+  const boss = m.zombies.find(z => z.type === 'brute' && z.state !== 'dead' && z.activated
+    && Math.abs(z.x - m.soldier.x) < 560);
+  if (boss) {
+    const bw = 300, bx = (CW_ - bw) / 2, by = m.objective === 'defend' ? 72 : 48;
+    ctx.fillStyle = 'rgba(20,4,4,0.85)'; ctx.fillRect(bx - 4, by - 2, bw + 8, 20);
+    ctx.strokeStyle = '#aa2222'; ctx.strokeRect(bx - 3.5, by - 1.5, bw + 7, 19);
+    ctx.fillStyle = '#2a0808'; ctx.fillRect(bx, by + 9, bw, 6);
+    ctx.fillStyle = '#dd3322'; ctx.fillRect(bx, by + 9, bw * Math.max(0, boss.hp / boss.maxHp), 6);
+    ctx.fillStyle = '#ffb0a0'; ctx.font = 'bold 9px monospace'; ctx.textAlign = 'center';
+    ctx.fillText('☠ BRUTE', CW_ / 2, by + 7); ctx.textAlign = 'left';
+  }
+
+  // Defend timer overlay (under the HUD so it never covers the route bar)
   if (m.objective === 'defend') {
+    const ty = 46;
     if (m.defendStartedAt) {
       const left = Math.max(0, Math.ceil((m.defendDuration - (now - m.defendStartedAt)) / 1000));
       const total = Math.ceil(m.defendDuration / 1000);
-      ctx.fillStyle = 'rgba(0,0,0,0.78)'; ctx.fillRect(CW_ / 2 - 80, 4, 160, 28);
-      ctx.strokeStyle = '#ff8800'; ctx.lineWidth = 1; ctx.strokeRect(CW_ / 2 - 80, 4, 160, 28);
+      ctx.fillStyle = 'rgba(0,0,0,0.78)'; ctx.fillRect(CW_ / 2 - 80, ty, 160, 24);
+      ctx.strokeStyle = '#ff8800'; ctx.lineWidth = 1; ctx.strokeRect(CW_ / 2 - 79.5, ty + 0.5, 159, 23);
       ctx.fillStyle = '#ff8800'; ctx.font = 'bold 13px monospace'; ctx.textAlign = 'center';
-      ctx.fillText(`⌛ DEFEND ${left}s`, CW_ / 2, 24); ctx.textAlign = 'left';
-      // Progress bar
+      ctx.fillText(m.extraction ? '🚚 EXTRACTION' : `⌛ DEFEND ${left}s`, CW_ / 2, ty + 16); ctx.textAlign = 'left';
       const p = 1 - left / total;
-      ctx.fillStyle = '#1a1a1a'; ctx.fillRect(CW_ / 2 - 78, 30, 156, 3);
-      ctx.fillStyle = '#ff8800'; ctx.fillRect(CW_ / 2 - 78, 30, 156 * p, 3);
+      ctx.fillStyle = '#1a1a1a'; ctx.fillRect(CW_ / 2 - 78, ty + 20, 156, 3);
+      ctx.fillStyle = '#ff8800'; ctx.fillRect(CW_ / 2 - 78, ty + 20, 156 * p, 3);
     } else {
-      ctx.fillStyle = 'rgba(0,0,0,0.78)'; ctx.fillRect(CW_ / 2 - 110, 4, 220, 28);
-      ctx.strokeStyle = '#ff8800'; ctx.lineWidth = 1; ctx.strokeRect(CW_ / 2 - 110, 4, 220, 28);
+      ctx.fillStyle = 'rgba(0,0,0,0.78)'; ctx.fillRect(CW_ / 2 - 110, ty, 220, 22);
+      ctx.strokeStyle = '#ff8800'; ctx.lineWidth = 1; ctx.strokeRect(CW_ / 2 - 109.5, ty + 0.5, 219, 21);
       ctx.fillStyle = '#ff8800'; ctx.font = 'bold 11px monospace'; ctx.textAlign = 'center';
-      ctx.fillText('REACH THE DEFEND FLAG →', CW_ / 2, 22); ctx.textAlign = 'left';
+      ctx.fillText('REACH THE DEFEND FLAG →', CW_ / 2, ty + 15); ctx.textAlign = 'left';
     }
   }
 
-  ctx.fillStyle = 'rgba(120,120,80,0.5)'; ctx.font = '9px monospace';
+  ctx.fillStyle = 'rgba(160,170,120,0.55)'; ctx.font = '9px monospace';
   ctx.fillText(
-    m.objective === 'defend'
-      ? '← → MOVE   SPACE/CLICK FIRE   W/S CHANGE LANE   HOLD THE FLAG'
-      : '← → MOVE   SPACE/CLICK FIRE   W/S CHANGE LANE   REACH GOAL',
+    m.fork && m.soldier.x >= m.fork.startX - 80 && m.soldier.x <= m.fork.endX
+      ? 'A/D MOVE · SPACE FIRE · W/S SWITCH ROAD · ESC PAUSE'
+      : 'A/D MOVE · SPACE FIRE (hold = strafe) · W JUMP/CLIMB · S DOWN · ESC PAUSE',
     12, CH - 12,
   );
 
@@ -2897,6 +3003,12 @@ export function dMissionHUD(ctx, m, now) {
     ctx.fillText(m.state === 'won' ? '★ MISSION SUCCESS ★' : '✖ MISSION FAILED', CW_ / 2, CH / 2 - 20);
     ctx.font = '12px monospace'; ctx.fillStyle = C.txt;
     ctx.fillText(m.state === 'won' ? 'Returning to Fort Omega...' : `${m.soldier.name} did not return.`, CW_ / 2, CH / 2 + 10);
+    // Debrief line: kills + haul (lost missions forfeit the haul).
+    const haul = Object.entries(m.collected)
+      .filter(([k, v]) => typeof v === 'number' && v > 0 && k !== 'rescuedCivs')
+      .map(([k, v]) => `${objIcons[k] || k} ${v}`).join('   ');
+    ctx.fillStyle = 'rgba(184,204,170,0.8)'; ctx.font = '11px monospace';
+    ctx.fillText(`☠ ${m.killedCount} kills${m.state === 'won' && haul ? '   ·   ' + haul : ''}`, CW_ / 2, CH / 2 + 34);
     ctx.textAlign = 'left';
   }
 
@@ -2933,6 +3045,9 @@ export function dMissionHUD(ctx, m, now) {
     ctx.strokeStyle = C.dng; ctx.strokeRect(rx, by, bw, bh);
     ctx.fillStyle = C.dng;
     ctx.fillText('✖ REFUSE (fight)', rx + bw / 2, by + 21);
+    ctx.fillStyle = 'rgba(184,204,170,0.55)'; ctx.font = '9px monospace';
+    ctx.fillText('[Y]', ax + bw / 2, by + bh + 11);
+    ctx.fillText('[N]', rx + bw / 2, by + bh + 11);
     ctx.textAlign = 'left';
 
     if (m.dialog._error) {

@@ -5,7 +5,7 @@ export const ZTP = {
   runner: { hp: 35,  spd: 1.30, dmg: 4,  sc: C.rsk, cc: C.rcl },
   tank:   { hp: 150, spd: 0.28, dmg: 18, sc: C.tsk, cc: C.tcl },
   // Mission-only end-of-stage boss for HIGH-risk runs.
-  brute:  { hp: 600, spd: 0.40, dmg: 30, sc: '#3a4632', cc: '#0a1208' },
+  brute:  { hp: 600, spd: 0.40, dmg: 30, sc: '#3a4632', cc: '#0a1208', atkRate: 1700 },
   // Mission-only ranged zombie. Stops at "spitRange" and lobs an acid
   // projectile at the closest party member every spitRate ms.
   // Base values are the late-game baseline. mkMission spawns spitters
