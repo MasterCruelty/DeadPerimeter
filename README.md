@@ -56,6 +56,14 @@
   Canvas 2D renderer adds dynamic lights (muzzle flashes, tracers,
   floodlights, fires, flashlight indoors), bloom, colour grading,
   vignette and film grain. Falls back to classic Canvas without WebGL.
+- **Rigged, shaded characters**: soldiers (recruit / veteran / civilian
+  / bandit / police / SWAT), hostile survivors and five zombie builds
+  (six walker outfits, runner, spitter, tank, brute) are drawn by a
+  skeletal rig with outlined, volume-shaded parts, cached as animation
+  frames, with normal maps so HD lights wrap around bodies. Arms are
+  IK-driven and stay locked to a recoiling weapon; redrawn weapons.
+- **Adaptive HD**: if frames stay slow, HD drops normal maps, then
+  resolution, then falls back to classic, with an on-screen note.
 - **Layered parallax city** (cached offscreen layers), smoke plumes,
   ground mist, embers, textured asphalt, contact shadows, HiDPI canvas.
 - Fort Omega shows **progressive battle damage** (cracks → missing

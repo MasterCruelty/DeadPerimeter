@@ -1,6 +1,7 @@
 import { C, CW, CH, GY, WX, LANES, laneY, DPR } from '../constants.js';
 import { dBase } from './base.js';
 import { dSoldier } from './soldier.js';
+import { dBg } from './background.js';
 import { dZombie } from './zombie.js';
 import { ZTP } from '../data/zombies.js';
 
@@ -3123,36 +3124,8 @@ function dShotConvoyClose(ctx, t, now) {
 
 // 5.2 — Fort Omega wide: the wall + soldiers + title card.
 function dShotFortWide(ctx, t, now) {
-  // Deep night sky
-  ctx.fillStyle = '#080a18'; ctx.fillRect(0, 0, CW, CH);
-  // Stars
-  for (let i = 0; i < 70; i++) {
-    const sx = (i * 173) % CW;
-    const sy = (i * 97) % (GY - 100);
-    ctx.fillStyle = `rgba(255,255,255,${0.3 + (i % 5) * 0.12})`;
-    ctx.fillRect(sx, sy, 1.5, 1.5);
-  }
-  // Crescent moon
-  ctx.fillStyle = '#dde2d0';
-  ctx.beginPath(); ctx.arc(740, 80, 26, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = '#080a18';
-  ctx.beginPath(); ctx.arc(750, 76, 26, 0, Math.PI * 2); ctx.fill();
-  // Distant burning skyline
-  for (let i = 0; i < 8; i++) {
-    const bx = i * 120 + 40;
-    const bh = 50 + (i * 23) % 80;
-    ctx.fillStyle = '#0a0a08';
-    ctx.fillRect(bx, GY - 60 - bh, 100, bh);
-  }
-  // Horizon glow
-  const horizon = ctx.createLinearGradient(0, GY - 40, 0, GY);
-  horizon.addColorStop(0, 'rgba(120,40,15,0)');
-  horizon.addColorStop(1, 'rgba(200,70,25,0.6)');
-  ctx.fillStyle = horizon; ctx.fillRect(0, GY - 40, CW, 40);
-
-  // Ground in front of the wall
-  ctx.fillStyle = '#1a1814';
-  ctx.fillRect(0, GY, CW, CH - GY);
+  // The same parallax city the player defends in the siege.
+  dBg(ctx, 0, now);
 
   // The actual game wall
   dBase(ctx, 200, 200);

@@ -71,9 +71,9 @@ export function siegeLights(gs, now) {
   gs.soldiers.forEach(s => {
     if (s.state === 'dead' || s.onExpedition) return;
     if (now - (s.shootAt || -1e9) > 75) return;
-    if (s.onRoof) { push(lights, s.x + 50, GY - 167, 200, 1.3, MUZZLE, cam); return; }
+    if (s.onRoof) { push(lights, s.x + 68, GY - 180, 200, 1.3, MUZZLE, cam); return; }
     const sc = laneSc(s.lane || 0);
-    push(lights, s.x + (s.facing || 1) * 30 * sc, laneY(s.lane || 0) - 26 * sc, 170 * sc, 1.2, MUZZLE, cam);
+    push(lights, s.x + (s.facing || 1) * 30 * sc, laneY(s.lane || 0) - 32 * sc, 170 * sc, 1.2, MUZZLE, cam);
   });
   (gs.turrets || []).forEach(t => {
     if (now - (t.lastShot || -1e9) < 70) push(lights, t.x + 36, t.y - 8, 160, 1.1, MUZZLE, cam);
@@ -137,7 +137,7 @@ export function missionLights(m, now) {
   // Party: muzzle flashes + a flashlight cone on the lead indoors.
   const party = [m.soldier, ...(m.followers || [])].filter(p => p && p.hp > 0 && p.state !== 'dead');
   party.forEach(p => {
-    const y = MGY - 26 + (p.standingY || 0) + (p.jumpY || 0) + (p._laneY || 0);
+    const y = MGY - 32 + (p.standingY || 0) + (p.jumpY || 0) + (p._laneY || 0);
     if (now - (p.shootAt || -1e9) < 75) push(lights, p.x + (p.facing || 1) * 30, y, 190, 1.25, MUZZLE, cam);
   });
   const lead = m.soldier;
