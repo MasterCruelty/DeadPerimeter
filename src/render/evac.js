@@ -3,6 +3,7 @@ import { dBg } from './background.js';
 import { dBase } from './base.js';
 import { pushRadio } from '../audio/radio.js';
 import { dRadioSubtitle } from './hud.js';
+import { drawSoldierBody } from './actors/people.js';
 
 // Animation total duration in ms. Split into three phases.
 export const EVAC_DURATION = 5400;
@@ -18,7 +19,7 @@ const HOVER_Y = GY - 130;
 // direction of travel), 4-blade main rotor, twin engine humps, tail
 // boom with horizontal stabilizer + side-mounted tail rotor, military
 // wheel landing gear, white army-star insignia, nav lights.
-function dHelicopter(ctx, cx, cy, now, opts = {}) {
+export function dHelicopter(ctx, cx, cy, now, opts = {}) {
   ctx.save();
   ctx.translate(cx, cy);
   if (opts.facing === -1) ctx.scale(-1, 1);
@@ -223,22 +224,15 @@ function dHelicopter(ctx, cx, cy, now, opts = {}) {
   ctx.restore();
 }
 
-// Tiny civilian silhouette — used for the boarding queue beside the wall.
-function dEvacCivilian(ctx, x, y, t) {
-  ctx.save(); ctx.translate(x, y);
-  // Body
-  ctx.fillStyle = '#5a3a28'; ctx.fillRect(-4, -10, 8, 10);
-  // Legs (small walk wobble)
-  const wob = Math.sin(t / 180) * 1;
-  ctx.fillStyle = '#3a4858'; ctx.fillRect(-3, 0, 3, 6); ctx.fillRect(0, 0, 3, 6);
-  ctx.fillStyle = '#171210'; ctx.fillRect(-3, 5, 3, 2); ctx.fillRect(0, 5, 3, 2);
-  // Head
-  ctx.fillStyle = '#bf8a6a'; ctx.beginPath(); ctx.arc(0, -13, 3, 0, Math.PI * 2); ctx.fill();
-  // Red baseball cap
-  ctx.fillStyle = '#a04020'; ctx.beginPath(); ctx.arc(0, -14, 3.2, Math.PI, 0); ctx.fill();
-  ctx.fillRect(-3, -14, 6, 1.5);
-  // Subtle bob (panic / cold)
-  void wob;
+// Boarding-queue civilian, drawn with the shared actor rig (waves for
+// the chopper while queued, walks/climbs while boarding).
+const EVAC_CIV_SC = 0.62;
+function dEvacCivilian(ctx, x, y, now, i, moving) {
+  ctx.save(); ctx.translate(x, y); ctx.scale(EVAC_CIV_SC, EVAC_CIV_SC);
+  drawSoldierBody(ctx, {
+    name: `evac${i}`, id: 9000 + i, civilian: true, unarmed: true, npc: true,
+    state: moving ? 'walk' : 'idle', walkPhase: i * 1.7, facing: 1,
+  }, now);
   ctx.restore();
 }
 
@@ -272,8 +266,8 @@ export function dEvacScene(ctx, evac, now) {
   // Background + base reused from the siege scene so the player sees
   // Fort Omega in the same posture they're used to.
   ctx.save(); ctx.clearRect(0, 0, CW, CH);
-  dBg(ctx);
-  dBase(ctx, evac.baseHp ?? 200, evac.baseMaxHp ?? 200);
+  dBg(ctx, 0, now);
+  dBase(ctx, evac.baseHp ?? 200, evac.baseMaxHp ?? 200, now);
 
   const elapsed = now - (evac.startedAt || now);
   scheduleEvacAudio(evac, elapsed);
@@ -299,18 +293,18 @@ export function dEvacScene(ctx, evac, now) {
   // by one into the chopper during board. Once boarded they vanish.
   const civCount = evac.civCount || 0;
   for (let i = 0; i < civCount; i++) {
-    const baseX = 18 + i * 14;
-    const baseY = GY - 7;
+    const baseX = 18 + i * 16;
+    const baseY = GY - 3;
     if (elapsed < PHASE_ARRIVE) {
       // Just stand near the wall
-      dEvacCivilian(ctx, baseX, baseY, now + i * 130);
+      dEvacCivilian(ctx, baseX, baseY, now, i, false);
     } else if (elapsed < PHASE_BOARD) {
       // Stagger each civilian's climb across the boarding window
       const window = PHASE_BOARD - PHASE_ARRIVE;
       const slotDur = window / civCount;
       const myStart = PHASE_ARRIVE + i * slotDur;
       if (elapsed < myStart) {
-        dEvacCivilian(ctx, baseX, baseY, now + i * 130);
+        dEvacCivilian(ctx, baseX, baseY, now, i, false);
       } else {
         const climbT = Math.min(1, (elapsed - myStart) / slotDur);
         if (climbT >= 0.95) continue; // boarded
@@ -318,10 +312,10 @@ export function dEvacScene(ctx, evac, now) {
         const doorX = heliX - 5, doorY = heliY + 4;
         const cx = baseX + (doorX - baseX) * climbT;
         const cy = baseY + (doorY - baseY) * climbT;
-        dEvacCivilian(ctx, cx, cy, now + i * 130);
+        dEvacCivilian(ctx, cx, cy, now, i, true);
         // Rope from helicopter cargo door
         ctx.strokeStyle = 'rgba(200,200,160,0.55)'; ctx.lineWidth = 1;
-        ctx.beginPath(); ctx.moveTo(doorX, doorY); ctx.lineTo(cx, cy + 4); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(doorX, doorY); ctx.lineTo(cx, cy - 36 * EVAC_CIV_SC); ctx.stroke();
       }
     }
     // After PHASE_BOARD: civilians are aboard, no more sprites
