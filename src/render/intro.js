@@ -1,4 +1,4 @@
-import { C, CW, CH, GY, WX, LANES, laneY } from '../constants.js';
+import { C, CW, CH, GY, WX, LANES, laneY, DPR } from '../constants.js';
 import { dBase } from './base.js';
 import { dSoldier } from './soldier.js';
 import { dZombie } from './zombie.js';
@@ -3260,7 +3260,7 @@ function dShotFortWide(ctx, t, now) {
 
 // ── Per-banner overlay text (drawn at unscaled screen coords) ──
 function dBannerText(ctx, shot, elapsed, _now) {
-  ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.save(); ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
   // Show the banner during the shot, fading in and out at its edges
   const inWin = 700, outWin = 700;
   const shotElapsed = elapsed - shot.from;

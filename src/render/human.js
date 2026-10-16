@@ -1,8 +1,10 @@
+import { dContactShadow } from './background.js';
 import { C, laneY, laneSc } from '../constants.js';
 
 // Hostile human survivor sprite. Civilian silhouette + weapon (knife / pistol).
 export function dHuman(ctx, h, now) {
   const ly = laneY(h.lane), sc = laneSc(h.lane);
+  dContactShadow(ctx, h.x, ly + 1, sc, h.state === 'dead' ? 26 : 15);
   const isGun = h.type === 'gunman';
   const palette = h.h.color;
   const cap = h.h.cap;

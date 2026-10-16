@@ -7,7 +7,7 @@ body {
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
-canvas { display: block; image-rendering: pixelated; }
+canvas { display: block; }
 
 /* Buttons are styled inline; these rules add the states inline styles
    can't express. Disabled buttons used to look identical to enabled

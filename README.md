@@ -52,6 +52,12 @@
 - **Tactical HUD**: wave progress + hostiles left, wall HP, stash, a
   **radar** of the whole battlefield (click to pan) and an off-screen
   hostile indicator. **2× fast-forward** (`F`), **1–9** to select soldiers.
+- **HD graphics** (default, toggle with `G`): a WebGL layer over the
+  Canvas 2D renderer adds dynamic lights (muzzle flashes, tracers,
+  floodlights, fires, flashlight indoors), bloom, colour grading,
+  vignette and film grain. Falls back to classic Canvas without WebGL.
+- **Layered parallax city** (cached offscreen layers), smoke plumes,
+  ground mist, embers, textured asphalt, contact shadows, HiDPI canvas.
 - Fort Omega shows **progressive battle damage** (cracks → missing
   chunks → fires) as the wall HP drops.
 - **Pause / resume** with `Esc` (sieges *and* sorties), **save / load** to `localStorage` (v3,
@@ -294,6 +300,7 @@ docker run --rm -it -p 5173:5173 \
 | Move the whole squad (no selection) | Click anywhere on the battlefield |
 | Pan the camera | `←` / `→` or `A` / `D`, or click the radar strip |
 | Fast-forward | `F` or the `▶ 1×` / `▶▶ 2×` button |
+| Graphics mode | `G` or the `✨ HD` / `▭ CLASSIC` button (HD = WebGL lighting, bloom, grading) |
 | Retreat / advance | `◀ RETREAT` / `ADVANCE ▶` buttons (also fires radio chatter) |
 | Pause / resume | `Esc` or the button under the canvas |
 | Mute / unmute | Speaker icon in the top-right of the canvas |

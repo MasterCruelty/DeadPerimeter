@@ -1,7 +1,10 @@
 import { C, laneY, laneSc } from '../constants.js';
+import { dContactShadow } from './background.js';
 
 export function dZombie(ctx, z, now) {
   const ly = laneY(z.lane), sc = laneSc(z.lane);
+  const bulk = z.type === 'brute' ? 1.7 : z.type === 'tank' ? 1.35 : 1;
+  dContactShadow(ctx, z.x, ly + 1, sc * bulk, z.state === 'dead' ? 26 : 15);
   ctx.save(); ctx.translate(z.x, ly); ctx.scale(sc, sc);
   if (z.type === 'tank') ctx.scale(1.35, 1.35);
   else if (z.type === 'brute') ctx.scale(1.7, 1.7);
