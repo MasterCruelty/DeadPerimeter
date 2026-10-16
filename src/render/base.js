@@ -5,7 +5,7 @@ import { C, CH, GY, WX } from '../constants.js';
 // concrete wall body, concertina-wire-topped parapet, a corner
 // watchtower with a swinging searchlight, mounted floodlights, a
 // reinforced gate panel, and weathering/battle damage.
-export function dBase(ctx, hp, mhp) {
+export function dBase(ctx, hp, mhp, now = 0) {
   // ── Wall body (back fill — the interior of the fort beyond
   // the rampart, mostly hidden but provides depth)
   const g = ctx.createLinearGradient(0, 0, WX, 0);
@@ -224,6 +224,57 @@ export function dBase(ctx, hp, mhp) {
   ctx.beginPath(); ctx.arc(134, GY - 113, 1.5, 0, Math.PI * 2); ctx.fill();
   ctx.fillStyle = C.acc; ctx.font = 'bold 11px monospace';
   ctx.fillText('✦ FORT OMEGA ✦', 20, GY - 115);
+
+  // ── Progressive battle damage: the wall visibly cracks below 70 %,
+  // loses chunks below 45 % and burns below 25 %. Positions are fixed
+  // so the damage reads as persistent, not as flicker.
+  const dmgPct = Math.max(0, Math.min(1, hp / (mhp || 1)));
+  if (dmgPct < 0.7) {
+    ctx.strokeStyle = 'rgba(8,6,4,0.85)'; ctx.lineWidth = 1.2;
+    const cracks = [
+      [[WX - 6, GY - 150], [WX - 18, GY - 128], [WX - 12, GY - 110], [WX - 26, GY - 92]],
+      [[60, GY - 40], [72, GY - 56], [66, GY - 70], [80, GY - 84]],
+      [[WX - 30, GY - 20], [WX - 44, GY - 34], [WX - 38, GY - 52]],
+    ];
+    cracks.slice(0, dmgPct < 0.45 ? 3 : 2).forEach(pts => {
+      ctx.beginPath(); ctx.moveTo(pts[0][0], pts[0][1]);
+      pts.slice(1).forEach(([x, y]) => ctx.lineTo(x, y));
+      ctx.stroke();
+    });
+  }
+  if (dmgPct < 0.45) {
+    // Blown-out chunks of the parapet
+    ctx.fillStyle = '#0c0a08';
+    [[WX - 20, GY - 162, 18, 12], [40, GY - 164, 14, 10]].forEach(([x, y, w, h]) => {
+      ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + w, y); ctx.lineTo(x + w - 4, y + h);
+      ctx.lineTo(x + 3, y + h - 3); ctx.closePath(); ctx.fill();
+    });
+    // Rubble at the foot of the wall
+    ctx.fillStyle = '#2a2520';
+    for (let i = 0; i < 7; i++) {
+      const rx = WX - 4 + (i * 9) % 30, ry = GY - 3 - (i % 3) * 2;
+      ctx.fillRect(rx, ry, 4 + (i % 2) * 3, 3);
+    }
+  }
+  if (dmgPct < 0.25) {
+    // Fires on the rampart with flickering glow + smoke
+    [[WX - 30, GY - 160], [52, GY - 162]].forEach(([fx, fy], i) => {
+      const fl = 0.75 + 0.25 * Math.sin(now / 70 + i * 2.1) * Math.sin(now / 37 + i);
+      const glow = ctx.createRadialGradient(fx, fy, 2, fx, fy, 34);
+      glow.addColorStop(0, `rgba(255,140,40,${0.35 * fl})`); glow.addColorStop(1, 'rgba(255,80,0,0)');
+      ctx.fillStyle = glow; ctx.beginPath(); ctx.arc(fx, fy, 34, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = `rgba(255,${120 + Math.round(60 * fl)},30,0.9)`;
+      ctx.beginPath(); ctx.moveTo(fx - 7, fy); ctx.quadraticCurveTo(fx - 4, fy - 14 * fl, fx, fy - 20 * fl);
+      ctx.quadraticCurveTo(fx + 4, fy - 12 * fl, fx + 7, fy); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = 'rgba(255,230,140,0.85)';
+      ctx.beginPath(); ctx.moveTo(fx - 3, fy); ctx.quadraticCurveTo(fx, fy - 9 * fl, fx + 3, fy); ctx.closePath(); ctx.fill();
+      for (let k = 0; k < 3; k++) {
+        const t = ((now / 1600) + k / 3 + i * 0.37) % 1;
+        ctx.fillStyle = `rgba(40,36,32,${0.35 * (1 - t)})`;
+        ctx.beginPath(); ctx.arc(fx + Math.sin(t * 5 + k) * 6 + t * 10, fy - 22 - t * 60, 6 + t * 12, 0, Math.PI * 2); ctx.fill();
+      }
+    });
+  }
 
   // ── HP bar on top of the parapet
   const bw = WX + 12, pct = hp / mhp;

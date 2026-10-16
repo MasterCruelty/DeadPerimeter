@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 
-import { C, CW, CH, GY, WX, WORLD_W, laneY, clickToLane, rng } from './constants.js';
+import { C, CW, CH, GY, WX, WORLD_W, laneY, clickToLane } from './constants.js';
 import { WPN } from './data/weapons.js';
 import { rollDestinations, RECRUIT_NAMES, RECRUIT_WEAPONS } from './data/expeditions.js';
 import { isHumanWaveNumber } from './data/humans.js';
@@ -12,7 +12,7 @@ import { mkBarricade } from './entities/barricade.js';
 import { mkTurret } from './entities/turret.js';
 import { mkWave, mkHumanWave } from './entities/wave.js';
 import { mkGS } from './entities/gameState.js';
-import { hasSavedGame, saveGame, loadGame, clearSave } from './entities/persistence.js';
+import { hasSavedGame, saveGame, loadGame, clearSave, peekSave } from './entities/persistence.js';
 import { BALANCE, CRAFT_RECIPES, RESEARCHES, PERKS, getResearchEffect } from './data/difficulty.js';
 
 import { dBg } from './render/background.js';
@@ -22,7 +22,7 @@ import { dZombie } from './render/zombie.js';
 import { dHuman } from './render/human.js';
 import { dBarricade, dBlt, dFx } from './render/effects.js';
 import { dTurret } from './render/turret.js';
-import { dSquadMarker, dHUD } from './render/hud.js';
+import { dSquadMarker, dHUD, HUD_MUTE, HUD_SPEED, HUD_RADAR } from './render/hud.js';
 import { dEvacScene, EVAC_DURATION } from './render/evac.js';
 import { dIntroScene, INTRO_DURATION } from './render/intro.js';
 import { dDefeatScene, DEFEAT_DURATION } from './render/defeat.js';
@@ -44,6 +44,28 @@ import { VACCINE_SCENARIOS } from './data/vaccineMission.js';
 // "2h 14m" / "47 min" / "—" depending on how long the run took. Combines
 // the persisted playMs (sessions before this one) with the live delta
 // since the current session started.
+function fmtAgo(ts) {
+  if (!ts) return '';
+  const m = Math.floor((Date.now() - ts) / 60000);
+  if (m < 1) return 'just now';
+  if (m < 60) return `${m} min ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
+}
+
+// Composition of the upcoming wave for the command-center intel line.
+function waveIntel(n) {
+  if (isHumanWaveNumber(n)) {
+    const q = mkHumanWave(n);
+    const g = q.filter(x => x.type === 'gunman').length;
+    return { human: true, parts: [[q.length - g, 'knifemen'], [g, 'gunmen']] };
+  }
+  const q = mkWave(n);
+  const c = t => q.filter(x => x.type === t).length;
+  return { human: false, parts: [[c('walker'), 'walkers'], [c('runner'), 'runners'], [c('tank'), 'tanks']] };
+}
+
 function fmtPlayTime(gs) {
   if (!gs) return '—';
   const startedAt = gs.startedAt || Date.now();
@@ -54,6 +76,34 @@ function fmtPlayTime(gs) {
   const m = mins % 60;
   return `${h}h ${m}m`;
 }
+
+// Lightweight snapshot of the mutable game state for React. Module-level
+// so every callback (not just the game-loop effect) can use it.
+const mkSnap = gs => ({
+  phase: gs.phase, day: gs.day, wave: gs.wave, baseHp: gs.baseHp, baseMaxHp: gs.baseMaxHp,
+  resources: { ...(gs.resources || {}) },
+  soldiers: (gs.soldiers || []).map(s => ({ ...s })),
+  barricades: (gs.barricades || []).map(b => ({ ...b })),
+  turrets: (gs.turrets || []).map(t => ({ ...t })),
+  reserve: (gs.reserve || []).map(r => ({ ...r })),
+  selectedSoldierId: gs.selectedSoldierId,
+  kills: gs.kills, score: gs.score,
+  isHumanWave: gs.isHumanWave,
+  expeditionsToday: gs.expeditionsToday || 0,
+  lastEvacWave: gs.lastEvacWave ?? -10,
+  // Story-beat fields the management UI banners read. Forgetting
+  // any of these here used to cause the post-transmission
+  // management screen to render with stale data (or to never
+  // render at all if mkSnap throws on a missing field).
+  transmissionsDone: Array.isArray(gs.transmissionsDone) ? [...gs.transmissionsDone] : [],
+  pendingTransmission: gs.pendingTransmission ?? null,
+  lastFoodReport:  gs.lastFoodReport  ?? null,
+  lastSupplyDrop:  gs.lastSupplyDrop  ?? null,
+  cameraX: gs.cameraX || 0,
+  workbench: gs.workbench, researchLab: gs.researchLab, research: gs.research,
+  soldiersLost: gs.soldiersLost || 0, civiliansLost: gs.civiliansLost || 0,
+  playMs: gs.playMs || 0, startedAt: gs.startedAt,
+});
 
 export default function DeadPerimeter() {
   const cvs = useRef(null), gsRef = useRef(null), rafId = useRef(null), prevT = useRef(0), mutedR = useRef(false);
@@ -73,6 +123,7 @@ export default function DeadPerimeter() {
   const voiceAvail = isRadioVoiceAvailable();
   const [paused, setPaused] = useState(false);
   const [hasSave, setHasSave] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
   // Which soldier card currently has its upgrade panel expanded (id).
   // null = none. Toggled by the ⚙ UPGRADES button on each card.
   const [upgOpenId, setUpgOpenId] = useState(null);
@@ -125,8 +176,17 @@ export default function DeadPerimeter() {
   const togglePause = useCallback(() => {
     const n = !pausedRef.current;
     pausedRef.current = n; setPaused(n);
+    // Background drums belong to the siege only.
     const am = getAM();
-    if (am) { if (n) am.stopBg(); else if (!mutedR.current) am.startBg(); }
+    if (am && !missionRef.current) { if (n) am.stopBg(); else if (!mutedR.current) am.startBg(); }
+  }, []);
+
+  // Siege fast-forward (1× ↔ 2×). Stored on gs so the HUD can show it.
+  const [fastOn, setFastOn] = useState(false);
+  const toggleSpeed = useCallback(() => {
+    const gs = gsRef.current; if (!gs) return;
+    gs.speed = (gs.speed || 1) > 1 ? 1 : 2;
+    setFastOn(gs.speed > 1);
   }, []);
 
   // Detect existing save + load radio-voice preference on mount.
@@ -210,7 +270,6 @@ export default function DeadPerimeter() {
       try { window.speechSynthesis?.cancel(); } catch {}
     } catch (e) {
       // Swallow + log: a bug in the drop apply must not freeze the game.
-      // eslint-disable-next-line no-console
       console.error('finishTransmission error:', e);
     }
     // Always clear the cinematic ref + route to management, even if
@@ -233,7 +292,6 @@ export default function DeadPerimeter() {
       clearSave();
       setHasSave(false);
     } catch (e) {
-      // eslint-disable-next-line no-console
       console.error('finishExtraction error:', e);
     }
     extractionRef.current = null;
@@ -265,6 +323,7 @@ export default function DeadPerimeter() {
 
   const startWave = useCallback(() => {
     const gs = gsRef.current;
+    pausedRef.current = false; setPaused(false);
     const am = getAM(); if (am && !mutedR.current) am.startBg();
     gs.soldiers.forEach(s => {
       if (s.state === 'dead' || s.onExpedition) return;
@@ -282,6 +341,7 @@ export default function DeadPerimeter() {
     // Decide whether this is a human wave
     gs.isHumanWave = isHumanWaveNumber(gs.wave);
     gs.spawnQueue = gs.isHumanWave ? mkHumanWave(gs.wave) : mkWave(gs.wave);
+    gs.waveTotal = gs.spawnQueue.length;
     gs.phase = 'siege';
     gs.waveTime = 0;
     gs.waveClearAt = null; gs.waveComplete = false;
@@ -329,10 +389,11 @@ export default function DeadPerimeter() {
     // mkMission's buildMissionSoldier seeds magsLeft from
     // orig._sortieMags - 1. Pass the requested mag count as the
     // default for any soldier whose _sortieMags wasn't preset.
-    const m = mkMission(party, dest, gs.wave || 1, mags);
+    const m = mkMission(party, dest, gs.wave || 1, mags, gs.research?.completed);
     missionRef.current = m;
     inputRef.current = { left: false, right: false, shoot: false, up: false, down: false };
     gs.expeditionsToday = (gs.expeditionsToday || 0) + 1;
+    pausedRef.current = false; setPaused(false);
     setScr('mission');
   }, []);
 
@@ -342,6 +403,7 @@ export default function DeadPerimeter() {
     // finishMission writes back every party member's hp/state/onExpedition.
     const result = finishMission(m, gs);
     missionRef.current = null;
+    pausedRef.current = false; setPaused(false);
     setExpResult(result); setExpPhase('done'); setExpEvents([]); setExpVisible(0);
     setUi({ ...gs, soldiers: gs.soldiers.map(s => ({ ...s })) });
     setScr('expedition');
@@ -391,16 +453,21 @@ export default function DeadPerimeter() {
     vaccineRef.current = null;
     missionRef.current = null;
     gs.phase = 'victory';
+    // The run is over — a stale pre-wave-30 save would let the player
+    // "continue" a finished campaign.
+    clearSave(); setHasSave(false);
     setUi({ ...gs, soldiers: gs.soldiers.map(s => ({ ...s })) });
     setScr('victory');
   }, []);
 
   const recruit = useCallback(() => {
     const gs = gsRef.current;
-    if (gs.resources.food < 20 || gs.resources.materials < 15 || gs.soldiers.filter(s => s.state !== 'dead').length >= 6) return;
-    gs.resources.food -= 20; gs.resources.materials -= 15;
+    if (gs.resources.food < 20 || gs.resources.materials < 15 || gs.soldiers.filter(s => s.state !== 'dead').length >= BALANCE.maxActiveSoldiers) return;
+    // Pick the name BEFORE charging so an exhausted name pool never
+    // eats the player's food + materials for nothing.
     const avail = RECRUIT_NAMES.filter(n => !gs.usedNames.has(n));
     if (!avail.length) return;
+    gs.resources.food -= 20; gs.resources.materials -= 15;
     const name = avail[Math.floor(Math.random() * avail.length)];
     const weapon = RECRUIT_WEAPONS[Math.floor(Math.random() * RECRUIT_WEAPONS.length)];
     gs.usedNames.add(name);
@@ -786,9 +853,18 @@ export default function DeadPerimeter() {
         if (hit(md._buttons.refuse)) { resolveTrade('refuse'); return; }
         return;
       }
-      if (mx > 850 && mx < 892 && my > 4 && my < 34) { toggleMute(); return; }
+      const inRect = R => mx >= R.x && mx <= R.x + R.w && my >= R.y && my <= R.y + R.h;
+      if (inRect(HUD_MUTE)) { toggleMute(); return; }
       const gs = gsRef.current;
-      if (!gs || gs.phase !== 'siege' || my <= 38) return;
+      if (!gs || gs.phase !== 'siege') return;
+      if (inRect(HUD_SPEED)) { toggleSpeed(); return; }
+      // Radar click: centre the camera on that slice of the battlefield.
+      if (inRect(HUD_RADAR)) {
+        const wx = ((mx - HUD_RADAR.x) / HUD_RADAR.w) * WORLD_W;
+        gs.cameraX = Math.max(0, Math.min(WORLD_W - CW, wx - CW / 2));
+        return;
+      }
+      if (my <= 38) return;
 
       // The world is wider than the viewport (WORLD_W vs CW) and the
       // siege view scrolls. Translate the click into world coordinates
@@ -831,22 +907,31 @@ export default function DeadPerimeter() {
 
     const onKeyDown = e => {
       // Space / Enter skip cinematics that have a skip hint.
-      if ((e.key === ' ' || e.key === 'Spacebar' || e.key === 'Enter')
-          && (transmissionRef.current || extractionRef.current)) {
+      const skipKey = e.key === ' ' || e.key === 'Spacebar' || e.key === 'Enter' || e.key === 'Escape' || e.key === 'Esc';
+      if (skipKey && (transmissionRef.current || extractionRef.current || introRef.current || defeatRef.current)) {
         if (transmissionRef.current) finishTransmission();
         else if (extractionRef.current) finishExtraction();
+        else if (introRef.current) finishIntro();
+        else if (defeatRef.current) finishDefeat();
         e.preventDefault();
         return;
       }
       if (e.key === 'Escape' || e.key === 'Esc') {
         // Cancel build placement if active.
         if (placementRef.current) { cancelPlacement(); e.preventDefault(); return; }
-        // Pause/resume only during siege. Missions and menus ignore Esc.
+        // Pause/resume during siege and live missions (not while a
+        // trade dialog is open — that already freezes the world).
         const gs = gsRef.current;
-        if (gs && gs.phase === 'siege' && !missionRef.current) {
+        const mm = missionRef.current;
+        if ((mm && mm.state === 'active' && !mm.dialog) || (gs && gs.phase === 'siege' && !mm)) {
           togglePause(); e.preventDefault();
         }
         return;
+      }
+      // Trade dialog keyboard shortcuts.
+      if (missionRef.current?.dialog) {
+        if (e.key === 'y' || e.key === 'Y' || e.key === 'Enter') { resolveTrade('accept'); e.preventDefault(); return; }
+        if (e.key === 'n' || e.key === 'N') { resolveTrade('refuse'); e.preventDefault(); return; }
       }
       if (missionRef.current && missionRef.current.state === 'active') {
         if (e.key === 'ArrowLeft'  || e.key === 'a' || e.key === 'A') { inputRef.current.left = true;  e.preventDefault(); }
@@ -858,6 +943,19 @@ export default function DeadPerimeter() {
         // Siege phase: arrow keys pan the camera across the wider WORLD_W.
         const gs = gsRef.current;
         if (gs && gs.phase === 'siege' && !missionRef.current) {
+          if (e.key === 'f' || e.key === 'F') { toggleSpeed(); e.preventDefault(); return; }
+          // 1-9: quick-select a ground soldier (same order as the chips
+          // under the canvas). Pressing the selected one again deselects.
+          if (/^[1-9]$/.test(e.key)) {
+            const ground = gs.soldiers.filter(s => s.state !== 'dead' && !s.onExpedition && !s.onRoof);
+            const pick = ground[Number(e.key) - 1];
+            if (pick) {
+              gs.selectedSoldierId = gs.selectedSoldierId === pick.id ? null : pick.id;
+              // Bring the picked soldier into view.
+              if (gs.selectedSoldierId) gs.cameraX = Math.max(0, Math.min(WORLD_W - CW, pick.x - CW / 3));
+            }
+            e.preventDefault(); return;
+          }
           if (e.key === 'ArrowLeft'  || e.key === 'a' || e.key === 'A') { inputRef.current.panLeft  = true; e.preventDefault(); }
           if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') { inputRef.current.panRight = true; e.preventDefault(); }
         }
@@ -958,28 +1056,6 @@ export default function DeadPerimeter() {
     window.addEventListener('keydown', onKeyDown);
     window.addEventListener('keyup', onKeyUp);
 
-    const mkSnap = gs => ({
-      phase: gs.phase, day: gs.day, wave: gs.wave, baseHp: gs.baseHp, baseMaxHp: gs.baseMaxHp,
-      resources: { ...(gs.resources || {}) },
-      soldiers: (gs.soldiers || []).map(s => ({ ...s })),
-      barricades: (gs.barricades || []).map(b => ({ ...b })),
-      turrets: (gs.turrets || []).map(t => ({ ...t })),
-      reserve: (gs.reserve || []).map(r => ({ ...r })),
-      selectedSoldierId: gs.selectedSoldierId,
-      kills: gs.kills, score: gs.score,
-      isHumanWave: gs.isHumanWave,
-      expeditionsToday: gs.expeditionsToday || 0,
-      lastEvacWave: gs.lastEvacWave ?? -10,
-      // Story-beat fields the management UI banners read. Forgetting
-      // any of these here used to cause the post-transmission
-      // management screen to render with stale data (or to never
-      // render at all if mkSnap throws on a missing field).
-      transmissionsDone: Array.isArray(gs.transmissionsDone) ? [...gs.transmissionsDone] : [],
-      pendingTransmission: gs.pendingTransmission ?? null,
-      lastFoodReport:  gs.lastFoodReport  ?? null,
-      lastSupplyDrop:  gs.lastSupplyDrop  ?? null,
-      cameraX: gs.cameraX || 0,
-    });
 
     const loop = now => {
       const dt = Math.min(now - prevT.current, 50); prevT.current = now;
@@ -1148,21 +1224,53 @@ export default function DeadPerimeter() {
         m.inputLeft  = inputRef.current.left;
         m.inputRight = inputRef.current.right;
         m.inputShoot = inputRef.current.shoot;
-        updateMission(m, now, dt);
-        processSounds(m.soundQ, getAM(), mutedR);
+        // Missions run on their own clock too, so pausing freezes the
+        // DEFEND timer, reloads and effects instead of letting them run.
+        if (m.simNow === undefined) m.simNow = now;
+        const mPaused = pausedRef.current && m.state === 'active';
+        if (!mPaused) {
+          m.simNow += dt;
+          updateMission(m, m.simNow, dt);
+          processSounds(m.soundQ, getAM(), mutedR);
+        }
         ctx.save(); ctx.clearRect(0, 0, CW, CH);
-        dMissionWorld(ctx, m, now);
-        dMissionHUD(ctx, m, now);
+        dMissionWorld(ctx, m, m.simNow);
+        dMissionHUD(ctx, m, m.simNow);
+        if (mPaused) {
+          ctx.fillStyle = 'rgba(0,0,0,0.62)'; ctx.fillRect(0, 0, CW, CH);
+          ctx.fillStyle = 'rgba(6,14,6,0.95)'; ctx.fillRect(CW / 2 - 190, CH / 2 - 80, 380, 150);
+          ctx.strokeStyle = C.acc; ctx.lineWidth = 1; ctx.strokeRect(CW / 2 - 189.5, CH / 2 - 79.5, 379, 149);
+          ctx.fillStyle = C.acc; ctx.font = 'bold 28px monospace'; ctx.textAlign = 'center';
+          ctx.fillText('⏸ SORTIE PAUSED', CW / 2, CH / 2 - 38);
+          ctx.fillStyle = C.txt; ctx.font = '11px monospace';
+          ctx.fillText('Esc — resume', CW / 2, CH / 2 - 12);
+          ctx.fillStyle = 'rgba(184,204,170,0.65)'; ctx.font = '10px monospace';
+          ctx.fillText('A/D or ←/→ move · Space / mouse hold: fire', CW / 2, CH / 2 + 10);
+          ctx.fillText('hold fire while moving back = backpedal shooting', CW / 2, CH / 2 + 26);
+          ctx.fillText('W: jump / climb ladder · S: climb down / drop', CW / 2, CH / 2 + 42);
+          ctx.fillText('stand by ★ containers to search them', CW / 2, CH / 2 + 58);
+          ctx.textAlign = 'left';
+        }
         ctx.restore();
         rafId.current = requestAnimationFrame(loop);
         return;
       }
 
       if (gs && gs.phase === 'siege') {
+        // The siege runs on its own clock (gs.simNow) so it can be
+        // paused without effects expiring and fast-forwarded (F / ▶▶)
+        // by sub-stepping the update — every timer inside update()
+        // compares against this clock, so 2× is a true 2×.
+        if (gs.simNow === undefined) gs.simNow = now;
         if (!pausedRef.current) {
-          update(gs, now, dt);
+          const steps = (gs.speed || 1) > 1 ? 2 : 1;
+          for (let i = 0; i < steps && gs.phase === 'siege'; i++) {
+            gs.simNow += dt;
+            update(gs, gs.simNow, dt);
+          }
           processSounds(gs.soundQ, getAM(), mutedR);
         }
+        const simNow = gs.simNow;
         // Camera pan from arrow-key input. 0.55 px/ms ≈ 33 px/frame at
         // 60 FPS, clamped to [0, WORLD_W - CW].
         if (inputRef.current.panLeft || inputRef.current.panRight) {
@@ -1216,28 +1324,33 @@ export default function DeadPerimeter() {
           // in screen-space and never scrolls.
           ctx.save();
           ctx.translate(-(gs.cameraX || 0), 0);
-          dBg(ctx); dBase(ctx, gs.baseHp, gs.baseMaxHp);
+          dBg(ctx); dBase(ctx, gs.baseHp, gs.baseMaxHp, simNow);
           for (let lane = 2; lane >= 0; lane--) {
-            gs.zombies.filter(z => z.state === 'dead' && z.lane === lane).forEach(z => dZombie(ctx, z, now));
-            gs.zombies.filter(z => z.state !== 'dead' && z.lane === lane).forEach(z => dZombie(ctx, z, now));
-            gs.humans.filter(h => h.state === 'dead' && h.lane === lane).forEach(h => dHuman(ctx, h, now));
-            gs.humans.filter(h => h.state !== 'dead' && h.lane === lane).forEach(h => dHuman(ctx, h, now));
-            gs.soldiers.filter(s => (s.lane || 0) === lane && !s.onExpedition).forEach(s => dSoldier(ctx, s, now, s.id === gs.selectedSoldierId));
+            gs.zombies.filter(z => z.state === 'dead' && z.lane === lane).forEach(z => dZombie(ctx, z, simNow));
+            gs.zombies.filter(z => z.state !== 'dead' && z.lane === lane).forEach(z => dZombie(ctx, z, simNow));
+            gs.humans.filter(h => h.state === 'dead' && h.lane === lane).forEach(h => dHuman(ctx, h, simNow));
+            gs.humans.filter(h => h.state !== 'dead' && h.lane === lane).forEach(h => dHuman(ctx, h, simNow));
+            gs.soldiers.filter(s => (s.lane || 0) === lane && !s.onExpedition).forEach(s => dSoldier(ctx, s, simNow, s.id === gs.selectedSoldierId));
             if (lane === 2) gs.barricades.forEach(b => dBarricade(ctx, b));
           }
-          (gs.turrets || []).forEach(t => dTurret(ctx, t, now));
-          gs.effects.forEach(e => dFx(ctx, e, now));
+          (gs.turrets || []).forEach(t => dTurret(ctx, t, simNow));
+          gs.effects.forEach(e => dFx(ctx, e, simNow));
           gs.bullets.forEach(b => dBlt(ctx, b));
-          dSquadMarker(ctx, gs.squadTarget, gs.squadLane, now);
+          dSquadMarker(ctx, gs.squadTarget, gs.squadLane, simNow);
           ctx.restore();
           // HUD lives in screen-space.
-          dHUD(ctx, gs, now, mutedR.current);
+          dHUD(ctx, gs, simNow, mutedR.current);
           if (pausedRef.current) {
-            ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(0, 0, CW, CH);
-            ctx.fillStyle = C.acc; ctx.font = 'bold 32px monospace'; ctx.textAlign = 'center';
-            ctx.fillText('⏸ PAUSED', CW / 2, CH / 2 - 6);
-            ctx.fillStyle = C.txt; ctx.font = '12px monospace';
-            ctx.fillText('press Esc to resume', CW / 2, CH / 2 + 22);
+            ctx.fillStyle = 'rgba(0,0,0,0.62)'; ctx.fillRect(0, 0, CW, CH);
+            ctx.fillStyle = 'rgba(6,14,6,0.95)'; ctx.fillRect(CW / 2 - 170, CH / 2 - 70, 340, 130);
+            ctx.strokeStyle = C.acc; ctx.lineWidth = 1; ctx.strokeRect(CW / 2 - 169.5, CH / 2 - 69.5, 339, 129);
+            ctx.fillStyle = C.acc; ctx.font = 'bold 30px monospace'; ctx.textAlign = 'center';
+            ctx.fillText('⏸ PAUSED', CW / 2, CH / 2 - 26);
+            ctx.fillStyle = C.txt; ctx.font = '11px monospace';
+            ctx.fillText('Esc — resume', CW / 2, CH / 2 + 2);
+            ctx.fillStyle = 'rgba(184,204,170,0.6)'; ctx.font = '10px monospace';
+            ctx.fillText('click lane: move · 1-9: select soldier', CW / 2, CH / 2 + 22);
+            ctx.fillText('←/→ or radar: pan · F: 2× speed', CW / 2, CH / 2 + 38);
             ctx.textAlign = 'left';
           }
           ctx.restore();
@@ -1260,7 +1373,8 @@ export default function DeadPerimeter() {
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
     };
-  }, [toggleMute, togglePause]);
+  }, [toggleMute, togglePause, toggleSpeed, applyEvac, cancelPlacement, confirmPlacement, finishDefeat,
+      finishExtraction, finishIntro, finishTransmission, resolveTrade]);
 
   // ── STYLES ───────────────────────────────────────────────────
   const F = "'Courier New',monospace";
@@ -1356,7 +1470,7 @@ export default function DeadPerimeter() {
               const order = picked ? expSoldierIdxs.indexOf(i) + 1 : null;
               return (
                 <div key={s.id} onClick={() => toggleSoldier(i)} style={{ ...card, cursor: 'pointer', borderColor: picked ? C.acc : C.uib, opacity: picked ? 1 : 0.7, position: 'relative' }}>
-                  {order && <div style={{ position: 'absolute', top: 4, right: 6, background: C.acc, color: '#0a0', fontSize: '9px', fontWeight: 'bold', borderRadius: '50%', width: '14px', height: '14px', textAlign: 'center', lineHeight: '14px' }}>{order}</div>}
+                  {order && <div style={{ position: 'absolute', top: 4, right: 6, background: C.acc, color: '#061006', fontSize: '9px', fontWeight: 'bold', borderRadius: '50%', width: '14px', height: '14px', textAlign: 'center', lineHeight: '14px' }}>{order}</div>}
                   <div style={{ color: C.acc, fontWeight: 'bold', fontSize: '11px' }}>{s.name}</div>
                   <div style={{ fontSize: '9px', color: C.txt }}>{WPN[s.weapon]?.name}</div>
                   <div style={{ fontSize: '9px', color: s.hp > 60 ? C.acc : s.hp > 30 ? C.wrn : C.dng }}>{s.hp}HP</div>
@@ -1482,33 +1596,46 @@ export default function DeadPerimeter() {
         {scr === 'siege' && (
           <div style={{ display: 'flex', gap: '7px', marginTop: '7px', flexWrap: 'wrap', justifyContent: 'center', alignItems: 'center', width: '100%', maxWidth: CW }}>
             <button style={ctrlBtn} onClick={() => moveSquad('retreat')}>◀ RETREAT</button>
-            {ui?.soldiers?.filter(s => !s.onExpedition).map(s => {
-              const isSel = ui?.selectedSoldierId === s.id;
-              const isDead = s.state === 'dead';
-              return (
-                <div
-                  key={s.id}
-                  onClick={isDead || s.onRoof ? undefined : () => selectSoldierById(s.id)}
-                  style={{
-                    background: isSel ? 'rgba(40,90,30,0.95)' : 'rgba(18,30,12,0.92)',
-                    border: `1px solid ${isDead ? C.dng : isSel ? C.acc : C.uib}`,
-                    padding: '4px 10px',
-                    opacity: isDead ? 0.32 : 1,
-                    cursor: isDead || s.onRoof ? 'default' : 'pointer',
-                    userSelect: 'none',
-                  }}
-                  title={isDead ? 'KIA' : s.onRoof ? 'Rooftop sniper — cannot be moved' : isSel ? 'Click to deselect' : 'Click to select & move'}
-                >
-                  <span style={{ color: isDead ? C.dng : s.ammo === 0 ? C.dng : isSel ? '#fff' : C.acc, fontWeight: 'bold', fontSize: '10px' }}>{s.name}</span>
-                  <span style={{ color: '#666', fontSize: '9px', margin: '0 3px' }}>{'FMB'[s.lane || 0]}</span>
-                  <span style={{ color: C.txt, fontSize: '9px' }}>{isDead ? 'KIA' : s.state.toUpperCase()}</span>
-                  <span style={{ color: s.ammo === 0 ? C.dng : C.txt, fontSize: '9px', marginLeft: '4px' }}>{isDead ? '─' : `${s.ammo}/${s.maxAmmo}`}</span>
-                  {isSel && <span style={{ color: C.acc, fontSize: '9px', marginLeft: '4px' }}>◉</span>}
-                </div>
-              );
-            })}
+            {(() => {
+              // Hotkey numbers follow the same order as the 1-9 keys:
+              // living, non-rooftop soldiers in roster order.
+              const groundIds = (ui?.soldiers || []).filter(s => s.state !== 'dead' && !s.onExpedition && !s.onRoof).map(s => s.id);
+              return ui?.soldiers?.filter(s => !s.onExpedition && s.state !== 'dead').map(s => {
+                const isSel = ui?.selectedSoldierId === s.id;
+                const hk = groundIds.indexOf(s.id) + 1;
+                const hpPct = Math.max(0, s.hp / (s.maxHp || 100));
+                const hpCol = hpPct > 0.6 ? C.acc : hpPct > 0.3 ? C.wrn : C.dng;
+                const stateLbl = s.onRoof ? 'ROOF' : s.state === 'knife' ? 'MELEE' : s.state.toUpperCase();
+                return (
+                  <div
+                    key={s.id}
+                    onClick={s.onRoof ? undefined : () => selectSoldierById(s.id)}
+                    style={{
+                      background: isSel ? 'rgba(40,90,30,0.95)' : 'rgba(18,30,12,0.92)',
+                      border: `1px solid ${isSel ? C.acc : s.ammo === 0 ? C.dng : C.uib}`,
+                      padding: '3px 8px 4px', minWidth: '92px',
+                      cursor: s.onRoof ? 'default' : 'pointer',
+                      userSelect: 'none',
+                    }}
+                    title={s.onRoof ? 'Rooftop sniper — cannot be moved' : `${isSel ? 'Click to deselect' : 'Click to select & move'}${hk ? ` (key ${hk})` : ''}`}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: '4px' }}>
+                      {hk > 0 && hk < 10 && <span style={{ color: '#7a8a6a', fontSize: '8px' }}>{hk}</span>}
+                      <span style={{ color: s.ammo === 0 ? C.dng : isSel ? '#fff' : C.acc, fontWeight: 'bold', fontSize: '10px' }}>{s.name}</span>
+                      <span style={{ color: '#7a7a6a', fontSize: '8px' }}>{s.onRoof ? '▲' : 'FMB'[s.lane || 0]}</span>
+                      <span style={{ color: s.ammo === 0 ? C.dng : C.txt, fontSize: '9px', marginLeft: 'auto' }}>{s.ammo}/{s.maxAmmo}</span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '2px' }}>
+                      <div style={{ flex: 1, height: '3px', background: '#1a1a1a' }}><div style={{ height: '3px', width: `${hpPct * 100}%`, background: hpCol }} /></div>
+                      <span style={{ color: '#8a9a7a', fontSize: '7px', letterSpacing: '.04em' }}>{stateLbl}</span>
+                    </div>
+                  </div>
+                );
+              });
+            })()}
             <button style={ctrlBtn} onClick={() => moveSquad('advance')}>ADVANCE ▶</button>
             <button style={mbtn} onClick={togglePause}>{paused ? '▶ RESUME' : '⏸ PAUSE'}</button>
+            <button style={{ ...mbtn, color: fastOn ? C.wrn : C.txt, borderColor: fastOn ? C.wrn : C.uib }} onClick={toggleSpeed} title="Fast-forward (F)">{fastOn ? '▶▶ 2×' : '▶ 1×'}</button>
             <button style={mbtn} onClick={toggleMute}>{muted ? '🔇' : '🔊'}</button>
             {voiceAvail && (
               <button style={mbtn} onClick={toggleVoice} title="Radio voice (TTS)">{voiceOn ? '🗣' : '🚫'}</button>
@@ -1519,7 +1646,8 @@ export default function DeadPerimeter() {
           <div style={{ display: 'flex', gap: '8px', marginTop: '8px', flexWrap: 'wrap', justifyContent: 'center', alignItems: 'center', width: '100%', maxWidth: CW }}>
             {missionRef.current && missionRef.current.state === 'active' ? (
               <>
-                <span style={{ color: '#888', fontSize: '10px' }}>← / A or tap-left  ·  → / D or tap-right  ·  SPACE / tap-center : FIRE</span>
+                <span style={{ color: '#888', fontSize: '10px' }}>A/D move · SPACE or hold mouse: fire · W jump/climb · S down · Esc pause</span>
+                <button style={mbtn} onClick={togglePause}>{paused ? '▶ RESUME' : '⏸ PAUSE'}</button>
                 <button style={mbtn} onClick={toggleMute}>{muted ? '🔇' : '🔊'}</button>
                 {voiceAvail && (
                   <button style={mbtn} onClick={toggleVoice} title="Radio voice (TTS)">{voiceOn ? '🗣' : '🚫'}</button>
@@ -1547,26 +1675,67 @@ export default function DeadPerimeter() {
         )}
       </div>
 
-      {scr === 'menu' && (
-        <div style={wrap}>
-          <div style={{ ...panel, textAlign: 'center', maxWidth: '480px' }}>
-            <div style={{ fontSize: '48px', marginBottom: '6px' }}>🧟</div>
-            <div style={h1}>DEAD PERIMETER</div>
-            <div style={{ color: C.txt, opacity: 0.5, margin: '5px 0 14px', fontSize: '10px', letterSpacing: '.14em' }}>ZOMBIE SIEGE SURVIVAL</div>
-            <hr style={hr} />
-            <p style={{ color: C.txt, fontSize: '12px', lineHeight: '1.9', marginBottom: '18px' }}>
-              Defend <span style={{ color: C.acc }}>Fort Omega</span> across 3 depth lanes.<br />
-              <span style={{ color: C.wrn }}>Click front/mid/back to position your squad.</span><br />
-              Ammo is scarce. Build barricades. Send expeditions.<br />
-              <span style={{ color: '#444' }}>🔊 Sound · Esc to pause · saves between waves</span>
-            </p>
-            <button style={btn()} onClick={newGame}>⚔  BEGIN OPERATION</button>
-            {hasSave && (
-              <button style={btn('#1a3a18', '#558844')} onClick={continueGame}>↻ CONTINUE SAVED RUN</button>
-            )}
+      {scr === 'menu' && (() => {
+        const sv = hasSave ? peekSave() : null;
+        const keyRow = (k, d, sect = '') => (
+          <div key={sect + k + d} style={{ display: 'flex', gap: '10px', fontSize: '10px', lineHeight: '1.9' }}>
+            <span style={{ color: C.acc, minWidth: '120px', textAlign: 'right' }}>{k}</span>
+            <span style={{ color: C.txt, opacity: 0.85, textAlign: 'left' }}>{d}</span>
           </div>
-        </div>
-      )}
+        );
+        return (
+          <div style={{ ...wrap, background: 'radial-gradient(ellipse at 50% 35%, #0e1a0c 0%, #050805 55%, #020302 100%)', position: 'relative', overflow: 'hidden' }}>
+            {/* CRT scanlines + vignette */}
+            <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', background: 'repeating-linear-gradient(0deg, rgba(0,0,0,0.22) 0px, rgba(0,0,0,0.22) 1px, transparent 1px, transparent 3px)' }} />
+            <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', boxShadow: 'inset 0 0 180px rgba(0,0,0,0.9)' }} />
+            <div style={{ ...panel, textAlign: 'center', maxWidth: '520px', position: 'relative', boxShadow: '0 0 40px rgba(114,188,64,0.08), inset 0 0 30px rgba(0,0,0,0.6)' }}>
+              <div style={{ fontSize: '10px', letterSpacing: '.35em', color: C.dng, opacity: 0.8, animation: 'dpPulse 2.4s ease-in-out infinite' }}>● PRIORITY CHANNEL — CENTRAL COMMAND</div>
+              <div style={{ fontSize: '52px', margin: '10px 0 2px', filter: 'drop-shadow(0 0 14px rgba(120,200,80,0.35))' }}>🧟</div>
+              <div style={{ ...h1, fontSize: '34px', letterSpacing: '.16em', textShadow: '0 0 18px rgba(114,188,64,0.45), 0 2px 0 #000', animation: 'dpFlicker 6s infinite' }}>DEAD PERIMETER</div>
+              <div style={{ color: C.txt, opacity: 0.55, margin: '6px 0 14px', fontSize: '10px', letterSpacing: '.3em' }}>FORT OMEGA · 30 WAVES · ONE WALL</div>
+              <hr style={hr} />
+              <p style={{ color: C.txt, fontSize: '12px', lineHeight: '1.8', margin: '0 0 16px' }}>
+                Hold <span style={{ color: C.acc }}>Fort Omega</span> across three depth lanes.<br />
+                Scavenge the dead city between waves, build, research —<br />
+                and get the <span style={{ color: '#88aaff' }}>vaccine</span> out when the 30th night ends.
+              </p>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px' }}>
+                {hasSave && (
+                  <button style={{ ...btn('#1a3a18', '#72bc40'), fontSize: '13px', padding: '10px 24px', marginRight: 0, minWidth: '280px' }} onClick={continueGame}>
+                    ↻ CONTINUE — WAVE {sv?.wave ?? '?'}/{BALANCE.maxWaves}
+                    {sv && <div style={{ fontSize: '9px', fontWeight: 'normal', opacity: 0.7, marginTop: '3px' }}>day {sv.day} · {sv.alive} soldiers · {sv.kills} kills · saved {fmtAgo(sv.savedAt)}</div>}
+                  </button>
+                )}
+                <button style={{ ...btn(hasSave ? '#1c2414' : '#243e12'), fontSize: '13px', padding: '10px 24px', marginRight: 0, minWidth: '280px' }}
+                  onClick={() => { if (!hasSave || window.confirm('Start a new operation? Your saved run will be overwritten.')) newGame(); }}>
+                  ⚔ {hasSave ? 'NEW OPERATION' : 'BEGIN OPERATION'}
+                </button>
+                <button style={{ ...mbtn, marginTop: '4px' }} onClick={() => setShowHelp(v => !v)}>{showHelp ? '▴ HIDE FIELD MANUAL' : '▾ FIELD MANUAL (controls)'}</button>
+              </div>
+              {showHelp && (
+                <div style={{ marginTop: '12px', borderTop: `1px solid ${C.uib}`, paddingTop: '10px' }}>
+                  <div style={{ ...h2, marginTop: 0 }}>SIEGE</div>
+                  {keyRow('Click lane', 'move squad / selected soldier')}
+                  {keyRow('1 – 9', 'select a soldier')}
+                  {keyRow('← → / A D', 'pan camera (or click the radar)')}
+                  {keyRow('F', 'toggle 2× speed')}
+                  {keyRow('Esc', 'pause')}
+                  <div style={h2}>SORTIE</div>
+                  {keyRow('A D / ← →', 'move')}
+                  {keyRow('Space / hold mouse', 'fire — hold while backing off to strafe')}
+                  {keyRow('W / ↑', 'jump · climb ladder · high road')}
+                  {keyRow('S / ↓', 'climb down · drop · low road')}
+                  {keyRow('Y / N', 'accept / refuse a trade')}
+                  {keyRow('Esc', 'pause', 'sortie')}
+                  <div style={h2}>CINEMATICS</div>
+                  {keyRow('Space / Esc / click', 'skip')}
+                </div>
+              )}
+              <div style={{ color: '#4a5a40', fontSize: '9px', marginTop: '14px', letterSpacing: '.05em' }}>🔊 click once to enable audio · auto-saves between waves</div>
+            </div>
+          </div>
+        );
+      })()}
 
       {scr === 'management' && (
         <div style={wrap}>
@@ -1593,6 +1762,19 @@ export default function DeadPerimeter() {
                 </div>
               </div>
             )}
+            {(() => {
+              const intel = waveIntel(gs.wave);
+              const parts = intel.parts.filter(([n]) => n > 0);
+              return (
+                <div style={{ background: 'rgba(14,22,12,0.85)', border: `1px solid ${C.uib}`, padding: '6px 14px', marginTop: '8px', fontSize: '10px', color: C.txt, display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+                  <span style={{ color: C.acc, fontWeight: 'bold', letterSpacing: '.06em' }}>🛰 INTEL — WAVE {gs.wave}</span>
+                  {parts.map(([n, lbl]) => (
+                    <span key={lbl}><b style={{ color: lbl === 'tanks' || lbl === 'gunmen' ? C.wrn : C.acc }}>{n}</b> {lbl}</span>
+                  ))}
+                  {gs.wave === BALANCE.maxWaves && <span style={{ color: C.dng }}>· mega-wave ×{BALANCE.megaWaveMultiplier}</span>}
+                </div>
+              );
+            })()}
             {/* Supply drop received from Central Command (wave 10/20/25) */}
             {gs.lastSupplyDrop && gs.lastSupplyDrop.wave === gs.wave && (
               <div style={{ background: 'rgba(20,60,40,0.92)', border: `1px solid #44aa66`, padding: '10px 14px', marginTop: '8px' }}>
@@ -1654,8 +1836,8 @@ export default function DeadPerimeter() {
                 </div>
               ))}
             </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div style={h2}>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '2px', marginBottom: '6px' }}>
+              <div style={{ ...h2, whiteSpace: 'nowrap' }}>
                 👥 SOLDIERS ({gs?.soldiers?.filter(s => s.state !== 'dead').length}/{BALANCE.maxActiveSoldiers} active
                 {gs?.soldiers?.filter(s => s.state === 'dead').length > 0 ? ` · ${gs?.soldiers?.filter(s => s.state === 'dead').length} KIA` : ''}
                 {reserveCount > 0 ? ` · ${reserveCount} in reserve` : ''})
@@ -1993,7 +2175,7 @@ export default function DeadPerimeter() {
                 <div style={{ marginTop: '12px' }}>
                   Three legs:
                   <ol style={{ marginTop: '6px', paddingLeft: '18px', lineHeight: '1.7' }}>
-                    {VACCINE_SCENARIOS.map((s, i) => (
+                    {VACCINE_SCENARIOS.map(s => (
                       <li key={s.name}><b style={{ color: s.riskColor }}>{s.icon} {s.name}</b> — <span style={{ opacity: 0.8 }}>{s.desc}</span></li>
                     ))}
                   </ol>

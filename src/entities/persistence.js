@@ -134,3 +134,21 @@ export function loadGame(mkGS) {
 export function clearSave() {
   try { localStorage.removeItem(STORAGE_KEY); } catch (_e) { /* ignore */ }
 }
+
+// Lightweight read of the save header for the title screen
+// ("Wave 12 · Day 12 · 4 soldiers · saved 2h ago"). Null when absent.
+export function peekSave() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    const d = JSON.parse(raw);
+    if (d.v !== 3) return null;
+    return {
+      wave: d.wave, day: d.day, savedAt: d.savedAt || 0,
+      alive: (d.soldiers || []).filter(s => s.state !== 'dead').length,
+      kills: d.kills || 0,
+    };
+  } catch (_e) {
+    return null;
+  }
+}

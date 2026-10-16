@@ -1,10 +1,9 @@
 import { C, CW, CH, GY, WX, LANES, laneY } from '../constants.js';
-import { dBg } from './background.js';
 import { dBase } from './base.js';
 import { dSoldier } from './soldier.js';
 import { dZombie } from './zombie.js';
 import { ZTP } from '../data/zombies.js';
-import { pushRadio, RADIO_LINES } from '../audio/radio.js';
+import { pushRadio } from '../audio/radio.js';
 import { dRadioSubtitle } from './hud.js';
 import { speakRadio } from '../audio/radioVoice.js';
 
@@ -323,7 +322,7 @@ function dCombatWall(ctx, elapsed) {
   const dmgFraction = Math.min(1, elapsed / 12000); // 0..1 over the
                                                       // first 12 s
   const wallHp = Math.max(2, 200 - dmgFraction * 200);
-  dBase(ctx, wallHp, 200);
+  dBase(ctx, wallHp, 200, elapsed);
   // Cracks growing over time
   if (elapsed > 2500) {
     ctx.strokeStyle = '#000'; ctx.lineWidth = 1.5;
