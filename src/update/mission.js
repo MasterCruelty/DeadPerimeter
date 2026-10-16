@@ -685,9 +685,9 @@ function aiShoot(m, who, now, dt) {
   if (now - who.lastShot >= w.rate) {
     who.state = 'shoot'; who.lastShot = now; who.shootAt = now; who.ammo--;
     m.soundQ.push({ t: 'shot', w: who.weapon }); m.soundQ.push({ t: 'shell' });
-    const bx = who.x + who.facing * 24;
+    const bx = who.x + who.facing * 38;
     const shooterY = (who.standingY || 0);
-    const bulletY  = MGY - 26 + shooterY;
+    const bulletY  = MGY - 42 + shooterY;
     for (let p = 0; p < (w.pel || 1); p++) {
       const sp2 = (Math.random() - 0.5) * w.sp * 2;
       m.bullets.push({
@@ -1127,13 +1127,13 @@ export function updateMission(m, now, dt) {
     if (now - s.lastShot >= w.rate) {
       s.state = 'shoot'; s.lastShot = now; s.shootAt = now; s.ammo--;
       m.soundQ.push({ t: 'shot', w: s.weapon }); m.soundQ.push({ t: 'shell' });
-      const bx = s.x + s.facing * 24;
+      const bx = s.x + s.facing * 38;
       // Bullet origin Y rides the soldier's platform — if the lead
       // is up on a ledge / second floor, their muzzle is up there
       // too. shooterY is tracked on each bullet so the collision
       // pass can match them with zombies on the same level.
       const shooterY = (s.standingY || 0);
-      const bulletY  = MGY - 26 + shooterY;
+      const bulletY  = MGY - 42 + shooterY;
       for (let p = 0; p < (w.pel || 1); p++) {
         const sp2 = (Math.random() - 0.5) * w.sp * 2;
         m.bullets.push({
@@ -1547,7 +1547,7 @@ export function updateMission(m, now, dt) {
     // safe distance outside the 40 px blast radius).
     const mineHit = (m.hazards || []).find(h =>
       h.type === 'mine' && !h.triggered &&
-      Math.abs(h.x - b.x) < 14 && b.y >= MGY - 38 && b.y <= MGY
+      Math.abs(h.x - b.x) < 14 && b.y >= MGY - 50 && b.y <= MGY
     );
     if (mineHit) {
       m._detonateMine(mineHit);

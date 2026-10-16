@@ -4,8 +4,7 @@
 // cache; arms are drawn live with IK so they stay locked to a weapon
 // that recoils, tilts for a reload or thrusts a knife.
 // ────────────────────────────────────────────────────────────────
-import { WEAPON_SCALE } from '../../constants.js';
-import { dWpn, PISTOL_K } from '../weapons.js';
+import { dWpn, wpt, WSCALE } from '../weapons.js';
 import { sprite, blit, live, detail } from './paint.js';
 import {
   BODY, rigGeom, ik, fkArm, paintLeg, paintTorso, paintHead, paintArm,
@@ -15,15 +14,6 @@ import {
 const BOX_STAND = { w: 70, h: 80, ox: 30, oy: 74 };
 const BOX_DEAD = { w: 100, h: 36, ox: 78, oy: 26 };
 export const WALK_FRAMES = 10, IDLE_FRAMES = 4;
-
-// Weapon anchor relative to the shoulder, and the two hand holds in
-// weapon space (already scaled by WEAPON_SCALE).
-const HOLD = {
-  rifle:   { at: [4, 8],  grip: [6, 11],   fore: [22, -4.5] },
-  sniper:  { at: [5, 8],  grip: [-1.6, 7.8], fore: [21, -1.5] },
-  shotgun: { at: [3, 9],  grip: [7.8, 11], fore: [18, 3] },
-  pistol:  { at: [13, 5], grip: [1.6 * PISTOL_K, 9.4 * PISTOL_K], fore: [3.2 * PISTOL_K, 10.6 * PISTOL_K] },
-};
 
 const LOOKS = new Map();
 function lookOf(kind, seed, extra) {
@@ -61,7 +51,8 @@ function paintBody(T, G, look) {
 
 function bodySprite(look, anim, frame) {
   return sprite(`h|${look.key}|${anim}|${frame}`, BOX_STAND, T => {
-    const pose = anim === 'walk' ? walkPose(frame / WALK_FRAMES) : anim === 'kneel' ? kneelPose(frame / IDLE_FRAMES) : standPose(frame / IDLE_FRAMES);
+    const pose = anim === 'walk' ? walkPose(frame / WALK_FRAMES) : anim === 'kneel' ? kneelPose(frame / IDLE_FRAMES)
+      : anim === 'aim' ? standPose(frame / IDLE_FRAMES, { lean: 0.13, head: 0.2 }) : standPose(frame / IDLE_FRAMES);
     paintBody(T, rigGeom(pose), look);
   });
 }
@@ -95,6 +86,8 @@ function animOf(a, now, moving) {
   const p = ((now / 900 + (a.walkPhase || 0)) / (Math.PI * 2)) % 1;
   const f = Math.floor((p < 0 ? p + 1 : p) * IDLE_FRAMES) % IDLE_FRAMES;
   if (a.kneel) return { anim: 'kneel', frame: f, pose: kneelPose(f / IDLE_FRAMES) };
+  // Aiming: lean into the gun, cheek down towards the stock.
+  if (a._aim) return { anim: 'aim', frame: f, pose: standPose(f / IDLE_FRAMES, { lean: 0.13, head: 0.2 }) };
   return { anim: 'idle', frame: f, pose: standPose(f / IDLE_FRAMES) };
 }
 
@@ -130,7 +123,10 @@ export function drawSoldierBody(ctx, s, now) {
 
   const isWalk = s.state === 'walk', isShoot = s.state === 'shoot', isRl = s.state === 'reload';
   const isKnife = s.state === 'knife' || s.knifeReady;
-  const { anim, frame, pose } = animOf(s, now, isWalk);
+  // "Aiming" while engaged (shot in the last ~1.3 s); otherwise low ready.
+  const sinceShot = now - (s.shootAt || -1e9);
+  const aimK = isShoot ? 1 : Math.max(0, Math.min(1, 1 - (sinceShot - 1300) / 250));
+  const { anim, frame, pose } = animOf({ ...s, _aim: !isWalk && !isKnife && !isRl && aimK > 0.5 }, now, isWalk);
   const G = rigGeom(pose);
   const hurt = s.hurtTimer > 0 ? Math.min(1, s.hurtTimer / 200) : 0;
 
@@ -147,53 +143,83 @@ export function drawSoldierBody(ctx, s, now) {
   }
 
   const w = s.weapon || 'rifle';
-  const H = HOLD[w] || HOLD.rifle;
-  const rcl = isShoot ? Math.max(0, 1 - (now - (s.shootAt || 0)) / 185) * 4 : 0;
-  const anchor = [G.shoulder[0] + H.at[0], G.shoulder[1] + H.at[1]];
   const D = BODY;
+  const isPistol = w === 'pistol';
+  const rcl = isShoot ? Math.max(0, 1 - (now - (s.shootAt || 0)) / 185) * 3 : 0;
 
-  // Reload: weapon tips muzzle-down while the support hand fetches a mag.
+  // Reload timeline (support hand fetches a fresh magazine).
   const WPN_RL = { rifle: 1900, pistol: 1050, shotgun: 2200, sniper: 2400 }[w] || 1900;
   const rlp = isRl ? Math.min(1, (now - (s.reloadStart || 0)) / WPN_RL) : 0;
-  const tilt = isRl ? (rlp < 0.25 ? rlp / 0.25 : rlp > 0.8 ? (1 - rlp) / 0.2 : 1) * 0.45 : 0;
-  const toWorld = (p, r = rcl) => {
-    const x = p[0] - r, y = p[1];
-    const c = Math.cos(tilt), sn = Math.sin(tilt);
-    return [anchor[0] + x * c - y * sn, anchor[1] + x * sn + y * c];
-  };
+  const rlTilt = isRl ? (rlp < 0.2 ? rlp / 0.2 : rlp > 0.85 ? (1 - rlp) / 0.15 : 1) : 0;
 
-  let farTarget, nearTarget, knifeAng = 0;
+  // Long guns pivot on the shoulder pocket: the butt sits on the
+  // shoulder and the gun rotates around it. Aimed = level; low ready =
+  // muzzle dipped; reload = dipped further and pulled in.
+  const lowReady = isPistol ? 0.62 : 0.36;
+  let tilt = (1 - aimK) * lowReady + rlTilt * (isPistol ? 0.4 : 0.32);
+  if (isShoot) tilt -= rcl * (isPistol ? 0.09 : 0.02);          // muzzle climb
+  const butt = wpt(w, 'butt');
+  let pivot;
+  if (isPistol) {
+    // Two-handed pistol at arm's length, eye level when aimed.
+    const reach = 13 - (1 - aimK) * 3 - rlTilt * 4;
+    pivot = [G.shoulder[0] + reach, G.shoulder[1] - 2 + (1 - aimK) * 5 + rlTilt * 3];
+  } else {
+    pivot = [G.shoulder[0] + 1.5 - rlTilt * 2, G.shoulder[1] - 2.5 + rlTilt * 2];
+  }
+  const c = Math.cos(tilt), sn = Math.sin(tilt);
+  // weapon art point → actor space (recoil slides the gun back along its axis)
+  const toWorld = p => {
+    const x = p[0] - butt[0] - rcl, y = p[1] - butt[1];
+    return [pivot[0] + x * c - y * sn, pivot[1] + x * sn + y * c];
+  };
+  const origin = toWorld([0, 0]); // where dWpn's origin lands
+  const anchor = [origin[0] + rcl * c, origin[1] + rcl * sn];
+
+  // Hand targets. "far" = trigger hand (behind the gun), "near" = support
+  // hand (in front of the gun, on the hand-guard / pump / under the barrel).
+  let farT, nearT, knifeAng = 0;
   if (isKnife) {
     const kf = s.state === 'knife' ? Math.max(0, 1 - (now - (s.shootAt || 0)) / 300) : 0;
-    nearTarget = [G.shoulder[0] + 9 + kf * 9, G.shoulder[1] + 9 - kf * 5];
-    farTarget = [G.shoulder[0] + 6, G.shoulder[1] + 13];
+    nearT = [G.shoulder[0] + 9 + kf * 9, G.shoulder[1] + 9 - kf * 5];
+    farT = [G.shoulder[0] + 6, G.shoulder[1] + 13];
     knifeAng = -0.5 + kf * 0.5;
   } else {
-    nearTarget = toWorld(H.grip);
-    farTarget = toWorld(H.fore);
-    if (isRl && rlp > 0.25 && rlp < 0.8) {
-      // to the mag well, down to the vest pouch, back up
-      const k = (rlp - 0.25) / 0.55;
-      const well = toWorld([4, 6]), pouch = [G.hip[0] + 6, G.hip[1] - 6];
+    farT = toWorld(wpt(w, 'grip'));
+    let fore = wpt(w, 'fore');
+    if (w === 'shotgun' && sinceShot > 120 && sinceShot < 520) {
+      // rack the pump after each shot
+      const k = Math.sin(((sinceShot - 120) / 400) * Math.PI);
+      fore = [fore[0] - k * 5, fore[1]];
+    }
+    nearT = toWorld(fore);
+    if (isRl && rlp > 0.22 && rlp < 0.82) {
+      // support hand: mag well → vest pouch → mag well
+      const k = (rlp - 0.22) / 0.6;
+      const well = toWorld(isPistol ? wpt(w, 'grip') : [16, 12].map(v => v * (WSCALE[w] || 0.5)));
+      const pouch = [G.hip[0] + 7, G.hip[1] - 5];
       const t = k < 0.5 ? k * 2 : (1 - k) * 2;
-      farTarget = [well[0] + (pouch[0] - well[0]) * t, well[1] + (pouch[1] - well[1]) * t];
+      nearT = [well[0] + (pouch[0] - well[0]) * t, well[1] + (pouch[1] - well[1]) * t];
     }
   }
-  const farArm = ik(G.shoulder[0] - 1.5, G.shoulder[1], farTarget[0], farTarget[1], D.upper, D.fore, 1);
-  const nearArm = ik(G.shoulder[0] + 0.5, G.shoulder[1] + 0.5, nearTarget[0], nearTarget[1], D.upper, D.fore, 1);
+  const farArm = ik(G.shoulder[0] - 1.5, G.shoulder[1] + 0.5, farT[0], farT[1], D.upper, D.fore, 1);
+  const nearArm = ik(G.shoulder[0] + 1, G.shoulder[1] + 1, nearT[0], nearT[1], D.upper, D.fore, 1);
 
-  live(ctx, T => paintArm(T, G, farArm, look, true));
+  // Layering: body → trigger arm (reads against the torso) → gun →
+  // support arm wrapping under the hand-guard.
   blit(ctx, bodySprite(look, anim, frame), hurt);
+  live(ctx, T => paintArm(T, G, farArm, look, true));
   if (!isKnife) {
     ctx.save(); ctx.translate(anchor[0], anchor[1]); ctx.rotate(tilt);
     dWpn(ctx, w, rcl);
     ctx.restore();
-    if (isRl && rlp > 0.3 && rlp < 0.62) {
+    if (isRl && rlp > 0.25 && rlp < 0.55) {
       // spent magazine tumbling away
-      const drop = (rlp - 0.3) / 0.32 * 30, spin = (rlp - 0.3) * 6;
-      ctx.save(); ctx.translate(anchor[0] + 4, anchor[1] + 8 + drop); ctx.rotate(spin);
-      ctx.fillStyle = '#252018'; ctx.fillRect(-2.5, -5, 5, 10);
-      ctx.fillStyle = '#3a3028'; ctx.fillRect(-2, -4, 4, 2); ctx.restore();
+      const drop = (rlp - 0.25) / 0.3 * 28, spin = (rlp - 0.25) * 6;
+      const m0 = toWorld([16, 12].map(v => v * (WSCALE[w] || 0.5)));
+      ctx.save(); ctx.translate(m0[0], m0[1] + drop); ctx.rotate(spin);
+      ctx.fillStyle = '#252018'; ctx.fillRect(-1.6, -3.5, 3.2, 7);
+      ctx.fillStyle = '#3a3028'; ctx.fillRect(-1.2, -3, 2.4, 1.4); ctx.restore();
     }
   }
   live(ctx, T => {
@@ -232,13 +258,14 @@ export function drawHostileBody(ctx, h, now) {
     live(ctx, T => paintArm(T, G, far, look, true));
     blit(ctx, bodySprite(look, anim, frame), hurt);
     const hand = near.hand;
-    const gx = 1.6 * PISTOL_K, gy = 9.4 * PISTOL_K;
+    const [gx, gy] = wpt('pistol', 'grip');
     ctx.save(); ctx.translate(hand[0] - gx, hand[1] - gy); ctx.rotate(aiming ? -kick * 0.05 : 0.9);
     dWpn(ctx, 'pistol', 0); ctx.restore();
     live(ctx, T => paintArm(T, G, near, look, false));
     if (h.lastShot && now - h.lastShot < 90) {
       const fa = 1 - (now - h.lastShot) / 90;
-      const mx = hand[0] - gx + 41 * WEAPON_SCALE * PISTOL_K, my = hand[1] - gy - 9 * WEAPON_SCALE * PISTOL_K;
+      const mz = wpt('pistol', 'muzzle');
+      const mx = hand[0] - gx + mz[0], my = hand[1] - gy + mz[1];
       ctx.save(); ctx.globalAlpha = fa;
       const fl = ctx.createRadialGradient(mx, my, 0, mx, my, 11);
       fl.addColorStop(0, 'rgba(255,230,80,1)'); fl.addColorStop(0.5, 'rgba(255,100,0,0.6)'); fl.addColorStop(1, 'rgba(255,50,0,0)');
