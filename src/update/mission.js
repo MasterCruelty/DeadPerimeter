@@ -2703,7 +2703,7 @@ export function dMissionWorld(ctx, m, now) {
       state: r.state === 'following' ? 'walk' : 'idle',
       facing: r.facing,
       walkPhase: r.walkPhase, hurtTimer: r.hurtTimer,
-      civilian: true, onRoof: false, onExpedition: false,
+      civilian: true, onRoof: false, onExpedition: false, unarmed: true, npc: true,
     };
     dSoldier(ctx, rc, now);
     // Floating "?" / "!" marker over their head so the player notices them
@@ -2720,7 +2720,7 @@ export function dMissionWorld(ctx, m, now) {
   // soldiers), bandits use the dark bandit palette.
   (m.humans || []).forEach(h => {
     const hc = {
-      ...h, lane: 0, onExpedition: false,
+      ...h, lane: 0, onExpedition: false, npc: true,
       civilian: !h.bandit,                // peaceful = civilian look
       bandit: !!h.bandit,                 // hostile  = bandit look
       maxHp: h.maxHp, hp: h.hp,

@@ -1,134 +1,145 @@
 import { WEAPON_SCALE } from '../constants.js';
 
-// Procedural polygon weapon sprite, drawn in soldier-local coordinates.
-// Sprite is scaled by WEAPON_SCALE so the barrel sits inside the soldier
-// silhouette. Polish layers (highlights / shading) are drawn after the
-// main shapes for each weapon.
+// Weapon sprites, drawn in weapon-local coordinates (pistol grip near
+// the origin, muzzle towards +x) and scaled by WEAPON_SCALE. The hand
+// holds in render/actors/people.js and the muzzle-flash anchors in
+// render/soldier.js are expressed in this same space, so keep the grip,
+// fore-grip and muzzle positions stable when touching the art.
+//
+// Style: dark outline, metallic / polymer / wood fills with a top-lit
+// gradient and a thin specular edge, matching the shaded actors.
+
+const OUT = 'rgba(6,6,5,0.95)';
+
+// The pistol art is authored large; it is drawn at this extra scale.
+export const PISTOL_K = 0.72;
+
+function path(ctx, pts) {
+  ctx.beginPath();
+  ctx.moveTo(pts[0][0], pts[0][1]);
+  for (let i = 1; i < pts.length; i++) {
+    const p = pts[i];
+    if (p.length === 4) ctx.quadraticCurveTo(p[0], p[1], p[2], p[3]); else ctx.lineTo(p[0], p[1]);
+  }
+  ctx.closePath();
+}
+
+// Fill a part with a vertical gradient (top light → bottom dark).
+function part(ctx, pts, top, mid, bot, y0, y1, outline = true) {
+  path(ctx, pts);
+  if (outline) { ctx.strokeStyle = OUT; ctx.lineWidth = 1.6; ctx.lineJoin = 'round'; ctx.stroke(); }
+  const g = ctx.createLinearGradient(0, y0, 0, y1);
+  g.addColorStop(0, top); g.addColorStop(0.45, mid); g.addColorStop(1, bot);
+  ctx.fillStyle = g; ctx.fill();
+}
+
+const METAL = ['#5c6066', '#2c2f33', '#141517'];
+const POLY = ['#3c3e40', '#222324', '#0f1010'];
+const TAN = ['#8a7a58', '#5e5038', '#3a3020'];
+const WOOD = ['#8a5a2e', '#5e3a1a', '#36200c'];
+
+function spec(ctx, x0, y, x1, a = 0.35) {
+  ctx.strokeStyle = `rgba(230,235,240,${a})`; ctx.lineWidth = 0.7;
+  ctx.beginPath(); ctx.moveTo(x0, y); ctx.lineTo(x1, y); ctx.stroke();
+}
+
+function rifle(ctx) {
+  // Collapsible stock + buffer tube
+  part(ctx, [[-25, -6], [-12, -7], [-11, -4], [-12, 3], [-22, 5], [-25, 4]], ...POLY, -7, 5);
+  part(ctx, [[-12, -5], [0, -5], [0, -1], [-12, -1]], ...METAL, -5, -1);
+  // Pistol grip (behind the magazine)
+  part(ctx, [[1, 1], [9, 1], [8, 16], [2, 17], [0, 15]], ...POLY, 1, 17);
+  // Curved magazine
+  part(ctx, [[11, 1], [19, 1], [21, 10, 22, 18], [14, 19], [13, 10, 11, 1]], ...TAN, 1, 19);
+  // Lower + upper receiver with picatinny rail
+  part(ctx, [[-2, -8], [21, -8], [21, 2], [-1, 2]], ...METAL, -8, 2);
+  part(ctx, [[-2, -15], [34, -15], [34, -8], [-2, -8]], ...METAL, -15, -8);
+  ctx.fillStyle = '#121314';
+  for (let x = -1; x < 33; x += 3) ctx.fillRect(x, -17, 2, 2.2);
+  spec(ctx, -1, -14.5, 33);
+  // Trigger guard
+  ctx.strokeStyle = '#141516'; ctx.lineWidth = 1.4;
+  ctx.beginPath(); ctx.moveTo(9, 2); ctx.quadraticCurveTo(10, 7, 5, 6.5); ctx.stroke();
+  // Handguard with vent slots
+  part(ctx, [[21, -14], [40, -14], [40, -5], [21, -5]], ...POLY, -14, -5);
+  ctx.fillStyle = 'rgba(0,0,0,0.6)';
+  for (let x = 24; x < 38; x += 4) ctx.fillRect(x, -11.5, 2.4, 4);
+  // Barrel, gas block, front sight, flash hider
+  part(ctx, [[40, -9], [63, -9], [63, -6], [40, -6]], ...METAL, -9, -6);
+  part(ctx, [[49, -12], [54, -12], [54, -5], [49, -5]], ...METAL, -12, -5);
+  part(ctx, [[50.5, -16], [52.5, -16], [53, -12], [50, -12]], ...METAL, -16, -12);
+  part(ctx, [[62, -10.5], [69, -10.5], [69, -4.5], [62, -4.5]], ...POLY, -10.5, -4.5);
+  ctx.fillStyle = '#050505'; ctx.fillRect(64, -9.5, 1, 4); ctx.fillRect(66.5, -9.5, 1, 4);
+  // Red-dot optic
+  part(ctx, [[8, -22], [18, -22], [19, -17], [7, -17]], ...METAL, -22, -17);
+  ctx.fillStyle = 'rgba(255,60,40,0.9)'; ctx.fillRect(17.6, -20.5, 1, 1.4);
+  spec(ctx, 8.5, -21.4, 17.5, 0.4);
+}
+
+function pistol(ctx) {
+  part(ctx, [[-3, 0], [9, 0], [8, 19], [-3, 19], [-4, 4]], ...POLY, 0, 19);
+  ctx.fillStyle = 'rgba(0,0,0,0.35)';
+  for (let y = 5; y < 17; y += 2.4) ctx.fillRect(-2, y, 9, 0.9);
+  ctx.strokeStyle = '#141516'; ctx.lineWidth = 1.4;
+  ctx.beginPath(); ctx.moveTo(14, 0); ctx.quadraticCurveTo(15, 6, 9, 5.5); ctx.stroke();
+  part(ctx, [[-4, -5], [27, -5], [27, 0], [-3, 1]], ...POLY, -5, 1);
+  part(ctx, [[-5, -14], [28, -14], [29, -5], [-5, -5]], ...METAL, -14, -5);
+  ctx.fillStyle = 'rgba(0,0,0,0.55)';
+  for (let x = -3; x < 4; x += 2) ctx.fillRect(x, -12.5, 1, 6);
+  ctx.fillRect(10, -11, 9, 3.5);
+  part(ctx, [[28, -11], [42, -11], [42, -7], [28, -7]], ...METAL, -11, -7);
+  spec(ctx, -4, -13.4, 27, 0.45);
+  ctx.fillStyle = '#e8e8e8'; ctx.fillRect(-2, -16, 1.4, 1.4); ctx.fillRect(24, -16, 1.4, 1.4);
+}
+
+function sniper(ctx) {
+  // Thumbhole wooden stock
+  part(ctx, [[-30, -6], [-12, -8], [-6, -4], [-4, 2], [-10, 3], [-14, 1], [-20, 5], [-30, 5]], ...WOOD, -8, 5);
+  ctx.fillStyle = '#1a0e06'; ctx.beginPath(); ctx.ellipse(-12, -1.5, 3, 1.6, 0, 0, Math.PI * 2); ctx.fill();
+  part(ctx, [[-5, 1], [3, 1], [1, 15], [-6, 14]], ...WOOD, 1, 15);
+  part(ctx, [[-12, -8], [12, -8], [12, 1], [-12, 1]], ...METAL, -8, 1);
+  part(ctx, [[-1, -11], [3, -11], [3, -7], [-1, -7]], ...METAL, -11, -7);
+  ctx.fillStyle = '#2a2c2e'; ctx.beginPath(); ctx.arc(1, -11, 2, 0, Math.PI * 2); ctx.fill();
+  part(ctx, [[-3, 1], [5, 1], [5, 8], [-3, 8]], ...POLY, 1, 8);
+  // Fluted heavy barrel + suppressor
+  part(ctx, [[12, -6.5], [66, -5.5], [66, -2.5], [12, -1.5]], ...METAL, -6.5, -1.5);
+  part(ctx, [[66, -7.5], [78, -7.5], [78, -0.5], [66, -0.5]], ...POLY, -7.5, -0.5);
+  // Scope with bells
+  part(ctx, [[-6, -19], [-1, -18], [12, -18], [17, -20], [17, -12], [12, -14], [-1, -14], [-6, -13]], ...METAL, -20, -12);
+  ctx.fillStyle = 'rgba(120,180,220,0.55)'; ctx.fillRect(16, -18.5, 1, 5);
+  part(ctx, [[0, -14], [3, -14], [3, -8], [0, -8]], ...METAL, -14, -8);
+  part(ctx, [[9, -14], [12, -14], [12, -8], [9, -8]], ...METAL, -14, -8);
+  spec(ctx, -1, -17.4, 12, 0.5);
+  // Bipod
+  ctx.strokeStyle = '#1c1d1e'; ctx.lineWidth = 1.6;
+  ctx.beginPath(); ctx.moveTo(22, -2); ctx.lineTo(19, 8); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(25, -2); ctx.lineTo(28, 8); ctx.stroke();
+}
+
+function shotgun(ctx) {
+  part(ctx, [[-26, -5], [-6, -8], [-6, 4], [-14, 3], [-26, 6]], ...WOOD, -8, 6);
+  part(ctx, [[6, 3], [13, 3], [12, 18], [5, 17]], ...WOOD, 3, 18);
+  part(ctx, [[-6, -13], [13, -13], [13, 4], [-6, 4]], ...METAL, -13, 4);
+  ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(0, -9, 9, 4);
+  ctx.strokeStyle = '#141516'; ctx.lineWidth = 1.4;
+  ctx.beginPath(); ctx.moveTo(13, 4); ctx.quadraticCurveTo(14, 9, 8, 8.5); ctx.stroke();
+  // Barrel over magazine tube
+  part(ctx, [[13, -12.5], [50, -12.5], [50, -7.5], [13, -7.5]], ...METAL, -12.5, -7.5);
+  part(ctx, [[13, -6.5], [46, -6.5], [46, -1.5], [13, -1.5]], ...METAL, -6.5, -1.5);
+  // Ribbed pump
+  part(ctx, [[16, -7], [32, -7], [32, 4], [16, 4]], ...WOOD, -7, 4);
+  ctx.fillStyle = 'rgba(0,0,0,0.4)';
+  for (let x = 18; x < 31; x += 2.6) ctx.fillRect(x, -6, 1.1, 9);
+  spec(ctx, 14, -12, 49, 0.4);
+  ctx.fillStyle = '#d0a020'; ctx.beginPath(); ctx.arc(48.5, -13.3, 1.2, 0, Math.PI * 2); ctx.fill();
+}
+
 export function dWpn(ctx, w, rcl = 0) {
   ctx.save(); ctx.translate(-rcl, 0);
   ctx.scale(WEAPON_SCALE, WEAPON_SCALE);
-  if (w === 'rifle') {
-    ctx.fillStyle = '#1a1816'; ctx.fillRect(-22, -3, 13, 5);
-    ctx.fillStyle = '#252220'; ctx.fillRect(-22, -5, 13, 3);
-    ctx.fillStyle = '#111010'; ctx.fillRect(-22, 2, 13, 2);
-    ctx.fillStyle = '#2c2a26'; ctx.fillRect(-10, -4, 8, 7);
-    ctx.fillStyle = '#22201c'; ctx.beginPath(); ctx.moveTo(-2, -8); ctx.lineTo(20, -8); ctx.lineTo(20, 3); ctx.lineTo(-2, 3); ctx.closePath(); ctx.fill();
-    ctx.fillStyle = '#1c1a16'; ctx.beginPath(); ctx.moveTo(4, 3); ctx.lineTo(10, 3); ctx.lineTo(8, 18); ctx.lineTo(2, 18); ctx.closePath(); ctx.fill();
-    ctx.fillStyle = '#141210'; for (let gy = 5; gy < 17; gy += 3) ctx.fillRect(3, gy, 6, 1.5);
-    ctx.strokeStyle = '#1a1816'; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.arc(6, 9, 5.5, 0.05, Math.PI * 0.92); ctx.stroke();
-    ctx.fillStyle = '#2a2824'; ctx.beginPath(); ctx.moveTo(5, 3); ctx.lineTo(13, 3); ctx.lineTo(12, 20); ctx.lineTo(4, 20); ctx.closePath(); ctx.fill();
-    ctx.fillStyle = '#1e1c18'; ctx.fillRect(7, 3, 2, 17);
-    ctx.fillStyle = '#2a2824'; ctx.fillRect(-2, -16, 34, 9);
-    ctx.fillStyle = '#1e1c18'; ctx.fillRect(0, -18, 30, 3);
-    ctx.fillStyle = '#161412'; for (let rx = 1; rx < 29; rx += 4) ctx.fillRect(rx, -18, 2, 3);
-    ctx.fillStyle = '#302e2a'; ctx.fillRect(20, -15, 18, 10);
-    ctx.fillStyle = '#1e1c18'; for (let rx = 22; rx < 36; rx += 5) { ctx.fillRect(rx, -15, 2, 2); ctx.fillRect(rx, -3, 2, 2); }
-    ctx.fillStyle = '#1a1816'; ctx.fillRect(20, -8, 18, 2);
-    ctx.fillStyle = '#141210'; ctx.fillRect(23, -14, 6, 3); ctx.fillRect(27, -16, 3, 3);
-    ctx.fillStyle = '#181614'; ctx.fillRect(38, -6, 28, 4);
-    ctx.fillStyle = '#222020'; ctx.fillRect(50, -10, 5, 8); ctx.fillRect(51, -12, 3, 3);
-    ctx.fillStyle = '#1a1816'; ctx.fillRect(51, -12, 2, 7);
-    ctx.fillStyle = '#181614'; ctx.fillRect(62, -12, 4, 10); ctx.beginPath(); ctx.moveTo(61, -12); ctx.lineTo(66, -12); ctx.lineTo(64, -15); ctx.closePath(); ctx.fill();
-    ctx.fillStyle = '#141210'; ctx.fillRect(64, -7, 6, 6);
-    ctx.fillStyle = '#0e0d0c'; ctx.fillRect(65, -9, 2, 2); ctx.fillRect(65, 1, 2, 2); ctx.fillRect(68, -9, 2, 2); ctx.fillRect(68, 1, 2, 2);
-    // Polish: top-edge highlight on receiver + barrel for metallic feel.
-    ctx.fillStyle = 'rgba(220,220,210,0.18)';
-    ctx.fillRect(-2, -17, 34, 1);   // upper receiver edge
-    ctx.fillRect(38, -7, 28, 1);    // barrel top
-    ctx.fillStyle = 'rgba(0,0,0,0.32)';
-    ctx.fillRect(-2, -8, 34, 1);    // lower receiver shadow
-    ctx.fillRect(38, -2, 28, 1);    // barrel bottom shadow
-  } else if (w === 'pistol') {
-    ctx.fillStyle = '#2c1c0e'; ctx.beginPath(); ctx.moveTo(-2, 3); ctx.lineTo(9, 3); ctx.lineTo(7, 19); ctx.lineTo(-4, 19); ctx.closePath(); ctx.fill();
-    ctx.fillStyle = '#1e1208';
-    for (let gx = 0; gx < 3; gx++) for (let gy = 0; gy < 5; gy++) { ctx.beginPath(); ctx.arc(-1 + gx * 3, 8 + gy * 2.1, 0.75, 0, Math.PI * 2); ctx.fill(); }
-    ctx.fillStyle = '#1c1208'; ctx.beginPath(); ctx.arc(7.5, 5.5, 2, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = '#2c1c0e'; ctx.fillRect(-2, 4, 14, 5);
-    ctx.fillStyle = '#1e1208'; ctx.fillRect(6, 4, 5, 6);
-    ctx.fillStyle = '#241808'; ctx.fillRect(-3, 1, 26, 3);
-    ctx.fillStyle = '#201e1a'; ctx.fillRect(-4, -5, 30, 10);
-    ctx.fillStyle = '#2e2c28'; ctx.beginPath(); ctx.moveTo(-4, -14); ctx.lineTo(28, -14); ctx.lineTo(28, -5); ctx.lineTo(-4, -5); ctx.closePath(); ctx.fill();
-    ctx.fillStyle = '#1a1816'; for (let sx = 1; sx >= -5; sx -= 2.5) ctx.fillRect(sx, -13, 1.5, 8);
-    ctx.fillStyle = '#141210'; ctx.fillRect(8, -13, 14, 8);
-    ctx.fillStyle = '#0c0b0a'; ctx.fillRect(9, -12, 12, 6);
-    ctx.fillStyle = '#2e2c28'; ctx.fillRect(10, -10, 10, 3);
-    ctx.fillStyle = '#181614'; ctx.fillRect(28, -11, 14, 4);
-    ctx.fillStyle = '#141210'; ctx.fillRect(-2, -16, 7, 3);
-    ctx.fillStyle = '#e8e8e8'; ctx.beginPath(); ctx.arc(0, -14, 1.1, 0, Math.PI * 2); ctx.fill();
-    ctx.beginPath(); ctx.arc(4, -14, 1.1, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = '#141210'; ctx.fillRect(22, -16, 4, 3);
-    ctx.fillStyle = '#e83020'; ctx.beginPath(); ctx.arc(24, -14, 1.1, 0, Math.PI * 2); ctx.fill();
-    // Polish: slide top + frame edge
-    ctx.fillStyle = 'rgba(220,220,210,0.20)';
-    ctx.fillRect(-4, -14, 32, 1);
-    ctx.fillStyle = 'rgba(0,0,0,0.32)';
-    ctx.fillRect(-4, -5, 32, 1);
-  } else if (w === 'sniper') {
-    // M24 ground sprite (used when Delta descends or for any sniper recruit).
-    // Stock
-    ctx.fillStyle = '#3a2810'; ctx.fillRect(-26, -3, 14, 6);
-    ctx.fillStyle = '#4a3214'; ctx.fillRect(-26, -3, 14, 2);    // wood highlight
-    // Receiver / action
-    ctx.fillStyle = '#181614'; ctx.fillRect(-12, -7, 22, 8);
-    ctx.fillStyle = '#2a2824'; ctx.fillRect(-12, -7, 22, 2);    // top edge highlight
-    // Bolt handle
-    ctx.fillStyle = '#3e3838'; ctx.fillRect(-2, -10, 4, 5);
-    // Magazine
-    ctx.fillStyle = '#222018'; ctx.fillRect(-4, 1, 8, 7);
-    // Trigger
-    ctx.strokeStyle = '#1a1816'; ctx.lineWidth = 1.8;
-    ctx.beginPath(); ctx.arc(-2, 6, 4, 0.05, Math.PI * 0.92); ctx.stroke();
-    // Grip
-    ctx.fillStyle = '#2c1c0e'; ctx.beginPath();
-    ctx.moveTo(-6, 1); ctx.lineTo(4, 1); ctx.lineTo(2, 16); ctx.lineTo(-8, 16); ctx.closePath(); ctx.fill();
-    ctx.fillStyle = '#1e1208'; for (let gy = 3; gy < 14; gy += 3) ctx.fillRect(-7, gy, 8, 1.4);
-    // Long barrel
-    ctx.fillStyle = '#0e0c0a'; ctx.fillRect(10, -5, 56, 3);
-    ctx.fillStyle = 'rgba(220,220,210,0.18)';
-    ctx.fillRect(10, -5, 56, 1);
-    ctx.fillStyle = 'rgba(0,0,0,0.32)';
-    ctx.fillRect(10, -3, 56, 1);
-    // Suppressor
-    ctx.fillStyle = '#1c1a18'; ctx.fillRect(66, -6, 10, 5);
-    // Scope mount
-    ctx.fillStyle = '#1a1816'; ctx.fillRect(-2, -13, 14, 4);
-    // Scope optic (large)
-    ctx.fillStyle = '#3e3838'; ctx.fillRect(-1, -16, 12, 5);
-    ctx.fillStyle = '#1a1816';
-    ctx.beginPath(); ctx.arc(0, -13, 2.2, 0, Math.PI * 2); ctx.fill();
-    ctx.beginPath(); ctx.arc(10, -13, 2.2, 0, Math.PI * 2); ctx.fill();
-    // Bipod
-    ctx.strokeStyle = '#222018'; ctx.lineWidth = 1.5;
-    ctx.beginPath(); ctx.moveTo(20, -3); ctx.lineTo(18, 6); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(24, -3); ctx.lineTo(26, 6); ctx.stroke();
-  } else {
-    ctx.fillStyle = '#2c2a22'; ctx.fillRect(-24, -3, 14, 5);
-    ctx.fillStyle = '#1e1c16'; ctx.fillRect(-24, -5, 4, 9);
-    ctx.fillStyle = '#222018'; ctx.fillRect(-10, -5, 5, 10);
-    ctx.fillStyle = '#201e1a'; ctx.fillRect(-6, -14, 50, 19);
-    ctx.fillStyle = '#2a2826'; ctx.beginPath(); ctx.moveTo(-6, -14); ctx.lineTo(44, -14); ctx.lineTo(44, -8); ctx.lineTo(-6, -8); ctx.closePath(); ctx.fill();
-    ctx.fillStyle = '#cc8800'; ctx.beginPath(); ctx.arc(40, -10, 2.5, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = '#aa6600'; ctx.fillRect(38, -10, 2, 1);
-    ctx.fillStyle = '#5e3c1c'; ctx.beginPath(); ctx.moveTo(7, 5); ctx.lineTo(15, 5); ctx.lineTo(13, 20); ctx.lineTo(5, 20); ctx.closePath(); ctx.fill();
-    ctx.fillStyle = '#3e2810'; for (let gy = 7; gy < 19; gy += 3) ctx.fillRect(6, gy, 8, 1.5);
-    ctx.strokeStyle = '#5e3c1c'; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.arc(10, 12, 6.5, 0, Math.PI * 0.88); ctx.stroke();
-    ctx.fillStyle = '#262420'; ctx.fillRect(12, 3, 32, 7);
-    ctx.fillStyle = '#2e2c28'; ctx.fillRect(12, 4, 32, 2);
-    ctx.fillStyle = '#1e1c18'; ctx.fillRect(12, 9, 32, 2);
-    ctx.fillStyle = '#1c1a16'; ctx.fillRect(12, -14, 32, 8);
-    ctx.fillStyle = '#262422'; ctx.fillRect(12, -14, 32, 2);
-    ctx.fillStyle = '#141210'; ctx.fillRect(12, -6, 32, 2);
-    ctx.fillStyle = '#4c3216'; ctx.beginPath(); ctx.moveTo(16, -14); ctx.lineTo(30, -14); ctx.lineTo(30, 10); ctx.lineTo(16, 10); ctx.closePath(); ctx.fill();
-    ctx.fillStyle = '#341e0a'; for (let px = 18; px < 29; px += 3) ctx.fillRect(px, -13, 1.5, 22);
-    ctx.fillStyle = '#1a1814'; ctx.fillRect(12, -15, 32, 2);
-    ctx.fillStyle = '#141210'; ctx.fillRect(43, -14, 6, 8); ctx.fillRect(43, 3, 6, 7);
-    ctx.fillStyle = '#0a0908'; ctx.fillRect(44, -12, 4, 5); ctx.fillRect(44, 4, 4, 4);
-    ctx.fillStyle = '#cc9900'; ctx.beginPath(); ctx.arc(43, -11, 1.8, 0, Math.PI * 2); ctx.fill();
-    // Polish: top edge highlight on the receiver
-    ctx.fillStyle = 'rgba(220,220,210,0.18)';
-    ctx.fillRect(-6, -14, 50, 1);
-    ctx.fillStyle = 'rgba(0,0,0,0.32)';
-    ctx.fillRect(-6, 4, 50, 1);
-  }
+  if (w === 'rifle') rifle(ctx);
+  else if (w === 'pistol') { ctx.scale(PISTOL_K, PISTOL_K); pistol(ctx); }
+  else if (w === 'sniper') sniper(ctx);
+  else shotgun(ctx);
   ctx.restore();
 }

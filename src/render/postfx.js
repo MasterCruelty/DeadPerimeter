@@ -67,6 +67,9 @@ varying vec2 vUv;
 uniform sampler2D uScene;
 uniform sampler2D uBloom;
 uniform sampler2D uHud;
+uniform sampler2D uNormal;     // actor normal map (flat (0,0,1) elsewhere)
+uniform float uUseNormal;
+uniform float uUseHud;
 uniform vec2 uRes;             // logical canvas size (CSS px)
 uniform float uAmbient;
 uniform vec3 uTint;            // ambient colour
@@ -101,15 +104,23 @@ void main() {
   // treat them as black instead of their un-premultiplied colour.
   sc *= texture2D(uScene, uv).a;
 
-  vec3 light = uTint * uAmbient;
+  // Surface normal (y down, z towards the viewer). Sprites carry real
+  // normals; everything else reads as flat ground-facing-camera.
+  vec3 N = vec3(0.0, 0.0, 1.0);
+  if (uUseNormal > 0.5) N = normalize(texture2D(uNormal, uv).rgb * 2.0 - 1.0);
+  // Sky light from above: tops of heads / shoulders catch more ambient.
+  float amb = 0.82 + 0.18 * N.z + 0.3 * max(0.0, -N.y);
+  vec3 light = uTint * uAmbient * amb;
   vec3 scatter = vec3(0.0);
+  const float LH = 55.0;  // light height above the picture plane (px)
   for (int i = 0; i < ${MAX_LIGHTS}; i++) {
     if (i >= uNL) break;
     vec4 L = uL[i];
     float dist = length(p - L.xy);
     float a = clamp(1.0 - dist / L.z, 0.0, 1.0);
     a = a * a;
-    light += uLC[i] * a * L.w;
+    float nd = max(dot(N, normalize(vec3(L.xy - p, LH))), 0.0);
+    light += uLC[i] * a * L.w * (0.4 + 0.95 * nd);
     scatter += uLC[i] * a * a * L.w;
   }
   for (int i = 0; i < ${MAX_CONES}; i++) {
@@ -122,7 +133,8 @@ void main() {
     float edge = 1.0 - smoothstep(K.w * 0.55, K.w, ang);
     float fall = clamp(1.0 - dist / uCP[i].x, 0.0, 1.0);
     float a = edge * fall * fall * uCP[i].y;
-    light += uCC[i] * a;
+    float nd = max(dot(N, normalize(vec3(K.xy - p, LH))), 0.0);
+    light += uCC[i] * a * (0.4 + 0.95 * nd);
     scatter += uCC[i] * a * 0.55;
   }
 
@@ -150,7 +162,7 @@ void main() {
   col += (hash(p + fract(uTime) * 91.7) - 0.5) * uGrain;
 
   // HUD on top, untouched by lighting / grading.
-  vec4 h = texture2D(uHud, uv);
+  vec4 h = texture2D(uHud, uv) * uUseHud;
   col = mix(col, h.rgb, h.a);
   gl_FragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
 }`;
@@ -236,6 +248,7 @@ export function createPostFX(glCanvas, cssW, cssH) {
 
   const sceneTex = mkTex(gl);
   const hudTex = mkTex(gl);
+  const normTex = mkTex(gl);
   let W = 0, H = 0, bloomA = null, bloomB = null;
 
   const resize = (w, h) => {
@@ -264,11 +277,12 @@ export function createPostFX(glCanvas, cssW, cssH) {
 
   return {
     lost: () => gl.isContextLost(),
-    render(worldCanvas, hudCanvas, scene, time) {
+    render(worldCanvas, hudCanvas, scene, time, normalCanvas) {
       const S = { ...DEFAULT_SCENE, ...(scene || {}) };
       resize(worldCanvas.width, worldCanvas.height);
       gl.activeTexture(gl.TEXTURE0); upload(sceneTex, worldCanvas);
-      gl.activeTexture(gl.TEXTURE2); upload(hudTex, hudCanvas);
+      gl.activeTexture(gl.TEXTURE2); if (hudCanvas) upload(hudTex, hudCanvas);
+      if (normalCanvas) { gl.activeTexture(gl.TEXTURE3); upload(normTex, normalCanvas); }
 
       // Bloom: bright pass to quarter res, then two blur iterations.
       gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, sceneTex);
@@ -294,7 +308,10 @@ export function createPostFX(glCanvas, cssW, cssH) {
       gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, sceneTex);
       gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, bloomA.tex);
       gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, hudTex);
-      gl.uniform1i(F.u.uScene, 0); gl.uniform1i(F.u.uBloom, 1); gl.uniform1i(F.u.uHud, 2);
+      gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, normTex);
+      gl.uniform1i(F.u.uScene, 0); gl.uniform1i(F.u.uBloom, 1); gl.uniform1i(F.u.uHud, 2); gl.uniform1i(F.u.uNormal, 3);
+      gl.uniform1f(F.u.uUseNormal, normalCanvas ? 1 : 0);
+      gl.uniform1f(F.u.uUseHud, hudCanvas ? 1 : 0);
       gl.uniform2f(F.u.uRes, cssW, cssH);
       gl.uniform1f(F.u.uAmbient, S.ambient);
       gl.uniform3f(F.u.uTint, S.tint[0], S.tint[1], S.tint[2]);
