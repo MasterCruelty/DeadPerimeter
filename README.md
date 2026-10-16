@@ -13,6 +13,19 @@
 
 ---
 
+## Screenshots
+
+| | |
+| --- | --- |
+| ![Title screen](docs/screenshots/title-screen.jpg) | ![Siege — hostile survivors wave](docs/screenshots/siege-human-wave.jpg) |
+| **Title screen** — continue card with save summary, field manual | **Siege** — tactical HUD, radar, wall damage, 2× speed |
+| ![Sortie — Brute boss](docs/screenshots/sortie-brute.jpg) | ![Sortie — DEFEND](docs/screenshots/sortie-defend.jpg) |
+| **Sortie (HIGH)** — route bar, party panel, boss HP bar | **Sortie (DEFEND)** — hold timer, APC extraction |
+| ![Expedition](docs/screenshots/expedition.jpg) | ![Sortie paused](docs/screenshots/sortie-paused.jpg) |
+| **Expedition planning** — party, destination, loadout | **Pause** — works in sieges and sorties |
+
+---
+
 ## Highlights
 
 ### The siege
@@ -36,7 +49,12 @@
 - **Daily food consumption** — every alive squad + reserve member eats
   `BALANCE.foodPerPersonPerDay` per wave-clear. Starvation deals real damage.
 - **Wall repair** (`💪 REPAIR`) — spend materials to patch the base wall HP.
-- **Pause / resume** with `Esc`, **save / load** to `localStorage` (v3,
+- **Tactical HUD**: wave progress + hostiles left, wall HP, stash, a
+  **radar** of the whole battlefield (click to pan) and an off-screen
+  hostile indicator. **2× fast-forward** (`F`), **1–9** to select soldiers.
+- Fort Omega shows **progressive battle damage** (cracks → missing
+  chunks → fires) as the wall HP drops.
+- **Pause / resume** with `Esc` (sieges *and* sorties), **save / load** to `localStorage` (v3,
   forward-compatible reads for v2/v1), **mobile touch controls**, and a
   **configurable difficulty curve**.
 
@@ -270,11 +288,12 @@ docker run --rm -it -p 5173:5173 \
 
 | Action | Input |
 | --- | --- |
-| Select a soldier | Click on him in the canvas |
+| Select a soldier | Click on them in the canvas, or press `1`–`9` |
 | Deselect | Click the same soldier again |
 | Move the selected soldier to a lane | Click on an empty spot in the desired lane |
 | Move the whole squad (no selection) | Click anywhere on the battlefield |
-| Pan the camera | `←` / `→` or `A` / `D` (siege phase only) |
+| Pan the camera | `←` / `→` or `A` / `D`, or click the radar strip |
+| Fast-forward | `F` or the `▶ 1×` / `▶▶ 2×` button |
 | Retreat / advance | `◀ RETREAT` / `ADVANCE ▶` buttons (also fires radio chatter) |
 | Pause / resume | `Esc` or the button under the canvas |
 | Mute / unmute | Speaker icon in the top-right of the canvas |
@@ -289,9 +308,12 @@ Lanes are picked by Y coordinate of the click:
 | --- | --- |
 | Move left / right | `←` / `→` or `A` / `D` (or tap left/right thirds of canvas on mobile) |
 | Climb / drop floor (ladders & stairs) | `W` / `↑` (up), `S` / `↓` (down) |
-| Jump | `Space` (while grounded — gives forward velocity) |
+| Jump | `W` / `↑` when not next to a ladder |
 | Switch lane (in fork sections) | `W` / `S` |
 | Fire | `Space` (held) or **left-mouse hold** on the canvas (or tap-center on mobile) |
+| Backpedal while shooting | Keep fire held while moving away — facing stays locked |
+| Pause | `Esc` |
+| Accept / refuse a trade | `Y` (or `Enter`) / `N`, or click the buttons |
 | Knife (when dry) | Auto-swing in melee range |
 | Search a container | Hold proximity until the bar fills (lockers, ammo crates, glass cases, etc.) |
 | Accept / refuse a trade offer | Click the `✓ ACCEPT` or `✖ REFUSE (fight)` button in the dialog |

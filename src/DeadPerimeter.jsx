@@ -12,7 +12,7 @@ import { mkBarricade } from './entities/barricade.js';
 import { mkTurret } from './entities/turret.js';
 import { mkWave, mkHumanWave } from './entities/wave.js';
 import { mkGS } from './entities/gameState.js';
-import { hasSavedGame, saveGame, loadGame, clearSave } from './entities/persistence.js';
+import { hasSavedGame, saveGame, loadGame, clearSave, peekSave } from './entities/persistence.js';
 import { BALANCE, CRAFT_RECIPES, RESEARCHES, PERKS, getResearchEffect } from './data/difficulty.js';
 
 import { dBg } from './render/background.js';
@@ -44,6 +44,28 @@ import { VACCINE_SCENARIOS } from './data/vaccineMission.js';
 // "2h 14m" / "47 min" / "—" depending on how long the run took. Combines
 // the persisted playMs (sessions before this one) with the live delta
 // since the current session started.
+function fmtAgo(ts) {
+  if (!ts) return '';
+  const m = Math.floor((Date.now() - ts) / 60000);
+  if (m < 1) return 'just now';
+  if (m < 60) return `${m} min ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
+}
+
+// Composition of the upcoming wave for the command-center intel line.
+function waveIntel(n) {
+  if (isHumanWaveNumber(n)) {
+    const q = mkHumanWave(n);
+    const g = q.filter(x => x.type === 'gunman').length;
+    return { human: true, parts: [[q.length - g, 'knifemen'], [g, 'gunmen']] };
+  }
+  const q = mkWave(n);
+  const c = t => q.filter(x => x.type === t).length;
+  return { human: false, parts: [[c('walker'), 'walkers'], [c('runner'), 'runners'], [c('tank'), 'tanks']] };
+}
+
 function fmtPlayTime(gs) {
   if (!gs) return '—';
   const startedAt = gs.startedAt || Date.now();
@@ -101,6 +123,7 @@ export default function DeadPerimeter() {
   const voiceAvail = isRadioVoiceAvailable();
   const [paused, setPaused] = useState(false);
   const [hasSave, setHasSave] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
   // Which soldier card currently has its upgrade panel expanded (id).
   // null = none. Toggled by the ⚙ UPGRADES button on each card.
   const [upgOpenId, setUpgOpenId] = useState(null);
@@ -1652,26 +1675,67 @@ export default function DeadPerimeter() {
         )}
       </div>
 
-      {scr === 'menu' && (
-        <div style={wrap}>
-          <div style={{ ...panel, textAlign: 'center', maxWidth: '480px' }}>
-            <div style={{ fontSize: '48px', marginBottom: '6px' }}>🧟</div>
-            <div style={h1}>DEAD PERIMETER</div>
-            <div style={{ color: C.txt, opacity: 0.5, margin: '5px 0 14px', fontSize: '10px', letterSpacing: '.14em' }}>ZOMBIE SIEGE SURVIVAL</div>
-            <hr style={hr} />
-            <p style={{ color: C.txt, fontSize: '12px', lineHeight: '1.9', marginBottom: '18px' }}>
-              Defend <span style={{ color: C.acc }}>Fort Omega</span> across 3 depth lanes.<br />
-              <span style={{ color: C.wrn }}>Click front/mid/back to position your squad.</span><br />
-              Ammo is scarce. Build barricades. Send expeditions.<br />
-              <span style={{ color: '#444' }}>🔊 Sound · Esc to pause · saves between waves</span>
-            </p>
-            <button style={btn()} onClick={newGame}>⚔  BEGIN OPERATION</button>
-            {hasSave && (
-              <button style={btn('#1a3a18', '#558844')} onClick={continueGame}>↻ CONTINUE SAVED RUN</button>
-            )}
+      {scr === 'menu' && (() => {
+        const sv = hasSave ? peekSave() : null;
+        const keyRow = (k, d, sect = '') => (
+          <div key={sect + k + d} style={{ display: 'flex', gap: '10px', fontSize: '10px', lineHeight: '1.9' }}>
+            <span style={{ color: C.acc, minWidth: '120px', textAlign: 'right' }}>{k}</span>
+            <span style={{ color: C.txt, opacity: 0.85, textAlign: 'left' }}>{d}</span>
           </div>
-        </div>
-      )}
+        );
+        return (
+          <div style={{ ...wrap, background: 'radial-gradient(ellipse at 50% 35%, #0e1a0c 0%, #050805 55%, #020302 100%)', position: 'relative', overflow: 'hidden' }}>
+            {/* CRT scanlines + vignette */}
+            <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', background: 'repeating-linear-gradient(0deg, rgba(0,0,0,0.22) 0px, rgba(0,0,0,0.22) 1px, transparent 1px, transparent 3px)' }} />
+            <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', boxShadow: 'inset 0 0 180px rgba(0,0,0,0.9)' }} />
+            <div style={{ ...panel, textAlign: 'center', maxWidth: '520px', position: 'relative', boxShadow: '0 0 40px rgba(114,188,64,0.08), inset 0 0 30px rgba(0,0,0,0.6)' }}>
+              <div style={{ fontSize: '10px', letterSpacing: '.35em', color: C.dng, opacity: 0.8, animation: 'dpPulse 2.4s ease-in-out infinite' }}>● PRIORITY CHANNEL — CENTRAL COMMAND</div>
+              <div style={{ fontSize: '52px', margin: '10px 0 2px', filter: 'drop-shadow(0 0 14px rgba(120,200,80,0.35))' }}>🧟</div>
+              <div style={{ ...h1, fontSize: '34px', letterSpacing: '.16em', textShadow: '0 0 18px rgba(114,188,64,0.45), 0 2px 0 #000', animation: 'dpFlicker 6s infinite' }}>DEAD PERIMETER</div>
+              <div style={{ color: C.txt, opacity: 0.55, margin: '6px 0 14px', fontSize: '10px', letterSpacing: '.3em' }}>FORT OMEGA · 30 WAVES · ONE WALL</div>
+              <hr style={hr} />
+              <p style={{ color: C.txt, fontSize: '12px', lineHeight: '1.8', margin: '0 0 16px' }}>
+                Hold <span style={{ color: C.acc }}>Fort Omega</span> across three depth lanes.<br />
+                Scavenge the dead city between waves, build, research —<br />
+                and get the <span style={{ color: '#88aaff' }}>vaccine</span> out when the 30th night ends.
+              </p>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px' }}>
+                {hasSave && (
+                  <button style={{ ...btn('#1a3a18', '#72bc40'), fontSize: '13px', padding: '10px 24px', marginRight: 0, minWidth: '280px' }} onClick={continueGame}>
+                    ↻ CONTINUE — WAVE {sv?.wave ?? '?'}/{BALANCE.maxWaves}
+                    {sv && <div style={{ fontSize: '9px', fontWeight: 'normal', opacity: 0.7, marginTop: '3px' }}>day {sv.day} · {sv.alive} soldiers · {sv.kills} kills · saved {fmtAgo(sv.savedAt)}</div>}
+                  </button>
+                )}
+                <button style={{ ...btn(hasSave ? '#1c2414' : '#243e12'), fontSize: '13px', padding: '10px 24px', marginRight: 0, minWidth: '280px' }}
+                  onClick={() => { if (!hasSave || window.confirm('Start a new operation? Your saved run will be overwritten.')) newGame(); }}>
+                  ⚔ {hasSave ? 'NEW OPERATION' : 'BEGIN OPERATION'}
+                </button>
+                <button style={{ ...mbtn, marginTop: '4px' }} onClick={() => setShowHelp(v => !v)}>{showHelp ? '▴ HIDE FIELD MANUAL' : '▾ FIELD MANUAL (controls)'}</button>
+              </div>
+              {showHelp && (
+                <div style={{ marginTop: '12px', borderTop: `1px solid ${C.uib}`, paddingTop: '10px' }}>
+                  <div style={{ ...h2, marginTop: 0 }}>SIEGE</div>
+                  {keyRow('Click lane', 'move squad / selected soldier')}
+                  {keyRow('1 – 9', 'select a soldier')}
+                  {keyRow('← → / A D', 'pan camera (or click the radar)')}
+                  {keyRow('F', 'toggle 2× speed')}
+                  {keyRow('Esc', 'pause')}
+                  <div style={h2}>SORTIE</div>
+                  {keyRow('A D / ← →', 'move')}
+                  {keyRow('Space / hold mouse', 'fire — hold while backing off to strafe')}
+                  {keyRow('W / ↑', 'jump · climb ladder · high road')}
+                  {keyRow('S / ↓', 'climb down · drop · low road')}
+                  {keyRow('Y / N', 'accept / refuse a trade')}
+                  {keyRow('Esc', 'pause', 'sortie')}
+                  <div style={h2}>CINEMATICS</div>
+                  {keyRow('Space / Esc / click', 'skip')}
+                </div>
+              )}
+              <div style={{ color: '#4a5a40', fontSize: '9px', marginTop: '14px', letterSpacing: '.05em' }}>🔊 click once to enable audio · auto-saves between waves</div>
+            </div>
+          </div>
+        );
+      })()}
 
       {scr === 'management' && (
         <div style={wrap}>
@@ -1698,6 +1762,19 @@ export default function DeadPerimeter() {
                 </div>
               </div>
             )}
+            {(() => {
+              const intel = waveIntel(gs.wave);
+              const parts = intel.parts.filter(([n]) => n > 0);
+              return (
+                <div style={{ background: 'rgba(14,22,12,0.85)', border: `1px solid ${C.uib}`, padding: '6px 14px', marginTop: '8px', fontSize: '10px', color: C.txt, display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+                  <span style={{ color: C.acc, fontWeight: 'bold', letterSpacing: '.06em' }}>🛰 INTEL — WAVE {gs.wave}</span>
+                  {parts.map(([n, lbl]) => (
+                    <span key={lbl}><b style={{ color: lbl === 'tanks' || lbl === 'gunmen' ? C.wrn : C.acc }}>{n}</b> {lbl}</span>
+                  ))}
+                  {gs.wave === BALANCE.maxWaves && <span style={{ color: C.dng }}>· mega-wave ×{BALANCE.megaWaveMultiplier}</span>}
+                </div>
+              );
+            })()}
             {/* Supply drop received from Central Command (wave 10/20/25) */}
             {gs.lastSupplyDrop && gs.lastSupplyDrop.wave === gs.wave && (
               <div style={{ background: 'rgba(20,60,40,0.92)', border: `1px solid #44aa66`, padding: '10px 14px', marginTop: '8px' }}>
@@ -1759,8 +1836,8 @@ export default function DeadPerimeter() {
                 </div>
               ))}
             </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div style={h2}>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '2px', marginBottom: '6px' }}>
+              <div style={{ ...h2, whiteSpace: 'nowrap' }}>
                 👥 SOLDIERS ({gs?.soldiers?.filter(s => s.state !== 'dead').length}/{BALANCE.maxActiveSoldiers} active
                 {gs?.soldiers?.filter(s => s.state === 'dead').length > 0 ? ` · ${gs?.soldiers?.filter(s => s.state === 'dead').length} KIA` : ''}
                 {reserveCount > 0 ? ` · ${reserveCount} in reserve` : ''})
