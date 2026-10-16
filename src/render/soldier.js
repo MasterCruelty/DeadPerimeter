@@ -1,7 +1,7 @@
-import { C, GY, laneY, laneSc, WEAPON_SCALE } from '../constants.js';
+import { C, GY, laneY, laneSc } from '../constants.js';
 import { dContactShadow } from './background.js';
 import { drawSoldierBody } from './actors/people.js';
-import { PISTOL_K } from './weapons.js';
+import { wpt } from './weapons.js';
 
 // Rooftop sniper: kneeling behind sandbags on the parapet. Uses the
 // shared actor rig; sandbags are drawn in front of the legs.
@@ -18,7 +18,7 @@ export function dRooftopSniper(ctx, s, now) {
   bag(-12, 2, 12, 5, 0, '#5a4830'); bag(9, 2, 13, 5, 0.1, '#54442c'); bag(-2, -5, 12, 5, -0.1, '#625034');
   if (R && now - (s.shootAt || 0) < 90) {
     const fa = 1 - (now - s.shootAt) / 90;
-    const mx = 80 * WEAPON_SCALE - R.rcl, my = -4 * WEAPON_SCALE;
+    const [mx0, my] = wpt('sniper', 'muzzle'); const mx = mx0 - R.rcl;
     ctx.save(); ctx.translate(R.anchor[0], R.anchor[1]); ctx.rotate(R.tilt); ctx.globalAlpha = fa;
     const fl = ctx.createRadialGradient(mx, my, 0, mx, my, 16);
     fl.addColorStop(0, 'rgba(255,230,80,1)'); fl.addColorStop(0.4, 'rgba(255,100,0,0.7)'); fl.addColorStop(1, 'rgba(255,50,0,0)');
@@ -64,21 +64,20 @@ export function dSoldier(ctx, s, now, isSelected) {
   if (R && s.state === 'shoot' && now - s.shootAt < 90) {
     // Muzzle flash at the (scaled) end of the barrel, in weapon space.
     const fa = 1 - (now - s.shootAt) / 90;
-    const muzzleRaw = s.weapon === 'rifle'  ? { x: 68, y: -4 }
-                   :  s.weapon === 'pistol' ? { x: 41 * PISTOL_K, y: -9 * PISTOL_K }
-                   :  s.weapon === 'sniper' ? { x: 80, y: -4 }
-                   :                          { x: 48, y: -10 };
-    const mx = muzzleRaw.x * WEAPON_SCALE - R.rcl;
-    const my = muzzleRaw.y * WEAPON_SCALE;
+    const [mx0, my] = wpt(s.weapon, 'muzzle');
+    const mx = mx0 - R.rcl;
+    const fr = s.weapon === 'pistol' ? 10 : 15;
     ctx.save(); ctx.translate(R.anchor[0], R.anchor[1]); ctx.rotate(R.tilt); ctx.globalAlpha = fa;
-    const fl = ctx.createRadialGradient(mx, my, 0, mx, my, 18);
+    // Forward-biased cone of flame rather than a round blob.
+    const fl = ctx.createRadialGradient(mx, my, 0, mx, my, fr);
     fl.addColorStop(0, 'rgba(255,230,80,1)'); fl.addColorStop(0.4, 'rgba(255,100,0,0.7)'); fl.addColorStop(1, 'rgba(255,50,0,0)');
-    ctx.fillStyle = fl; ctx.beginPath(); ctx.arc(mx, my, 18, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(mx, my, 5, 0, Math.PI * 2); ctx.fill();
-    for (let sp = 0; sp < 5; sp++) {
-      const ang = sp * 1.26 + fa * 4;
+    ctx.fillStyle = fl; ctx.beginPath(); ctx.ellipse(mx + fr * 0.35, my, fr, fr * 0.6, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#fff6d0';
+    ctx.beginPath(); ctx.moveTo(mx, my - 2); ctx.lineTo(mx + fr * 1.1, my); ctx.lineTo(mx, my + 2); ctx.fill();
+    for (let sp = 0; sp < 4; sp++) {
+      const ang = (sp - 1.5) * 0.5 + (fa - 0.5) * 0.3;
       ctx.fillStyle = C.muz;
-      ctx.fillRect(mx + Math.cos(ang) * 10, my + Math.sin(ang) * 10, 2, 2);
+      ctx.fillRect(mx + Math.cos(ang) * fr * 0.8, my + Math.sin(ang) * fr * 0.8, 1.5, 1.5);
     }
     ctx.restore();
   }

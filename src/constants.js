@@ -40,11 +40,7 @@ export const C = {
   bar: '#7a5a1e',
 };
 
-// Weapon sprite scale. The original V8 polygons were drawn slightly
-// oversized vs the soldier body. 0.78 brings the barrel back inside the
-// expected silhouette. Used by render/weapons.js (ctx.scale) and by
-// render/soldier.js for the muzzle-flash anchor.
-export const WEAPON_SCALE = 0.78;
+// Weapon sprite scales live in render/weapons.js (WSCALE / WPOINTS).
 
 // Misc helpers
 let _id = 200;

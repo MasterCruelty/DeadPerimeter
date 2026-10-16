@@ -319,7 +319,8 @@ export function update(gs, now, dt) {
       if (now - s.lastShot >= w.rate) {
         s.state = 'shoot'; s.lastShot = now; s.shootAt = now; s.recoil = 200; s.ammo--;
         gs.soundQ.push({ t: 'shot', w: 'rifle' });
-        const sx = s.x, sy = GY - 160;
+        // Muzzle of the kneeling rooftop sniper's rifle.
+        const sx = s.x + 20, sy = GY - 184;
         const by1 = laneY(tgt.lane) - Math.round(24 * laneSc(tgt.lane));
         // Bullet life is capped by the WEAPON range, not the distance
         // to the picked target. Previously a distant target (filtered
@@ -407,9 +408,10 @@ export function update(gs, now, dt) {
     if (now - s.lastShot >= w.rate) {
       s.state = 'shoot'; s.lastShot = now; s.shootAt = now; s.ammo--;
       gs.soundQ.push({ t: 'shot', w: s.weapon }); gs.soundQ.push({ t: 'shell' });
-      const by0 = laneY(s.lane) - Math.round(24 * laneSc(s.lane));
+      // Tracers leave from the muzzle of the shouldered weapon.
+      const by0 = laneY(s.lane) - Math.round(42 * laneSc(s.lane));
       const by1 = laneY(tgt.lane) - Math.round(24 * laneSc(tgt.lane));
-      const bxStart = s.x + s.facing * 24;
+      const bxStart = s.x + s.facing * 38 * laneSc(s.lane);
       for (let p = 0; p < (w.pel || 1); p++) {
         const sp2 = (Math.random() - 0.5) * w.sp * 2;
         gs.bullets.push({
