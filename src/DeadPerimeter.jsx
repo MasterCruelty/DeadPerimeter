@@ -153,8 +153,9 @@ export default function DeadPerimeter() {
   const togglePause = useCallback(() => {
     const n = !pausedRef.current;
     pausedRef.current = n; setPaused(n);
+    // Background drums belong to the siege only.
     const am = getAM();
-    if (am) { if (n) am.stopBg(); else if (!mutedR.current) am.startBg(); }
+    if (am && !missionRef.current) { if (n) am.stopBg(); else if (!mutedR.current) am.startBg(); }
   }, []);
 
   // Siege fast-forward (1× ↔ 2×). Stored on gs so the HUD can show it.
@@ -299,6 +300,7 @@ export default function DeadPerimeter() {
 
   const startWave = useCallback(() => {
     const gs = gsRef.current;
+    pausedRef.current = false; setPaused(false);
     const am = getAM(); if (am && !mutedR.current) am.startBg();
     gs.soldiers.forEach(s => {
       if (s.state === 'dead' || s.onExpedition) return;
@@ -364,10 +366,11 @@ export default function DeadPerimeter() {
     // mkMission's buildMissionSoldier seeds magsLeft from
     // orig._sortieMags - 1. Pass the requested mag count as the
     // default for any soldier whose _sortieMags wasn't preset.
-    const m = mkMission(party, dest, gs.wave || 1, mags);
+    const m = mkMission(party, dest, gs.wave || 1, mags, gs.research?.completed);
     missionRef.current = m;
     inputRef.current = { left: false, right: false, shoot: false, up: false, down: false };
     gs.expeditionsToday = (gs.expeditionsToday || 0) + 1;
+    pausedRef.current = false; setPaused(false);
     setScr('mission');
   }, []);
 
@@ -377,6 +380,7 @@ export default function DeadPerimeter() {
     // finishMission writes back every party member's hp/state/onExpedition.
     const result = finishMission(m, gs);
     missionRef.current = null;
+    pausedRef.current = false; setPaused(false);
     setExpResult(result); setExpPhase('done'); setExpEvents([]); setExpVisible(0);
     setUi({ ...gs, soldiers: gs.soldiers.map(s => ({ ...s })) });
     setScr('expedition');
@@ -892,12 +896,19 @@ export default function DeadPerimeter() {
       if (e.key === 'Escape' || e.key === 'Esc') {
         // Cancel build placement if active.
         if (placementRef.current) { cancelPlacement(); e.preventDefault(); return; }
-        // Pause/resume only during siege. Missions and menus ignore Esc.
+        // Pause/resume during siege and live missions (not while a
+        // trade dialog is open — that already freezes the world).
         const gs = gsRef.current;
-        if (gs && gs.phase === 'siege' && !missionRef.current) {
+        const mm = missionRef.current;
+        if ((mm && mm.state === 'active' && !mm.dialog) || (gs && gs.phase === 'siege' && !mm)) {
           togglePause(); e.preventDefault();
         }
         return;
+      }
+      // Trade dialog keyboard shortcuts.
+      if (missionRef.current?.dialog) {
+        if (e.key === 'y' || e.key === 'Y' || e.key === 'Enter') { resolveTrade('accept'); e.preventDefault(); return; }
+        if (e.key === 'n' || e.key === 'N') { resolveTrade('refuse'); e.preventDefault(); return; }
       }
       if (missionRef.current && missionRef.current.state === 'active') {
         if (e.key === 'ArrowLeft'  || e.key === 'a' || e.key === 'A') { inputRef.current.left = true;  e.preventDefault(); }
@@ -1190,11 +1201,33 @@ export default function DeadPerimeter() {
         m.inputLeft  = inputRef.current.left;
         m.inputRight = inputRef.current.right;
         m.inputShoot = inputRef.current.shoot;
-        updateMission(m, now, dt);
-        processSounds(m.soundQ, getAM(), mutedR);
+        // Missions run on their own clock too, so pausing freezes the
+        // DEFEND timer, reloads and effects instead of letting them run.
+        if (m.simNow === undefined) m.simNow = now;
+        const mPaused = pausedRef.current && m.state === 'active';
+        if (!mPaused) {
+          m.simNow += dt;
+          updateMission(m, m.simNow, dt);
+          processSounds(m.soundQ, getAM(), mutedR);
+        }
         ctx.save(); ctx.clearRect(0, 0, CW, CH);
-        dMissionWorld(ctx, m, now);
-        dMissionHUD(ctx, m, now);
+        dMissionWorld(ctx, m, m.simNow);
+        dMissionHUD(ctx, m, m.simNow);
+        if (mPaused) {
+          ctx.fillStyle = 'rgba(0,0,0,0.62)'; ctx.fillRect(0, 0, CW, CH);
+          ctx.fillStyle = 'rgba(6,14,6,0.95)'; ctx.fillRect(CW / 2 - 190, CH / 2 - 80, 380, 150);
+          ctx.strokeStyle = C.acc; ctx.lineWidth = 1; ctx.strokeRect(CW / 2 - 189.5, CH / 2 - 79.5, 379, 149);
+          ctx.fillStyle = C.acc; ctx.font = 'bold 28px monospace'; ctx.textAlign = 'center';
+          ctx.fillText('⏸ SORTIE PAUSED', CW / 2, CH / 2 - 38);
+          ctx.fillStyle = C.txt; ctx.font = '11px monospace';
+          ctx.fillText('Esc — resume', CW / 2, CH / 2 - 12);
+          ctx.fillStyle = 'rgba(184,204,170,0.65)'; ctx.font = '10px monospace';
+          ctx.fillText('A/D or ←/→ move · Space / mouse hold: fire', CW / 2, CH / 2 + 10);
+          ctx.fillText('hold fire while moving back = backpedal shooting', CW / 2, CH / 2 + 26);
+          ctx.fillText('W: jump / climb ladder · S: climb down / drop', CW / 2, CH / 2 + 42);
+          ctx.fillText('stand by ★ containers to search them', CW / 2, CH / 2 + 58);
+          ctx.textAlign = 'left';
+        }
         ctx.restore();
         rafId.current = requestAnimationFrame(loop);
         return;
@@ -1590,7 +1623,8 @@ export default function DeadPerimeter() {
           <div style={{ display: 'flex', gap: '8px', marginTop: '8px', flexWrap: 'wrap', justifyContent: 'center', alignItems: 'center', width: '100%', maxWidth: CW }}>
             {missionRef.current && missionRef.current.state === 'active' ? (
               <>
-                <span style={{ color: '#888', fontSize: '10px' }}>← / A or tap-left  ·  → / D or tap-right  ·  SPACE / tap-center : FIRE</span>
+                <span style={{ color: '#888', fontSize: '10px' }}>A/D move · SPACE or hold mouse: fire · W jump/climb · S down · Esc pause</span>
+                <button style={mbtn} onClick={togglePause}>{paused ? '▶ RESUME' : '⏸ PAUSE'}</button>
                 <button style={mbtn} onClick={toggleMute}>{muted ? '🔇' : '🔊'}</button>
                 {voiceAvail && (
                   <button style={mbtn} onClick={toggleVoice} title="Radio voice (TTS)">{voiceOn ? '🗣' : '🚫'}</button>

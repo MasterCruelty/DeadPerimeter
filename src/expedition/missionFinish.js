@@ -1,5 +1,5 @@
 import { rng } from '../constants.js';
-import { RECRUIT_NAMES, RECRUIT_WEAPONS, CIVILIAN_WEAPONS, VETERAN_WEAPONS, KIND_HP } from '../data/expeditions.js';
+import { RECRUIT_NAMES, CIVILIAN_WEAPONS, VETERAN_WEAPONS, KIND_HP } from '../data/expeditions.js';
 import { BALANCE } from '../data/difficulty.js';
 import { mkSoldier } from '../entities/soldier.js';
 import { recordDeath } from '../entities/gameState.js';
@@ -40,6 +40,9 @@ export function finishMission(m, gs) {
 
   const reward = {};
   if (foodCost > 0) reward.foodCost = foodCost;
+  // Sortie kills count toward the run's tally + score.
+  gs.kills = (gs.kills || 0) + (m.killedCount || 0);
+  gs.score = (gs.score || 0) + (m.killedCount || 0) * 10 + (m.state === 'won' ? 50 : 0);
   if (m.collected.ammo)      { gs.resources.ammo      = Math.min(999, gs.resources.ammo + m.collected.ammo);           reward.ammo = m.collected.ammo; }
   if (m.collected.medicine)  { gs.resources.medicine  = Math.min(999, gs.resources.medicine + m.collected.medicine);   reward.medicine = m.collected.medicine; }
   if (m.collected.food)      { gs.resources.food      = Math.min(999, gs.resources.food + m.collected.food);           reward.food = m.collected.food; }
@@ -58,9 +61,11 @@ export function finishMission(m, gs) {
       const availNames = RECRUIT_NAMES.filter(n => !gs.usedNames.has(n));
       if (availNames.length === 0) break;
       const name = availNames[Math.floor(Math.random() * availNames.length)];
-      const weapon = RECRUIT_WEAPONS[Math.floor(Math.random() * RECRUIT_WEAPONS.length)];
+      // Rescued civilians are civilians: pistol/shotgun pool and the
+      // civilian HP cap (they used to arrive with rifles and 100 HP).
+      const weapon = CIVILIAN_WEAPONS[Math.floor(Math.random() * CIVILIAN_WEAPONS.length)];
       gs.usedNames.add(name);
-      gs.reserve.push({ name, weapon, civilian: true, hp: 100 });
+      gs.reserve.push({ name, weapon, civilian: true, hp: KIND_HP.civilian });
     }
     reward.rescuedCivs = rescued;
   }
