@@ -1,4 +1,4 @@
-import { C, CW, CH, GY, WX, WORLD_W, laneY, laneSc } from '../constants.js';
+import { C, CW, CH, WX, WORLD_W, laneY, laneSc } from '../constants.js';
 import { BALANCE } from '../data/difficulty.js';
 
 export function dSquadMarker(ctx, target, lane, now) {
@@ -206,7 +206,9 @@ function dOffscreenIndicators(ctx, gs, now) {
   });
   right += gs.spawnQueue ? gs.spawnQueue.filter(q => q.at <= gs.waveTime + 4000).length : 0;
   if (right <= 0) return;
-  const y = GY - 70;
+  // Sits under the radar, clear of the lanes, so it never hides a
+  // hostile that is already on screen at the right edge.
+  const y = HUD_RADAR.y + HUD_RADAR.h + 20;
   const pulse = 0.65 + 0.35 * Math.sin(now / 200);
   ctx.save();
   ctx.globalAlpha = pulse;
