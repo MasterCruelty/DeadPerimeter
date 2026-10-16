@@ -668,12 +668,12 @@ function aiShoot(m, who, now, dt) {
       if (who.knifeTimer >= 650) {
         who.knifeTimer = 0; who.state = 'knife'; who.shootAt = now;
         meleeTgt.hp -= 10; meleeTgt.hurtTimer = 220;
-        m.soundQ.push({ t: 'zatk' });
+        m.soundQ.push({ t: 'slash', x: who.x });
         m.effects.push({ type: 'slash', x: meleeTgt.x + who.facing * 10, y: MGY - 28, at: now, dur: 230 });
         m.effects.push({ type: 'txt', x: meleeTgt.x, y: MGY - 58, v: '-10', col: '#ffcc44', at: now, dur: 600 });
         if (meleeTgt.hp <= 0) {
           meleeTgt.hp = 0; meleeTgt.state = 'dead'; meleeTgt.deadAt = now;
-          m.soundQ.push({ t: 'zdie', zt: meleeTgt.type }); m.killedCount++;
+          m.soundQ.push({ t: 'zdie', zt: meleeTgt.type, x: meleeTgt.x }); m.killedCount++;
         }
       }
     } else if (who.state === 'knife' && now - who.shootAt > 300) {
@@ -684,7 +684,7 @@ function aiShoot(m, who, now, dt) {
 
   if (now - who.lastShot >= w.rate) {
     who.state = 'shoot'; who.lastShot = now; who.shootAt = now; who.ammo--;
-    m.soundQ.push({ t: 'shot', w: who.weapon }); m.soundQ.push({ t: 'shell' });
+    m.soundQ.push({ t: 'shot', w: who.weapon, x: who.x }); m.soundQ.push({ t: 'shell' });
     const bx = who.x + who.facing * 38;
     const shooterY = (who.standingY || 0);
     const bulletY  = MGY - 42 + shooterY;
@@ -986,7 +986,7 @@ export function updateMission(m, now, dt) {
     const closest = triggers.reduce((d, p) => Math.min(d, Math.abs(z.x - p.x)), Infinity);
     if (closest < BALANCE.missionActivationRange) {
       z.activated = true; m.activatedCount++;
-      m.soundQ.push({ t: 'groan', now, zt: z.type });
+      m.soundQ.push({ t: z.type === 'brute' ? 'roar' : 'groan', now, zt: z.type, x: z.x });
     }
   });
 
@@ -1085,7 +1085,7 @@ export function updateMission(m, now, dt) {
             life: Math.ceil(meta.spitRange / meta.spitSpd * 1.4),
             spit: true,
           });
-          m.soundQ.push({ t: 'zatk' });
+          m.soundQ.push({ t: 'spit', x: z.x });
         }
       }
       return;
@@ -1110,7 +1110,7 @@ export function updateMission(m, now, dt) {
       if (z.atkTimer > (meta.atkRate || 1000)) {
         z.atkTimer = 0;
         tgt.hp -= z.z.dmg; tgt.hurtTimer = 320;
-        m.soundQ.push({ t: 'zatk' });
+        m.soundQ.push({ t: 'zatk', x: z.x });
         if (tgt.hp <= 0) {
           tgt.hp = 0; tgt.state = 'dead';
           // Lead death tries to promote a follower; only fails the
@@ -1126,7 +1126,7 @@ export function updateMission(m, now, dt) {
   if (m.inputShoot && s.state !== 'reload' && s.ammo > 0) {
     if (now - s.lastShot >= w.rate) {
       s.state = 'shoot'; s.lastShot = now; s.shootAt = now; s.ammo--;
-      m.soundQ.push({ t: 'shot', w: s.weapon }); m.soundQ.push({ t: 'shell' });
+      m.soundQ.push({ t: 'shot', w: s.weapon, x: s.x }); m.soundQ.push({ t: 'shell' });
       const bx = s.x + s.facing * 38;
       // Bullet origin Y rides the soldier's platform — if the lead
       // is up on a ledge / second floor, their muzzle is up there
@@ -1174,10 +1174,10 @@ export function updateMission(m, now, dt) {
       if (s.knifeTimer >= 600) {
         s.knifeTimer = 0; s.state = 'knife'; s.shootAt = now;
         meleeTgt.hp -= 10; meleeTgt.hurtTimer = 220;
-        m.soundQ.push({ t: 'zatk' });
+        m.soundQ.push({ t: 'slash', x: s.x });
         m.effects.push({ type: 'slash', x: meleeTgt.x + s.facing * 10, y: MGY - 28, at: now, dur: 230 });
         m.effects.push({ type: 'txt', x: meleeTgt.x, y: MGY - 58, v: '-10', col: '#ffcc44', at: now, dur: 600 });
-        if (meleeTgt.hp <= 0) { meleeTgt.hp = 0; meleeTgt.state = 'dead'; meleeTgt.deadAt = now; m.soundQ.push({ t: 'zdie', zt: meleeTgt.type }); m.killedCount++; }
+        if (meleeTgt.hp <= 0) { meleeTgt.hp = 0; meleeTgt.state = 'dead'; meleeTgt.deadAt = now; m.soundQ.push({ t: 'zdie', zt: meleeTgt.type, x: meleeTgt.x }); m.killedCount++; }
       }
     } else { s.knifeTimer = 0; if (s.state === 'knife' && now - s.shootAt > 300) s.state = 'idle'; }
   }
@@ -1229,6 +1229,7 @@ export function updateMission(m, now, dt) {
       // so the player has time to focus fire before it reaches the line.
       if (m._vaccineIndex === 2 && elapsed >= 32000 && !m._vaccineBruteSpawned) {
         m._vaccineBruteSpawned = now;
+        m.soundQ.push({ t: 'roar', x: m.defendAnchor + 360 });
         const bz = ZTP.brute;
         m.zombies.push({
           id: uid(), type: 'brute', z: bz,
@@ -1378,7 +1379,7 @@ export function updateMission(m, now, dt) {
             hostile: true,
           });
         }
-        m.soundQ.push({ t: 'fire', w: h.weapon });
+        m.soundQ.push({ t: 'fire', w: h.weapon, x: h.x });
       }
     }
   });
@@ -1449,7 +1450,7 @@ export function updateMission(m, now, dt) {
           friendlyHuman: true,
         });
       }
-      m.soundQ.push({ t: 'fire', w: h.weapon });
+      m.soundQ.push({ t: 'fire', w: h.weapon, x: h.x });
     }
   });
 
@@ -1460,7 +1461,7 @@ export function updateMission(m, now, dt) {
   const detonateMine = h => {
     if (h.triggered) return;
     h.triggered = true; h.triggeredAt = now;
-    m.soundQ.push({ t: 'bhit' });
+    m.soundQ.push({ t: 'explosion', x: h.x });
     const radius = h.radius || 40;
     aliveParty(m).forEach(p => {
       if (Math.abs(p.x - h.x) > radius) return;
@@ -1561,7 +1562,7 @@ export function updateMission(m, now, dt) {
     );
     if (humanHit) {
       humanHit.hp -= b.dmg; humanHit.hurtTimer = 210;
-      m.soundQ.push({ t: 'hit', now });
+      m.soundQ.push({ t: 'hit', now, x: b.x });
       m.effects.push({ type: 'blood', x: b.x, y: b.y, drops: Array.from({ length: 5 }, () => ({ x: 0, y: 0, vx: (Math.random() - 0.5) * 3, vy: -Math.random() * 2 - 0.5, r: 1.4 + Math.random() * 2.4 })), at: now, dur: 580 });
       m.effects.push({ type: 'hit', x: b.x, y: b.y, at: now, dur: 200 });
       m.effects.push({ type: 'txt', x: humanHit.x, y: MGY - 60, v: `-${Math.round(b.dmg)}`, col: C.bld, at: now, dur: 680 });
@@ -1586,13 +1587,13 @@ export function updateMission(m, now, dt) {
     });
     if (hit) {
       const dmg = b.dmg * (hit.type === 'tank' ? (b.tankMul || 1) : 1);
-      hit.hp -= dmg; hit.hurtTimer = 210; m.soundQ.push({ t: 'hit', now });
+      hit.hp -= dmg; hit.hurtTimer = 210; m.soundQ.push({ t: 'hit', now, x: b.x });
       m.effects.push({ type: 'blood', x: b.x, y: b.y, drops: Array.from({ length: 6 }, () => ({ x: 0, y: 0, vx: (Math.random() - 0.5) * 3.5, vy: -Math.random() * 2.5 - 0.5, r: 1.5 + Math.random() * 3 })), at: now, dur: 600 });
       m.effects.push({ type: 'hit', x: b.x, y: b.y, at: now, dur: 200 });
       m.effects.push({ type: 'txt', x: hit.x, y: MGY - 60 + (hit.standingY || 0), v: `-${Math.round(dmg)}`, col: C.bld, at: now, dur: 680 });
       if (hit.hp <= 0) {
         hit.hp = 0; hit.state = 'dead'; hit.deadAt = now;
-        m.soundQ.push({ t: 'zdie', zt: hit.type });
+        m.soundQ.push({ t: 'zdie', zt: hit.type, x: hit.x });
         if (hit.type === 'brute') {
           m.effects.push({ type: 'txt', x: hit.x, y: MGY - 110, v: '☠ BRUTE DOWN', col: '#ffcc44', at: now, dur: 2400 });
           pushRadio(m, 'kill', { line: 'Big one is down!', speaker: m.soldier, cooldown: 0 });
