@@ -1,4 +1,4 @@
-import { C, CW, WORLD_W, GY, WX, uid, rng, laneY, laneSc } from '../constants.js';
+import { C, WORLD_W, GY, WX, uid, rng, laneY, laneSc } from '../constants.js';
 import { WPN } from '../data/weapons.js';
 import { HUMAN_AMMO_DROP } from '../data/humans.js';
 import { BALANCE, RESEARCHES, PERKS } from '../data/difficulty.js';
