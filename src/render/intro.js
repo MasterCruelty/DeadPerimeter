@@ -90,9 +90,6 @@ function findShot(t) {
 }
 
 // Fade helpers
-const fadeIn  = (t, dur = 0.2) => Math.min(1, Math.max(0, t / dur));
-const fadeOut = (t, dur = 0.2) => Math.min(1, Math.max(0, (1 - t) / dur));
-const inOut   = (t, a = 0.15, b = 0.18) => Math.min(fadeIn(t, a), fadeOut(t, b));
 
 // ── Small drawing primitives reused across shots ───────────────
 function dBackgroundBokeh(ctx, tintTop, tintBot, lightCount = 0) {
@@ -2386,7 +2383,7 @@ function dShotSoldierAiming(ctx, t, now) {
 }
 
 // Old rifle-grip-only close-up (unused).
-function _dShotRifleGrip_unused(ctx, t, now) {
+function _dShotRifleGrip_unused(ctx, _t, _now) {
   // Dark cool background with a soft orange glow from distant fires
   ctx.fillStyle = '#06070a'; ctx.fillRect(0, 0, CW, CH);
   const grd = ctx.createRadialGradient(CW * 0.7, CH * 0.7, 30, CW * 0.7, CH * 0.7, 500);
@@ -3262,7 +3259,7 @@ function dShotFortWide(ctx, t, now) {
 }
 
 // ── Per-banner overlay text (drawn at unscaled screen coords) ──
-function dBannerText(ctx, shot, elapsed, now) {
+function dBannerText(ctx, shot, elapsed, _now) {
   ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0);
   // Show the banner during the shot, fading in and out at its edges
   const inWin = 700, outWin = 700;

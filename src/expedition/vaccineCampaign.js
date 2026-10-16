@@ -48,7 +48,7 @@ export function mkVaccineCampaign(gs, mags = 3) {
     soldier._sortieMags = 1 + Math.floor(giveSpare / soldier.maxAmmo);
     soldier.onExpedition = true;
   });
-  const first = mkMission(party, VACCINE_SCENARIOS[0], gs.wave || 1, mags);
+  const first = mkMission(party, VACCINE_SCENARIOS[0], gs.wave || 1, mags, gs.research?.completed);
   first._vaccineCampaign = true;
   first._vaccineIndex = 0;
   first._vaccineScenarioName = VACCINE_SCENARIOS[0].name;
@@ -83,6 +83,10 @@ export function advanceVaccineScenario(campaign, gs) {
     } else {
       orig.hp = Math.max(1, ms.hp);
       orig.ammo = ms.ammo;
+      // Carry the spare magazines over too — there is no resupply
+      // between legs, but mkMission re-seeds magsLeft from _sortieMags,
+      // which used to hand out a full fresh loadout every scenario.
+      orig._sortieMags = 1 + Math.max(0, ms.magsLeft | 0);
     }
   }
   const nextIdx = campaign.currentIndex + 1;
@@ -103,7 +107,7 @@ export function advanceVaccineScenario(campaign, gs) {
       : null;
   }
   campaign.vaccinePickedUp = campaign.vaccinePickedUp || !!m._vaccineCollected;
-  const next = mkMission(survivors, VACCINE_SCENARIOS[nextIdx], gs.wave || 1, campaign.mags);
+  const next = mkMission(survivors, VACCINE_SCENARIOS[nextIdx], gs.wave || 1, campaign.mags, gs.research?.completed);
   next._vaccineCampaign = true;
   next._vaccineIndex = nextIdx;
   next._vaccineScenarioName = VACCINE_SCENARIOS[nextIdx].name;
