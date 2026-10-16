@@ -322,7 +322,7 @@ function dCombatWall(ctx, elapsed) {
   const dmgFraction = Math.min(1, elapsed / 12000); // 0..1 over the
                                                       // first 12 s
   const wallHp = Math.max(2, 200 - dmgFraction * 200);
-  dBase(ctx, wallHp, 200);
+  dBase(ctx, wallHp, 200, elapsed);
   // Cracks growing over time
   if (elapsed > 2500) {
     ctx.strokeStyle = '#000'; ctx.lineWidth = 1.5;

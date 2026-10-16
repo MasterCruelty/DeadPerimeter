@@ -22,7 +22,7 @@ import { dZombie } from './render/zombie.js';
 import { dHuman } from './render/human.js';
 import { dBarricade, dBlt, dFx } from './render/effects.js';
 import { dTurret } from './render/turret.js';
-import { dSquadMarker, dHUD } from './render/hud.js';
+import { dSquadMarker, dHUD, HUD_MUTE, HUD_SPEED, HUD_RADAR } from './render/hud.js';
 import { dEvacScene, EVAC_DURATION } from './render/evac.js';
 import { dIntroScene, INTRO_DURATION } from './render/intro.js';
 import { dDefeatScene, DEFEAT_DURATION } from './render/defeat.js';
@@ -155,6 +155,14 @@ export default function DeadPerimeter() {
     pausedRef.current = n; setPaused(n);
     const am = getAM();
     if (am) { if (n) am.stopBg(); else if (!mutedR.current) am.startBg(); }
+  }, []);
+
+  // Siege fast-forward (1× ↔ 2×). Stored on gs so the HUD can show it.
+  const [fastOn, setFastOn] = useState(false);
+  const toggleSpeed = useCallback(() => {
+    const gs = gsRef.current; if (!gs) return;
+    gs.speed = (gs.speed || 1) > 1 ? 1 : 2;
+    setFastOn(gs.speed > 1);
   }, []);
 
   // Detect existing save + load radio-voice preference on mount.
@@ -308,6 +316,7 @@ export default function DeadPerimeter() {
     // Decide whether this is a human wave
     gs.isHumanWave = isHumanWaveNumber(gs.wave);
     gs.spawnQueue = gs.isHumanWave ? mkHumanWave(gs.wave) : mkWave(gs.wave);
+    gs.waveTotal = gs.spawnQueue.length;
     gs.phase = 'siege';
     gs.waveTime = 0;
     gs.waveClearAt = null; gs.waveComplete = false;
@@ -817,9 +826,18 @@ export default function DeadPerimeter() {
         if (hit(md._buttons.refuse)) { resolveTrade('refuse'); return; }
         return;
       }
-      if (mx > 850 && mx < 892 && my > 4 && my < 34) { toggleMute(); return; }
+      const inRect = R => mx >= R.x && mx <= R.x + R.w && my >= R.y && my <= R.y + R.h;
+      if (inRect(HUD_MUTE)) { toggleMute(); return; }
       const gs = gsRef.current;
-      if (!gs || gs.phase !== 'siege' || my <= 38) return;
+      if (!gs || gs.phase !== 'siege') return;
+      if (inRect(HUD_SPEED)) { toggleSpeed(); return; }
+      // Radar click: centre the camera on that slice of the battlefield.
+      if (inRect(HUD_RADAR)) {
+        const wx = ((mx - HUD_RADAR.x) / HUD_RADAR.w) * WORLD_W;
+        gs.cameraX = Math.max(0, Math.min(WORLD_W - CW, wx - CW / 2));
+        return;
+      }
+      if (my <= 38) return;
 
       // The world is wider than the viewport (WORLD_W vs CW) and the
       // siege view scrolls. Translate the click into world coordinates
@@ -891,6 +909,19 @@ export default function DeadPerimeter() {
         // Siege phase: arrow keys pan the camera across the wider WORLD_W.
         const gs = gsRef.current;
         if (gs && gs.phase === 'siege' && !missionRef.current) {
+          if (e.key === 'f' || e.key === 'F') { toggleSpeed(); e.preventDefault(); return; }
+          // 1-9: quick-select a ground soldier (same order as the chips
+          // under the canvas). Pressing the selected one again deselects.
+          if (/^[1-9]$/.test(e.key)) {
+            const ground = gs.soldiers.filter(s => s.state !== 'dead' && !s.onExpedition && !s.onRoof);
+            const pick = ground[Number(e.key) - 1];
+            if (pick) {
+              gs.selectedSoldierId = gs.selectedSoldierId === pick.id ? null : pick.id;
+              // Bring the picked soldier into view.
+              if (gs.selectedSoldierId) gs.cameraX = Math.max(0, Math.min(WORLD_W - CW, pick.x - CW / 3));
+            }
+            e.preventDefault(); return;
+          }
           if (e.key === 'ArrowLeft'  || e.key === 'a' || e.key === 'A') { inputRef.current.panLeft  = true; e.preventDefault(); }
           if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') { inputRef.current.panRight = true; e.preventDefault(); }
         }
@@ -1170,10 +1201,20 @@ export default function DeadPerimeter() {
       }
 
       if (gs && gs.phase === 'siege') {
+        // The siege runs on its own clock (gs.simNow) so it can be
+        // paused without effects expiring and fast-forwarded (F / ▶▶)
+        // by sub-stepping the update — every timer inside update()
+        // compares against this clock, so 2× is a true 2×.
+        if (gs.simNow === undefined) gs.simNow = now;
         if (!pausedRef.current) {
-          update(gs, now, dt);
+          const steps = (gs.speed || 1) > 1 ? 2 : 1;
+          for (let i = 0; i < steps && gs.phase === 'siege'; i++) {
+            gs.simNow += dt;
+            update(gs, gs.simNow, dt);
+          }
           processSounds(gs.soundQ, getAM(), mutedR);
         }
+        const simNow = gs.simNow;
         // Camera pan from arrow-key input. 0.55 px/ms ≈ 33 px/frame at
         // 60 FPS, clamped to [0, WORLD_W - CW].
         if (inputRef.current.panLeft || inputRef.current.panRight) {
@@ -1227,28 +1268,33 @@ export default function DeadPerimeter() {
           // in screen-space and never scrolls.
           ctx.save();
           ctx.translate(-(gs.cameraX || 0), 0);
-          dBg(ctx); dBase(ctx, gs.baseHp, gs.baseMaxHp);
+          dBg(ctx); dBase(ctx, gs.baseHp, gs.baseMaxHp, simNow);
           for (let lane = 2; lane >= 0; lane--) {
-            gs.zombies.filter(z => z.state === 'dead' && z.lane === lane).forEach(z => dZombie(ctx, z, now));
-            gs.zombies.filter(z => z.state !== 'dead' && z.lane === lane).forEach(z => dZombie(ctx, z, now));
-            gs.humans.filter(h => h.state === 'dead' && h.lane === lane).forEach(h => dHuman(ctx, h, now));
-            gs.humans.filter(h => h.state !== 'dead' && h.lane === lane).forEach(h => dHuman(ctx, h, now));
-            gs.soldiers.filter(s => (s.lane || 0) === lane && !s.onExpedition).forEach(s => dSoldier(ctx, s, now, s.id === gs.selectedSoldierId));
+            gs.zombies.filter(z => z.state === 'dead' && z.lane === lane).forEach(z => dZombie(ctx, z, simNow));
+            gs.zombies.filter(z => z.state !== 'dead' && z.lane === lane).forEach(z => dZombie(ctx, z, simNow));
+            gs.humans.filter(h => h.state === 'dead' && h.lane === lane).forEach(h => dHuman(ctx, h, simNow));
+            gs.humans.filter(h => h.state !== 'dead' && h.lane === lane).forEach(h => dHuman(ctx, h, simNow));
+            gs.soldiers.filter(s => (s.lane || 0) === lane && !s.onExpedition).forEach(s => dSoldier(ctx, s, simNow, s.id === gs.selectedSoldierId));
             if (lane === 2) gs.barricades.forEach(b => dBarricade(ctx, b));
           }
-          (gs.turrets || []).forEach(t => dTurret(ctx, t, now));
-          gs.effects.forEach(e => dFx(ctx, e, now));
+          (gs.turrets || []).forEach(t => dTurret(ctx, t, simNow));
+          gs.effects.forEach(e => dFx(ctx, e, simNow));
           gs.bullets.forEach(b => dBlt(ctx, b));
-          dSquadMarker(ctx, gs.squadTarget, gs.squadLane, now);
+          dSquadMarker(ctx, gs.squadTarget, gs.squadLane, simNow);
           ctx.restore();
           // HUD lives in screen-space.
-          dHUD(ctx, gs, now, mutedR.current);
+          dHUD(ctx, gs, simNow, mutedR.current);
           if (pausedRef.current) {
-            ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(0, 0, CW, CH);
-            ctx.fillStyle = C.acc; ctx.font = 'bold 32px monospace'; ctx.textAlign = 'center';
-            ctx.fillText('⏸ PAUSED', CW / 2, CH / 2 - 6);
-            ctx.fillStyle = C.txt; ctx.font = '12px monospace';
-            ctx.fillText('press Esc to resume', CW / 2, CH / 2 + 22);
+            ctx.fillStyle = 'rgba(0,0,0,0.62)'; ctx.fillRect(0, 0, CW, CH);
+            ctx.fillStyle = 'rgba(6,14,6,0.95)'; ctx.fillRect(CW / 2 - 170, CH / 2 - 70, 340, 130);
+            ctx.strokeStyle = C.acc; ctx.lineWidth = 1; ctx.strokeRect(CW / 2 - 169.5, CH / 2 - 69.5, 339, 129);
+            ctx.fillStyle = C.acc; ctx.font = 'bold 30px monospace'; ctx.textAlign = 'center';
+            ctx.fillText('⏸ PAUSED', CW / 2, CH / 2 - 26);
+            ctx.fillStyle = C.txt; ctx.font = '11px monospace';
+            ctx.fillText('Esc — resume', CW / 2, CH / 2 + 2);
+            ctx.fillStyle = 'rgba(184,204,170,0.6)'; ctx.font = '10px monospace';
+            ctx.fillText('click lane: move · 1-9: select soldier', CW / 2, CH / 2 + 22);
+            ctx.fillText('←/→ or radar: pan · F: 2× speed', CW / 2, CH / 2 + 38);
             ctx.textAlign = 'left';
           }
           ctx.restore();
@@ -1271,7 +1317,7 @@ export default function DeadPerimeter() {
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
     };
-  }, [toggleMute, togglePause, applyEvac, cancelPlacement, confirmPlacement, finishDefeat,
+  }, [toggleMute, togglePause, toggleSpeed, applyEvac, cancelPlacement, confirmPlacement, finishDefeat,
       finishExtraction, finishIntro, finishTransmission, resolveTrade]);
 
   // ── STYLES ───────────────────────────────────────────────────
@@ -1494,33 +1540,46 @@ export default function DeadPerimeter() {
         {scr === 'siege' && (
           <div style={{ display: 'flex', gap: '7px', marginTop: '7px', flexWrap: 'wrap', justifyContent: 'center', alignItems: 'center', width: '100%', maxWidth: CW }}>
             <button style={ctrlBtn} onClick={() => moveSquad('retreat')}>◀ RETREAT</button>
-            {ui?.soldiers?.filter(s => !s.onExpedition).map(s => {
-              const isSel = ui?.selectedSoldierId === s.id;
-              const isDead = s.state === 'dead';
-              return (
-                <div
-                  key={s.id}
-                  onClick={isDead || s.onRoof ? undefined : () => selectSoldierById(s.id)}
-                  style={{
-                    background: isSel ? 'rgba(40,90,30,0.95)' : 'rgba(18,30,12,0.92)',
-                    border: `1px solid ${isDead ? C.dng : isSel ? C.acc : C.uib}`,
-                    padding: '4px 10px',
-                    opacity: isDead ? 0.32 : 1,
-                    cursor: isDead || s.onRoof ? 'default' : 'pointer',
-                    userSelect: 'none',
-                  }}
-                  title={isDead ? 'KIA' : s.onRoof ? 'Rooftop sniper — cannot be moved' : isSel ? 'Click to deselect' : 'Click to select & move'}
-                >
-                  <span style={{ color: isDead ? C.dng : s.ammo === 0 ? C.dng : isSel ? '#fff' : C.acc, fontWeight: 'bold', fontSize: '10px' }}>{s.name}</span>
-                  <span style={{ color: '#666', fontSize: '9px', margin: '0 3px' }}>{'FMB'[s.lane || 0]}</span>
-                  <span style={{ color: C.txt, fontSize: '9px' }}>{isDead ? 'KIA' : s.state.toUpperCase()}</span>
-                  <span style={{ color: s.ammo === 0 ? C.dng : C.txt, fontSize: '9px', marginLeft: '4px' }}>{isDead ? '─' : `${s.ammo}/${s.maxAmmo}`}</span>
-                  {isSel && <span style={{ color: C.acc, fontSize: '9px', marginLeft: '4px' }}>◉</span>}
-                </div>
-              );
-            })}
+            {(() => {
+              // Hotkey numbers follow the same order as the 1-9 keys:
+              // living, non-rooftop soldiers in roster order.
+              const groundIds = (ui?.soldiers || []).filter(s => s.state !== 'dead' && !s.onExpedition && !s.onRoof).map(s => s.id);
+              return ui?.soldiers?.filter(s => !s.onExpedition && s.state !== 'dead').map(s => {
+                const isSel = ui?.selectedSoldierId === s.id;
+                const hk = groundIds.indexOf(s.id) + 1;
+                const hpPct = Math.max(0, s.hp / (s.maxHp || 100));
+                const hpCol = hpPct > 0.6 ? C.acc : hpPct > 0.3 ? C.wrn : C.dng;
+                const stateLbl = s.onRoof ? 'ROOF' : s.state === 'knife' ? 'MELEE' : s.state.toUpperCase();
+                return (
+                  <div
+                    key={s.id}
+                    onClick={s.onRoof ? undefined : () => selectSoldierById(s.id)}
+                    style={{
+                      background: isSel ? 'rgba(40,90,30,0.95)' : 'rgba(18,30,12,0.92)',
+                      border: `1px solid ${isSel ? C.acc : s.ammo === 0 ? C.dng : C.uib}`,
+                      padding: '3px 8px 4px', minWidth: '92px',
+                      cursor: s.onRoof ? 'default' : 'pointer',
+                      userSelect: 'none',
+                    }}
+                    title={s.onRoof ? 'Rooftop sniper — cannot be moved' : `${isSel ? 'Click to deselect' : 'Click to select & move'}${hk ? ` (key ${hk})` : ''}`}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: '4px' }}>
+                      {hk > 0 && hk < 10 && <span style={{ color: '#7a8a6a', fontSize: '8px' }}>{hk}</span>}
+                      <span style={{ color: s.ammo === 0 ? C.dng : isSel ? '#fff' : C.acc, fontWeight: 'bold', fontSize: '10px' }}>{s.name}</span>
+                      <span style={{ color: '#7a7a6a', fontSize: '8px' }}>{s.onRoof ? '▲' : 'FMB'[s.lane || 0]}</span>
+                      <span style={{ color: s.ammo === 0 ? C.dng : C.txt, fontSize: '9px', marginLeft: 'auto' }}>{s.ammo}/{s.maxAmmo}</span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '2px' }}>
+                      <div style={{ flex: 1, height: '3px', background: '#1a1a1a' }}><div style={{ height: '3px', width: `${hpPct * 100}%`, background: hpCol }} /></div>
+                      <span style={{ color: '#8a9a7a', fontSize: '7px', letterSpacing: '.04em' }}>{stateLbl}</span>
+                    </div>
+                  </div>
+                );
+              });
+            })()}
             <button style={ctrlBtn} onClick={() => moveSquad('advance')}>ADVANCE ▶</button>
             <button style={mbtn} onClick={togglePause}>{paused ? '▶ RESUME' : '⏸ PAUSE'}</button>
+            <button style={{ ...mbtn, color: fastOn ? C.wrn : C.txt, borderColor: fastOn ? C.wrn : C.uib }} onClick={toggleSpeed} title="Fast-forward (F)">{fastOn ? '▶▶ 2×' : '▶ 1×'}</button>
             <button style={mbtn} onClick={toggleMute}>{muted ? '🔇' : '🔊'}</button>
             {voiceAvail && (
               <button style={mbtn} onClick={toggleVoice} title="Radio voice (TTS)">{voiceOn ? '🗣' : '🚫'}</button>
