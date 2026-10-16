@@ -61,6 +61,14 @@ export function dSoldier(ctx, s, now, isSelected) {
   ctx.translate(s.x, ly);
   ctx.scale(sc * s.facing, sc);
   const R = drawSoldierBody(ctx, s, now);
+  // World-space muzzle position, returned so cinematics can anchor
+  // their own (bigger) flashes on the actual barrel tip.
+  let muzzle = null;
+  if (R) {
+    const [m0, m1] = wpt(s.weapon, 'muzzle'), c = Math.cos(R.tilt), sn = Math.sin(R.tilt);
+    const lx = R.anchor[0] + (m0 - R.rcl) * c - m1 * sn, lyy = R.anchor[1] + (m0 - R.rcl) * sn + m1 * c;
+    muzzle = [s.x + lx * sc * s.facing, ly + lyy * sc];
+  }
   if (R && s.state === 'shoot' && now - s.shootAt < 90) {
     // Muzzle flash at the (scaled) end of the barrel, in weapon space.
     const fa = 1 - (now - s.shootAt) / 90;
@@ -94,7 +102,7 @@ export function dSoldier(ctx, s, now, isSelected) {
       ctx.fillText(isKnife ? '🔪' : 'DRY', s.x, ly - Math.round(76 * sc)); ctx.textAlign = 'left';
     }
   }
-  if (s.state === 'dead') return;
+  if (s.state === 'dead') return null;
 
   const isRl = s.state === 'reload';
   if (s.hp < s.maxHp) {
@@ -115,4 +123,5 @@ export function dSoldier(ctx, s, now, isSelected) {
     const arrY = ly - Math.round(86 * sc);
     ctx.beginPath(); ctx.moveTo(s.x, arrY); ctx.lineTo(s.x - 5, arrY - 7); ctx.lineTo(s.x + 5, arrY - 7); ctx.closePath(); ctx.fill();
   }
+  return muzzle;
 }
