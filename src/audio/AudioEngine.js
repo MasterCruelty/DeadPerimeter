@@ -6,7 +6,14 @@ let _AM = null;
 export class AudioEngine {
   constructor() {
     this.ctx = new (window.AudioContext || window.webkitAudioContext)();
-    this.master = this.ctx.createGain(); this.master.gain.value = 0.55; this.master.connect(this.ctx.destination);
+    // Master bus → soft limiter so stacked gunfire (2× speed, big
+    // volleys) doesn't clip.
+    this.limiter = this.ctx.createDynamicsCompressor();
+    this.limiter.threshold.value = -10; this.limiter.knee.value = 8; this.limiter.ratio.value = 6;
+    this.limiter.attack.value = 0.003; this.limiter.release.value = 0.18;
+    this.limiter.connect(this.ctx.destination);
+    this.master = this.ctx.createGain(); this.master.gain.value = 0.55; this.master.connect(this.limiter);
+    this._muted = false; this._duck = 1;
     this.fx = this.ctx.createGain(); this.fx.gain.value = 0.9; this.fx.connect(this.master);
     this.bg = this.ctx.createGain(); this.bg.gain.value = 0;   this.bg.connect(this.master);
     this.bgRunning = false; this.bgNodes = []; this.beatTO = null; this.lastGroan = 0; this.lastHit = 0;
@@ -15,7 +22,20 @@ export class AudioEngine {
   }
   _ns() { const s = this.ctx.createBufferSource(); s.buffer = this._nb; s.loop = true; return s; }
   resume() { if (this.ctx.state === 'suspended') this.ctx.resume(); }
-  mute(on) { this.master.gain.setTargetAtTime(on ? 0 : 0.55, this.ctx.currentTime, 0.05); }
+  mute(on) { this._muted = on; this._applyMaster(); }
+  // Pause ducking: keep a faint bed instead of hard silence.
+  duck(on) { this._duck = on ? 0.18 : 1; this._applyMaster(); }
+  _applyMaster() { this.master.gain.setTargetAtTime(this._muted ? 0 : 0.55 * this._duck, this.ctx.currentTime, 0.08); }
+  // Per-sound output: optional stereo pan (-1 left … +1 right) from the
+  // source's position on screen.
+  _out(pan) {
+    if (!pan || !this.ctx.createStereoPanner) return this.fx;
+    const p = this.ctx.createStereoPanner(); p.pan.value = Math.max(-1, Math.min(1, pan)) * 0.8; p.connect(this.fx);
+    return p;
+  }
+  // Throttles use the audio clock: gameplay clocks differ between the
+  // siege (fast-forwardable), sorties and cinematics.
+  get _t() { return this.ctx.currentTime * 1000; }
   startBg() {
     if (this.bgRunning) return; this.bgRunning = true;
     this.bg.gain.setTargetAtTime(0.36, this.ctx.currentTime, 1.4);
@@ -50,8 +70,8 @@ export class AudioEngine {
     const g = this.ctx.createGain(); g.gain.setValueAtTime(v, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.50);
     o.connect(g); g.connect(this.bg); o.start(t); o.stop(t + 0.55);
   }
-  shot(w) {
-    const t = this.ctx.currentTime;
+  shot(w, pan) {
+    const t = this.ctx.currentTime; const out = this._out(pan);
     const dur = w === 'shotgun' ? 0.32 : w === 'rifle' ? 0.22 : 0.13;
     const vol = w === 'shotgun' ? 1.25 : w === 'rifle' ? 0.95 : 0.70;
     const fc  = w === 'shotgun' ? 360  : w === 'rifle' ? 880  : 1650;
@@ -61,31 +81,42 @@ export class AudioEngine {
     const src = this.ctx.createBufferSource(); src.buffer = buf;
     const bp = this.ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = fc; bp.Q.value = w === 'shotgun' ? 0.4 : 0.85;
     const gn = this.ctx.createGain(); gn.gain.setValueAtTime(vol, t); gn.gain.exponentialRampToValueAtTime(0.001, t + dur * 2.4);
-    src.connect(bp); bp.connect(gn); gn.connect(this.fx); src.start(t);
+    src.connect(bp); bp.connect(gn); gn.connect(out); src.start(t);
     if (w !== 'pistol') {
       const s = this.ctx.createOscillator(); s.type = 'sine';
       s.frequency.setValueAtTime(w === 'shotgun' ? 72 : 50, t); s.frequency.exponentialRampToValueAtTime(15, t + 0.24);
       const sg = this.ctx.createGain(); sg.gain.setValueAtTime(w === 'shotgun' ? 0.7 : 0.40, t); sg.gain.exponentialRampToValueAtTime(0.001, t + 0.30);
-      s.connect(sg); sg.connect(this.fx); s.start(t); s.stop(t + 0.32);
+      s.connect(sg); sg.connect(out); s.start(t); s.stop(t + 0.32);
     }
+    // Short slap-back off the city blocks gives the shot some space.
+    const echo = this.ctx.createDelay(0.5); echo.delayTime.value = w === 'pistol' ? 0.11 : 0.16;
+    const eg = this.ctx.createGain(); eg.gain.value = w === 'pistol' ? 0.12 : 0.18;
+    const elp = this.ctx.createBiquadFilter(); elp.type = 'lowpass'; elp.frequency.value = 900;
+    gn.connect(echo); echo.connect(elp); elp.connect(eg); eg.connect(out);
+    if (w === 'shotgun') setTimeout(() => this.pump(pan), 330);
+  }
+  // Shotgun pump: two mechanical clacks (back, forward).
+  pump(pan) {
+    this._click(260, 0.35, 0.06, pan);
+    setTimeout(() => this._click(420, 0.42, 0.05, pan), 140);
   }
   reload(w, dur) {
     this._click(510, 0.44, 0.08);
     setTimeout(() => this._click(330, 0.52, 0.07), dur * 0.46);
     setTimeout(() => { this._click(970, 0.62, 0.04); setTimeout(() => this._click(710, 0.38, 0.035), 80); }, dur * 0.82);
   }
-  _click(freq, vol, dur) {
-    const t = this.ctx.currentTime;
+  _click(freq, vol, dur, pan) {
+    const t = this.ctx.currentTime; const out = this._out(pan);
     const o = this.ctx.createOscillator(); o.type = 'sine'; o.frequency.value = freq;
     const og = this.ctx.createGain(); og.gain.setValueAtTime(vol, t); og.gain.exponentialRampToValueAtTime(0.001, t + dur);
-    o.connect(og); og.connect(this.fx); o.start(t); o.stop(t + dur + 0.01);
+    o.connect(og); og.connect(out); o.start(t); o.stop(t + dur + 0.01);
     const nl = Math.ceil(this.ctx.sampleRate * dur);
     const nb = this.ctx.createBuffer(1, nl, this.ctx.sampleRate);
     const nd = nb.getChannelData(0); for (let i = 0; i < nl; i++) nd[i] = (Math.random() * 2 - 1) * (1 - i / nl);
     const ns = this.ctx.createBufferSource(); ns.buffer = nb;
     const nf = this.ctx.createBiquadFilter(); nf.type = 'bandpass'; nf.frequency.value = freq * 2.1; nf.Q.value = 4;
     const ng = this.ctx.createGain(); ng.gain.value = vol * 0.32;
-    ns.connect(nf); nf.connect(ng); ng.connect(this.fx); ns.start(t);
+    ns.connect(nf); nf.connect(ng); ng.connect(out); ns.start(t);
   }
   shell() {
     const t = this.ctx.currentTime; const l = Math.ceil(this.ctx.sampleRate * 0.05);
@@ -96,7 +127,8 @@ export class AudioEngine {
     const g = this.ctx.createGain(); g.gain.value = 0.16;
     s.connect(hp); hp.connect(g); g.connect(this.fx); s.start(t);
   }
-  hit(now) {
+  hit(_now, pan) {
+    const now = this._t;
     if (now - this.lastHit < 85) return; this.lastHit = now;
     const t = this.ctx.currentTime; const l = Math.ceil(this.ctx.sampleRate * 0.09);
     const b = this.ctx.createBuffer(1, l, this.ctx.sampleRate); const d = b.getChannelData(0);
@@ -104,17 +136,19 @@ export class AudioEngine {
     const s = this.ctx.createBufferSource(); s.buffer = b;
     const lp = this.ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 680;
     const g = this.ctx.createGain(); g.gain.setValueAtTime(0.26, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.13);
-    s.connect(lp); lp.connect(g); g.connect(this.fx); s.start(t);
+    s.connect(lp); lp.connect(g); g.connect(this._out(pan)); s.start(t);
   }
-  zombieDie(type) {
-    const t = this.ctx.currentTime; const f = type === 'tank' ? 52 : type === 'runner' ? 108 : 78;
+  zombieDie(type, pan) {
+    const t = this.ctx.currentTime;
+    const f = type === 'brute' ? 38 : type === 'tank' ? 52 : type === 'runner' ? 108 : type === 'spitter' ? 120 : 78;
     const o = this.ctx.createOscillator(); o.type = 'sawtooth';
     o.frequency.setValueAtTime(f + Math.random() * 28, t); o.frequency.exponentialRampToValueAtTime(f * 0.33, t + 0.68);
     const bp = this.ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 310; bp.Q.value = 2.4;
     const g = this.ctx.createGain(); g.gain.setValueAtTime(0.40, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.74);
-    o.connect(bp); bp.connect(g); g.connect(this.fx); o.start(t); o.stop(t + 0.78);
+    o.connect(bp); bp.connect(g); g.connect(this._out(pan)); o.start(t); o.stop(t + 0.78);
   }
-  groan(now, type) {
+  groan(_now, type, pan) {
+    const now = this._t;
     if (now - this.lastGroan < 2800) return; this.lastGroan = now;
     const t = this.ctx.currentTime;
     const f = type === 'tank' ? 50 + Math.random() * 16 : type === 'runner' ? 98 + Math.random() * 38 : 70 + Math.random() * 32;
@@ -124,17 +158,105 @@ export class AudioEngine {
     const g = this.ctx.createGain();
     g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(0.28, t + 0.09);
     g.gain.linearRampToValueAtTime(0.18, t + 0.58); g.gain.linearRampToValueAtTime(0, t + 1.08);
-    o.connect(bp); bp.connect(g); g.connect(this.fx); o.start(t); o.stop(t + 1.12);
+    o.connect(bp); bp.connect(g); g.connect(this._out(pan)); o.start(t); o.stop(t + 1.12);
   }
-  zombieAtk() {
+  zombieAtk(pan) {
     const t = this.ctx.currentTime; const l = Math.ceil(this.ctx.sampleRate * 0.15);
     const b = this.ctx.createBuffer(1, l, this.ctx.sampleRate); const d = b.getChannelData(0);
     for (let i = 0; i < l; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / l, 0.75);
     const s = this.ctx.createBufferSource(); s.buffer = b;
     const lp = this.ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 300;
     const g = this.ctx.createGain(); g.gain.setValueAtTime(0.48, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.22);
-    s.connect(lp); lp.connect(g); g.connect(this.fx); s.start(t);
+    s.connect(lp); lp.connect(g); g.connect(this._out(pan)); s.start(t);
   }
+  // Knife swing: quick airy swish + a dull wet impact.
+  slash(pan) {
+    const t = this.ctx.currentTime; const out = this._out(pan);
+    const l = Math.ceil(this.ctx.sampleRate * 0.16);
+    const b = this.ctx.createBuffer(1, l, this.ctx.sampleRate); const d = b.getChannelData(0);
+    for (let i = 0; i < l; i++) { const x = i / l; d[i] = (Math.random() * 2 - 1) * Math.sin(Math.PI * x) * (1 - x); }
+    const s = this.ctx.createBufferSource(); s.buffer = b;
+    const bp = this.ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = 1.2;
+    bp.frequency.setValueAtTime(1800, t); bp.frequency.exponentialRampToValueAtTime(4200, t + 0.12);
+    const g = this.ctx.createGain(); g.gain.value = 0.32;
+    s.connect(bp); bp.connect(g); g.connect(out); s.start(t);
+    setTimeout(() => this.hit(0, pan), 90);
+  }
+  // Explosion (mines): sub thump + noise burst with a long tail.
+  explosion(pan) {
+    const t = this.ctx.currentTime; const out = this._out(pan);
+    const o = this.ctx.createOscillator(); o.type = 'sine';
+    o.frequency.setValueAtTime(90, t); o.frequency.exponentialRampToValueAtTime(22, t + 0.9);
+    const og = this.ctx.createGain(); og.gain.setValueAtTime(1.1, t); og.gain.exponentialRampToValueAtTime(0.001, t + 1.0);
+    o.connect(og); og.connect(out); o.start(t); o.stop(t + 1.05);
+    const n = this._ns();
+    const lp = this.ctx.createBiquadFilter(); lp.type = 'lowpass';
+    lp.frequency.setValueAtTime(4000, t); lp.frequency.exponentialRampToValueAtTime(200, t + 1.2);
+    const ng = this.ctx.createGain(); ng.gain.setValueAtTime(0.9, t); ng.gain.exponentialRampToValueAtTime(0.001, t + 1.3);
+    n.connect(lp); lp.connect(ng); ng.connect(out); n.start(t); n.stop(t + 1.35);
+    setTimeout(() => this.crackle(), 250);
+  }
+  // Brute: deep distorted bellow when it wakes up / enters.
+  roar(pan) {
+    const t = this.ctx.currentTime; const out = this._out(pan);
+    [42, 63, 85].forEach((f, i) => {
+      const o = this.ctx.createOscillator(); o.type = 'sawtooth';
+      o.frequency.setValueAtTime(f * 1.25, t); o.frequency.linearRampToValueAtTime(f, t + 0.5); o.frequency.linearRampToValueAtTime(f * 0.8, t + 1.6);
+      const bp = this.ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 260 + i * 120; bp.Q.value = 1.6;
+      const g = this.ctx.createGain(); g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(0.32, t + 0.15); g.gain.linearRampToValueAtTime(0, t + 1.7);
+      o.connect(bp); bp.connect(g); g.connect(out); o.start(t); o.stop(t + 1.75);
+    });
+  }
+  // Spitter: wet gurgle + spit.
+  spit(pan) {
+    const t = this.ctx.currentTime; const out = this._out(pan);
+    const o = this.ctx.createOscillator(); o.type = 'square';
+    o.frequency.setValueAtTime(140, t); o.frequency.linearRampToValueAtTime(80, t + 0.2);
+    const lfo = this.ctx.createOscillator(); lfo.frequency.value = 32;
+    const lg = this.ctx.createGain(); lg.gain.value = 40; lfo.connect(lg); lg.connect(o.frequency);
+    const bp = this.ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 700; bp.Q.value = 3;
+    const g = this.ctx.createGain(); g.gain.setValueAtTime(0.2, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.26);
+    o.connect(bp); bp.connect(g); g.connect(out); o.start(t); lfo.start(t); o.stop(t + 0.28); lfo.stop(t + 0.28);
+  }
+  // Loot found: two soft rising notes.
+  pickup() {
+    [660, 990].forEach((f, i) => {
+      const t = this.ctx.currentTime + i * 0.07;
+      const o = this.ctx.createOscillator(); o.type = 'triangle'; o.frequency.value = f;
+      const g = this.ctx.createGain(); g.gain.setValueAtTime(0.13, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
+      o.connect(g); g.connect(this.fx); o.start(t); o.stop(t + 0.2);
+    });
+  }
+  // Heavy crate hitting the ground.
+  thud() {
+    const t = this.ctx.currentTime;
+    const o = this.ctx.createOscillator(); o.type = 'sine';
+    o.frequency.setValueAtTime(70, t); o.frequency.exponentialRampToValueAtTime(30, t + 0.3);
+    const g = this.ctx.createGain(); g.gain.setValueAtTime(0.7, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
+    o.connect(g); g.connect(this.fx); o.start(t); o.stop(t + 0.4);
+    this.lastHit = 0; this.hit(0);
+  }
+  // Radio static bed for transmissions (looping, band-limited noise
+  // with slow fades). level 0..1.
+  staticStart(level = 0.5) {
+    if (this._static) return;
+    const t = this.ctx.currentTime;
+    const n = this._ns();
+    const bp = this.ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 2200; bp.Q.value = 0.7;
+    const g = this.ctx.createGain(); g.gain.value = 0; g.gain.setTargetAtTime(0.045 * level, t, 0.4);
+    const lfo = this.ctx.createOscillator(); lfo.frequency.value = 0.35;
+    const lg = this.ctx.createGain(); lg.gain.value = 0.015 * level; lfo.connect(lg); lg.connect(g.gain);
+    n.connect(bp); bp.connect(g); g.connect(this.fx); n.start(t); lfo.start(t);
+    this._static = { n, g, lfo };
+  }
+  staticStop() {
+    if (!this._static) return;
+    const s = this._static; s.g.gain.setTargetAtTime(0, this.ctx.currentTime, 0.3);
+    setTimeout(() => { try { s.n.stop(); s.lfo.stop(); } catch (e) {} }, 1500);
+    this._static = null;
+  }
+  // Squelch "kch" at the start / end of a radio line.
+  squelch() { this._radioClick(this.ctx.currentTime, 0.06); }
   baseHit() {
     const t = this.ctx.currentTime;
     const o = this.ctx.createOscillator(); o.type = 'sine';
@@ -363,17 +485,30 @@ export function getAM() {
   return _AM;
 }
 
-export function processSounds(q, am, mutedRef) {
+// camX: current camera scroll; events carrying a world `x` are panned
+// by where they happen on screen (viewport width 900).
+export function processSounds(q, am, mutedRef, camX = null) {
   if (!am || mutedRef.current) { q.length = 0; return; }
+  const pan = e => (camX === null || typeof e.x !== 'number') ? 0 : ((e.x - camX) - 450) / 450;
   q.forEach(e => {
     switch (e.t) {
-      case 'shot':   am.shot(e.w);           break;
+      case 'shot':
+      case 'fire':   am.shot(e.w, pan(e));   break;
       case 'shell':  am.shell();             break;
       case 'reload': am.reload(e.w, e.dur);  break;
-      case 'hit':    am.hit(e.now);          break;
-      case 'zdie':   am.zombieDie(e.zt);     break;
-      case 'groan':  am.groan(e.now, e.zt);  break;
-      case 'zatk':   am.zombieAtk();         break;
+      case 'hit':    am.hit(e.now, pan(e));  break;
+      case 'zdie':   am.zombieDie(e.zt, pan(e)); break;
+      case 'groan':  am.groan(e.now, e.zt, pan(e)); break;
+      case 'zatk':   am.zombieAtk(pan(e));   break;
+      case 'slash':  am.slash(pan(e));       break;
+      case 'explosion': am.explosion(pan(e)); break;
+      case 'roar':   am.roar(pan(e));        break;
+      case 'spit':   am.spit(pan(e));        break;
+      case 'pickup': am.pickup();            break;
+      case 'thud':   am.thud();              break;
+      case 'staticStart': am.staticStart(e.level); break;
+      case 'staticStop':  am.staticStop();   break;
+      case 'squelch': am.squelch();          break;
       case 'bhit':   am.baseHit();           break;
       case 'wclr':   am.waveCleared();       break;
       // Cinematic / ambient

@@ -104,7 +104,7 @@ export function update(gs, now, dt) {
   const living = gs.zombies.filter(z => z.state !== 'dead');
   if (living.length > 0 && Math.random() < 0.004) {
     const rz = living[Math.floor(Math.random() * living.length)];
-    gs.soundQ.push({ t: 'groan', now, zt: rz.type });
+    gs.soundQ.push({ t: 'groan', now, zt: rz.type, x: rz.x });
   }
 
   // ── ZOMBIES ──────────────────────────────────────────────────
@@ -127,7 +127,7 @@ export function update(gs, now, dt) {
         if (z.targetBarId) {
           const bar = gs.barricades.find(b => b.id === z.targetBarId);
           if (bar && Math.abs(bar.x - z.x) < 30) {
-            bar.hp -= z.z.dmg; gs.soundQ.push({ t: 'bhit' });
+            bar.hp -= z.z.dmg; gs.soundQ.push({ t: 'bhit', x: bar.x });
             gs.effects.push({ type: 'txt', x: bar.x, y: laneY(0) - 50, v: `-${z.z.dmg}`, col: C.wrn, at: now, dur: 700 });
             // Barbed-wire reflective damage on the attacker
             z.hp -= BALANCE.barricadeReflectDmg; z.hurtTimer = 210;
@@ -141,7 +141,7 @@ export function update(gs, now, dt) {
             const dmg = isBehindBarricade(gs, sol, z.x)
               ? Math.max(1, Math.round(z.z.dmg * BALANCE.behindBarricadeDmgMul))
               : z.z.dmg;
-            sol.hp -= dmg; sol.hurtTimer = 360; gs.soundQ.push({ t: 'zatk' });
+            sol.hp -= dmg; sol.hurtTimer = 360; gs.soundQ.push({ t: 'zatk', x: z.x });
             if (sol.hp <= 0) { sol.hp = 0; sol.state = 'dead'; z.targetSolId = null; z.state = 'walk'; recordDeath(gs, sol); }
             else hurtCallout(gs, sol);
           } else {
@@ -186,7 +186,7 @@ export function update(gs, now, dt) {
           h.state = 'walk'; h.targetSolId = null;
         } else if (now - (h.lastShot || 0) >= meta.rate) {
           h.lastShot = now;
-          gs.soundQ.push({ t: 'shot', w: 'pistol' });
+          gs.soundQ.push({ t: 'shot', w: 'pistol', x: h.x });
           const by0 = laneY(h.lane) - Math.round(20 * laneSc(h.lane));
           const by1 = laneY(sol.lane) - Math.round(28 * laneSc(sol.lane));
           gs.bullets.push({
@@ -208,7 +208,7 @@ export function update(gs, now, dt) {
           if (h.targetBarId) {
             const bar = gs.barricades.find(b => b.id === h.targetBarId);
             if (bar && Math.abs(bar.x - h.x) < 30) {
-              bar.hp -= meta.dmg; gs.soundQ.push({ t: 'bhit' });
+              bar.hp -= meta.dmg; gs.soundQ.push({ t: 'bhit', x: bar.x });
               gs.effects.push({ type: 'txt', x: bar.x, y: laneY(0) - 50, v: `-${meta.dmg}`, col: C.wrn, at: now, dur: 700 });
               // Barbed-wire reflective damage
               h.hp -= BALANCE.barricadeReflectDmg; h.hurtTimer = 210;
@@ -222,7 +222,7 @@ export function update(gs, now, dt) {
               const dmg = isBehindBarricade(gs, sol, h.x)
                 ? Math.max(1, Math.round(meta.dmg * BALANCE.behindBarricadeDmgMul))
                 : meta.dmg;
-              sol.hp -= dmg; sol.hurtTimer = 360; gs.soundQ.push({ t: 'zatk' });
+              sol.hp -= dmg; sol.hurtTimer = 360; gs.soundQ.push({ t: 'slash', x: h.x });
               if (sol.hp > 0) hurtCallout(gs, sol);
               gs.effects.push({ type: 'slash', x: sol.x - h.facing * 10, y: laneY(sol.lane) - 28, at: now, dur: 230 });
               if (sol.hp <= 0) { sol.hp = 0; sol.state = 'dead'; h.targetSolId = null; h.state = 'walk'; recordDeath(gs, sol); }
@@ -254,7 +254,7 @@ export function update(gs, now, dt) {
     if (!tgt) return;
     t.lastShot = now;
     gs.resources.turretAmmo = Math.max(0, gs.resources.turretAmmo - 1);
-    gs.soundQ.push({ t: 'shot', w: 'rifle' });
+    gs.soundQ.push({ t: 'shot', w: 'rifle', x: t.x });
     gs.soundQ.push({ t: 'shell' });
     const by0 = t.y - 8;
     const by1 = laneY(tgt.lane) - Math.round(24 * laneSc(tgt.lane));
@@ -289,7 +289,7 @@ export function update(gs, now, dt) {
         if (refill > 0) {
           gs.resources.sniperAmmo -= refill;
           s.state = 'reload'; s.reloadStart = now; s.ammo = refill;
-          if (!s.reloadTriggered) { s.reloadTriggered = true; gs.soundQ.push({ t: 'reload', w: s.weapon, dur: effRl(gs, s, w) }); pushRadio(gs, 'reload', { speaker: s }); }
+          if (!s.reloadTriggered) { s.reloadTriggered = true; gs.soundQ.push({ t: 'reload', w: s.weapon, dur: effRl(gs, s, w) / (gs.speed || 1) }); pushRadio(gs, 'reload', { speaker: s }); }
           gs.effects.push({ type: 'txt', x: s.x + 30, y: GY - 160, v: 'RELOAD!', col: C.wrn, at: now, dur: 800 });
         } else {
           // Out of sniper ammo — descend
@@ -318,8 +318,9 @@ export function update(gs, now, dt) {
       s.facing = 1;
       if (now - s.lastShot >= w.rate) {
         s.state = 'shoot'; s.lastShot = now; s.shootAt = now; s.recoil = 200; s.ammo--;
-        gs.soundQ.push({ t: 'shot', w: 'rifle' });
-        const sx = s.x, sy = GY - 160;
+        gs.soundQ.push({ t: 'shot', w: 'rifle', x: s.x });
+        // Muzzle of the kneeling rooftop sniper's rifle.
+        const sx = s.x + 20, sy = GY - 184;
         const by1 = laneY(tgt.lane) - Math.round(24 * laneSc(tgt.lane));
         // Bullet life is capped by the WEAPON range, not the distance
         // to the picked target. Previously a distant target (filtered
@@ -395,7 +396,7 @@ export function update(gs, now, dt) {
         if (s.knifeTimer >= 650) {
           s.knifeTimer = 0; s.state = 'knife'; s.shootAt = now;
           meleeTgt.hp -= 10; meleeTgt.hurtTimer = 220;
-          gs.soundQ.push({ t: 'zatk' });
+          gs.soundQ.push({ t: 'slash', x: s.x });
           gs.effects.push({ type: 'slash', x: meleeTgt.x + s.facing * 10, y: laneY(meleeTgt.lane) - 28, at: now, dur: 230 });
           gs.effects.push({ type: 'txt', x: meleeTgt.x, y: laneY(meleeTgt.lane) - 58, v: '-10', col: '#ffcc44', at: now, dur: 600 });
           if (meleeTgt.hp <= 0) killTarget(gs, meleeTgt, now, s);
@@ -406,10 +407,11 @@ export function update(gs, now, dt) {
 
     if (now - s.lastShot >= w.rate) {
       s.state = 'shoot'; s.lastShot = now; s.shootAt = now; s.ammo--;
-      gs.soundQ.push({ t: 'shot', w: s.weapon }); gs.soundQ.push({ t: 'shell' });
-      const by0 = laneY(s.lane) - Math.round(24 * laneSc(s.lane));
+      gs.soundQ.push({ t: 'shot', w: s.weapon, x: s.x }); gs.soundQ.push({ t: 'shell' });
+      // Tracers leave from the muzzle of the shouldered weapon.
+      const by0 = laneY(s.lane) - Math.round(42 * laneSc(s.lane));
       const by1 = laneY(tgt.lane) - Math.round(24 * laneSc(tgt.lane));
-      const bxStart = s.x + s.facing * 24;
+      const bxStart = s.x + s.facing * 38 * laneSc(s.lane);
       for (let p = 0; p < (w.pel || 1); p++) {
         const sp2 = (Math.random() - 0.5) * w.sp * 2;
         gs.bullets.push({
@@ -429,7 +431,7 @@ export function update(gs, now, dt) {
         if (refill > 0) {
           s.state = 'reload'; s.reloadStart = now; gs.resources.ammo -= refill; s.ammo = refill;
           s.knifeReady = false;
-          if (!s.reloadTriggered) { s.reloadTriggered = true; gs.soundQ.push({ t: 'reload', w: s.weapon, dur: effRl(gs, s, w) }); pushRadio(gs, 'reload', { speaker: s }); }
+          if (!s.reloadTriggered) { s.reloadTriggered = true; gs.soundQ.push({ t: 'reload', w: s.weapon, dur: effRl(gs, s, w) / (gs.speed || 1) }); pushRadio(gs, 'reload', { speaker: s }); }
           gs.effects.push({ type: 'txt', x: s.x, y: laneY(s.lane) - 80, v: 'RELOAD!', col: C.wrn, at: now, dur: 800 });
         } else {
           // Empty stash too — soldier holsters firearm and the knife
@@ -458,7 +460,7 @@ export function update(gs, now, dt) {
       );
       if (hit) {
         hit.hp -= b.dmg; hit.hurtTimer = 320;
-        gs.soundQ.push({ t: 'hit', now });
+        gs.soundQ.push({ t: 'hit', now, x: b.x });
         gs.effects.push({ type: 'hit', x: b.x, y: b.y, at: now, dur: 200 });
         gs.effects.push({ type: 'txt', x: hit.x, y: laneY(hit.lane) - 60, v: `-${Math.round(b.dmg)}`, col: C.dng, at: now, dur: 720 });
         if (hit.hp <= 0) { hit.hp = 0; hit.state = 'dead'; recordDeath(gs, hit); }
@@ -480,7 +482,7 @@ export function update(gs, now, dt) {
         dmg *= researchMul(gs, 'rifleVsTankMul');
       }
       hit.hp -= dmg; hit.hurtTimer = 210;
-      gs.soundQ.push({ t: 'hit', now });
+      gs.soundQ.push({ t: 'hit', now, x: b.x });
       gs.effects.push({ type: 'blood', x: b.x, y: b.y, drops: Array.from({ length: 7 }, () => ({ x: 0, y: 0, vx: (Math.random() - 0.5) * 3.5, vy: -Math.random() * 2.5 - 0.5, r: 1.5 + Math.random() * 3 })), at: now, dur: 680 });
       gs.effects.push({ type: 'hit', x: b.x, y: b.y, at: now, dur: 200 });
       gs.effects.push({ type: 'txt', x: hit.x, y: laneY(hit.lane) - 60, v: `-${Math.round(dmg)}`, col: C.bld, at: now, dur: 720 });
@@ -640,12 +642,12 @@ function killTarget(gs, target, now, shooter) {
   // Random kill chatter (8% chance, throttled by pushRadio cooldown).
   if (shooter) maybeKillChatter(gs, shooter);
   if (target.type === 'walker' || target.type === 'runner' || target.type === 'tank') {
-    gs.soundQ.push({ t: 'zdie', zt: target.type });
+    gs.soundQ.push({ t: 'zdie', zt: target.type, x: target.x });
     gs.kills++;
     gs.score += target.type === 'tank' ? 50 : target.type === 'runner' ? 20 : 10;
   } else {
     // Human
-    gs.soundQ.push({ t: 'zdie', zt: 'walker' });
+    gs.soundQ.push({ t: 'zdie', zt: 'walker', x: target.x });
     gs.kills++;
     gs.score += target.type === 'gunman' ? 25 : 15;
     if (target.type !== 'gunman') {

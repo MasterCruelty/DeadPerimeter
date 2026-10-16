@@ -16,8 +16,10 @@ function dSpriteAt(drawFn, ctx, entity, screenX, screenFootY, scale, now) {
   ctx.translate(screenX, screenFootY - GY * scale);
   ctx.scale(scale, scale);
   const e = { ...entity, x: 0, lane: 0 };
-  drawFn(ctx, e, now);
+  const m = drawFn(ctx, e, now);
   ctx.restore();
+  // Screen position of the muzzle (dSoldier only), for flash overlays.
+  return m ? [screenX + m[0] * scale, screenFootY - GY * scale + m[1] * scale] : null;
 }
 
 // Convenience entity builders for the cinematic. These are minimal
@@ -34,7 +36,7 @@ function mkIntroSoldier(opts = {}) {
     civilian: !!opts.civilian, bandit: !!opts.bandit, police: !!opts.police, swat: !!opts.swat,
     onRoof: false, onExpedition: false,
     walkPhase: opts.walkPhase ?? Math.random() * Math.PI * 2,
-    lastShot: opts.lastShot ?? 0, reloadStart: 0, shootAt: 0, knifeTimer: 0,
+    lastShot: opts.lastShot ?? 0, reloadStart: 0, shootAt: opts.lastShot ?? 0, knifeTimer: 0,
     hurtTimer: 0, recoil: 0,
   };
 }
@@ -1150,24 +1152,10 @@ function dShotCopFiring(ctx, t, now) {
     state: flashOn ? 'shoot' : 'idle',
     facing: 1, lastShot: now - 40,
   });
-  dSpriteAt(dSoldier, ctx, officer, ox, oy, SCALE, now);
-  // Reflective yellow vest stripe + badge overlay on top of the sprite
-  ctx.fillStyle = '#c4a838';
-  ctx.fillRect(ox - 38, oy - 230, 92, 5);
-  ctx.fillStyle = '#dfb84a';
-  ctx.beginPath();
-  for (let i = 0; i < 10; i++) {
-    const ang = -Math.PI / 2 + i * Math.PI / 5;
-    const rr = (i % 2 === 0) ? 8 : 3.6;
-    const bx = ox + 6 + Math.cos(ang) * rr;
-    const by = oy - 252 + Math.sin(ang) * rr;
-    if (i === 0) ctx.moveTo(bx, by); else ctx.lineTo(bx, by);
-  }
-  ctx.closePath(); ctx.fill();
-
+  const mzO = dSpriteAt(dSoldier, ctx, officer, ox, oy, SCALE, now);
   // MUZZLE FLASH overlay at the pistol barrel (timed pulses)
   if (flashOn) {
-    const fx = ox + 90, fy = oy - 215;
+    const [fx, fy] = mzO || [ox + 90, oy - 215];
     const fgr = ctx.createRadialGradient(fx, fy, 4, fx, fy, 110);
     fgr.addColorStop(0, 'rgba(255,255,220,1)');
     fgr.addColorStop(0.35, 'rgba(255,180,60,0.75)');
@@ -1183,8 +1171,9 @@ function dShotCopFiring(ctx, t, now) {
     ctx.lineTo(fx, fy + 18);
     ctx.closePath(); ctx.fill();
     // Light spill on officer's face + chest
-    ctx.fillStyle = 'rgba(255,200,120,0.30)';
-    ctx.beginPath(); ctx.ellipse(ox + 24, oy - 248, 60, 50, 0, 0, Math.PI * 2); ctx.fill();
+    const sp = ctx.createRadialGradient(fx - 50, fy + 10, 10, fx - 50, fy + 10, 120);
+    sp.addColorStop(0, 'rgba(255,200,120,0.28)'); sp.addColorStop(1, 'rgba(255,200,120,0)');
+    ctx.fillStyle = sp; ctx.fillRect(fx - 170, fy - 110, 240, 240);
     // Ejecting brass casing
     const ejT = ((now / 140) % 1);
     const ecx = fx - 32 + ejT * 40;
@@ -1384,9 +1373,9 @@ function dShotPoliceLine(ctx, t, now) {
       facing: 1, state: firing ? 'shoot' : 'idle',
       lastShot: now - 40, walkPhase: oi * 0.7,
     });
-    dSpriteAt(dSoldier, ctx, cop, ofc.x, GY, 1.6, now);
+    const mzC = dSpriteAt(dSoldier, ctx, cop, ofc.x, GY, 1.6, now);
     if (firing) {
-      const fx = ofc.x + 24, fy = GY - 42;
+      const [fx, fy] = mzC || [ofc.x + 24, GY - 42];
       ctx.fillStyle = 'rgba(255,210,80,0.95)';
       ctx.beginPath();
       ctx.moveTo(fx, fy); ctx.lineTo(fx + 14, fy - 4);
@@ -2087,12 +2076,12 @@ function dShotLastDefender(ctx, t, now) {
     name: 'Alpha', weapon: 'rifle', facing: 1,
     state: flashOn ? 'shoot' : 'idle', lastShot: now - 50,
   });
-  dSpriteAt(dSoldier, ctx, def, sx, sy, SCALE_SOL, now);
+  const mzD = dSpriteAt(dSoldier, ctx, def, sx, sy, SCALE_SOL, now);
 
   // MUZZLE FLASH overlay — anchored near the rifle barrel tip of the
   // scaled sprite.
   if (flashOn) {
-    const fx = sx + 130, fy = sy - 210;
+    const [fx, fy] = mzD || [sx + 130, sy - 210];
     const fg = ctx.createRadialGradient(fx, fy, 4, fx, fy, 130);
     fg.addColorStop(0, 'rgba(255,255,210,1)');
     fg.addColorStop(0.35, 'rgba(255,180,60,0.75)');
@@ -2109,8 +2098,8 @@ function dShotLastDefender(ctx, t, now) {
     ctx.closePath(); ctx.fill();
     // Brass casing flying upward-right
     const ejT = ((now / 110) % 1);
-    const ecx = sx + 100 + ejT * 30;
-    const ecy = sy - 200 - ejT * 26 + ejT * ejT * 50;
+    const ecx = fx - 150 + ejT * 30;
+    const ecy = fy - 10 - ejT * 26 + ejT * ejT * 50;
     ctx.fillStyle = '#c4a850';
     ctx.fillRect(ecx, ecy, 6, 3);
   }
@@ -2371,7 +2360,7 @@ function dShotSoldierAiming(ctx, t, now) {
   const bz = (now / 800) % 1;
   ctx.fillStyle = `rgba(220,225,230,${0.32 * (1 - bz)})`;
   ctx.beginPath();
-  ctx.ellipse(sx + 80, CH - 310 - bz * 16, 22 + bz * 14, 10 + bz * 6, 0, 0, Math.PI * 2);
+  ctx.ellipse(sx + 76 + bz * 18, CH - 284 - bz * 14, 9 + bz * 12, 5 + bz * 5, 0, 0, Math.PI * 2);
   ctx.fill();
 
   // Red laser sight dot off in the distance
@@ -3170,10 +3159,10 @@ function dShotFortWide(ctx, t, now) {
         state: d.pose, walkPhase: i * 0.7 + wob,
         lastShot: now - 30,
       });
-      dSpriteAt(dSoldier, ctx, sol, d.x, ly + wob, sc, now);
+      const mz = dSpriteAt(dSoldier, ctx, sol, d.x, ly + wob, sc, now);
       // Muzzle flash for shooting poses
       if (d.pose === 'shoot' && Math.floor(now / 120 + d.x) % 2 === 0) {
-        const fx = d.x + 22 * sc, fy = ly - 40 * sc;
+        const [fx, fy] = mz || [d.x + 22 * sc, ly - 40 * sc];
         ctx.fillStyle = 'rgba(255,210,80,0.9)';
         ctx.beginPath();
         ctx.moveTo(fx, fy); ctx.lineTo(fx + 11 * sc, fy - 4 * sc);
