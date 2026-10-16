@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 
-import { C, CW, CH, GY, WX, WORLD_W, laneY, clickToLane, rng } from './constants.js';
+import { C, CW, CH, GY, WX, WORLD_W, laneY, clickToLane } from './constants.js';
 import { WPN } from './data/weapons.js';
 import { rollDestinations, RECRUIT_NAMES, RECRUIT_WEAPONS } from './data/expeditions.js';
 import { isHumanWaveNumber } from './data/humans.js';
@@ -54,6 +54,34 @@ function fmtPlayTime(gs) {
   const m = mins % 60;
   return `${h}h ${m}m`;
 }
+
+// Lightweight snapshot of the mutable game state for React. Module-level
+// so every callback (not just the game-loop effect) can use it.
+const mkSnap = gs => ({
+  phase: gs.phase, day: gs.day, wave: gs.wave, baseHp: gs.baseHp, baseMaxHp: gs.baseMaxHp,
+  resources: { ...(gs.resources || {}) },
+  soldiers: (gs.soldiers || []).map(s => ({ ...s })),
+  barricades: (gs.barricades || []).map(b => ({ ...b })),
+  turrets: (gs.turrets || []).map(t => ({ ...t })),
+  reserve: (gs.reserve || []).map(r => ({ ...r })),
+  selectedSoldierId: gs.selectedSoldierId,
+  kills: gs.kills, score: gs.score,
+  isHumanWave: gs.isHumanWave,
+  expeditionsToday: gs.expeditionsToday || 0,
+  lastEvacWave: gs.lastEvacWave ?? -10,
+  // Story-beat fields the management UI banners read. Forgetting
+  // any of these here used to cause the post-transmission
+  // management screen to render with stale data (or to never
+  // render at all if mkSnap throws on a missing field).
+  transmissionsDone: Array.isArray(gs.transmissionsDone) ? [...gs.transmissionsDone] : [],
+  pendingTransmission: gs.pendingTransmission ?? null,
+  lastFoodReport:  gs.lastFoodReport  ?? null,
+  lastSupplyDrop:  gs.lastSupplyDrop  ?? null,
+  cameraX: gs.cameraX || 0,
+  workbench: gs.workbench, researchLab: gs.researchLab, research: gs.research,
+  soldiersLost: gs.soldiersLost || 0, civiliansLost: gs.civiliansLost || 0,
+  playMs: gs.playMs || 0, startedAt: gs.startedAt,
+});
 
 export default function DeadPerimeter() {
   const cvs = useRef(null), gsRef = useRef(null), rafId = useRef(null), prevT = useRef(0), mutedR = useRef(false);
@@ -210,7 +238,6 @@ export default function DeadPerimeter() {
       try { window.speechSynthesis?.cancel(); } catch {}
     } catch (e) {
       // Swallow + log: a bug in the drop apply must not freeze the game.
-      // eslint-disable-next-line no-console
       console.error('finishTransmission error:', e);
     }
     // Always clear the cinematic ref + route to management, even if
@@ -233,7 +260,6 @@ export default function DeadPerimeter() {
       clearSave();
       setHasSave(false);
     } catch (e) {
-      // eslint-disable-next-line no-console
       console.error('finishExtraction error:', e);
     }
     extractionRef.current = null;
@@ -391,16 +417,21 @@ export default function DeadPerimeter() {
     vaccineRef.current = null;
     missionRef.current = null;
     gs.phase = 'victory';
+    // The run is over — a stale pre-wave-30 save would let the player
+    // "continue" a finished campaign.
+    clearSave(); setHasSave(false);
     setUi({ ...gs, soldiers: gs.soldiers.map(s => ({ ...s })) });
     setScr('victory');
   }, []);
 
   const recruit = useCallback(() => {
     const gs = gsRef.current;
-    if (gs.resources.food < 20 || gs.resources.materials < 15 || gs.soldiers.filter(s => s.state !== 'dead').length >= 6) return;
-    gs.resources.food -= 20; gs.resources.materials -= 15;
+    if (gs.resources.food < 20 || gs.resources.materials < 15 || gs.soldiers.filter(s => s.state !== 'dead').length >= BALANCE.maxActiveSoldiers) return;
+    // Pick the name BEFORE charging so an exhausted name pool never
+    // eats the player's food + materials for nothing.
     const avail = RECRUIT_NAMES.filter(n => !gs.usedNames.has(n));
     if (!avail.length) return;
+    gs.resources.food -= 20; gs.resources.materials -= 15;
     const name = avail[Math.floor(Math.random() * avail.length)];
     const weapon = RECRUIT_WEAPONS[Math.floor(Math.random() * RECRUIT_WEAPONS.length)];
     gs.usedNames.add(name);
@@ -831,10 +862,12 @@ export default function DeadPerimeter() {
 
     const onKeyDown = e => {
       // Space / Enter skip cinematics that have a skip hint.
-      if ((e.key === ' ' || e.key === 'Spacebar' || e.key === 'Enter')
-          && (transmissionRef.current || extractionRef.current)) {
+      const skipKey = e.key === ' ' || e.key === 'Spacebar' || e.key === 'Enter' || e.key === 'Escape' || e.key === 'Esc';
+      if (skipKey && (transmissionRef.current || extractionRef.current || introRef.current || defeatRef.current)) {
         if (transmissionRef.current) finishTransmission();
         else if (extractionRef.current) finishExtraction();
+        else if (introRef.current) finishIntro();
+        else if (defeatRef.current) finishDefeat();
         e.preventDefault();
         return;
       }
@@ -958,28 +991,6 @@ export default function DeadPerimeter() {
     window.addEventListener('keydown', onKeyDown);
     window.addEventListener('keyup', onKeyUp);
 
-    const mkSnap = gs => ({
-      phase: gs.phase, day: gs.day, wave: gs.wave, baseHp: gs.baseHp, baseMaxHp: gs.baseMaxHp,
-      resources: { ...(gs.resources || {}) },
-      soldiers: (gs.soldiers || []).map(s => ({ ...s })),
-      barricades: (gs.barricades || []).map(b => ({ ...b })),
-      turrets: (gs.turrets || []).map(t => ({ ...t })),
-      reserve: (gs.reserve || []).map(r => ({ ...r })),
-      selectedSoldierId: gs.selectedSoldierId,
-      kills: gs.kills, score: gs.score,
-      isHumanWave: gs.isHumanWave,
-      expeditionsToday: gs.expeditionsToday || 0,
-      lastEvacWave: gs.lastEvacWave ?? -10,
-      // Story-beat fields the management UI banners read. Forgetting
-      // any of these here used to cause the post-transmission
-      // management screen to render with stale data (or to never
-      // render at all if mkSnap throws on a missing field).
-      transmissionsDone: Array.isArray(gs.transmissionsDone) ? [...gs.transmissionsDone] : [],
-      pendingTransmission: gs.pendingTransmission ?? null,
-      lastFoodReport:  gs.lastFoodReport  ?? null,
-      lastSupplyDrop:  gs.lastSupplyDrop  ?? null,
-      cameraX: gs.cameraX || 0,
-    });
 
     const loop = now => {
       const dt = Math.min(now - prevT.current, 50); prevT.current = now;
@@ -1260,7 +1271,8 @@ export default function DeadPerimeter() {
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
     };
-  }, [toggleMute, togglePause]);
+  }, [toggleMute, togglePause, applyEvac, cancelPlacement, confirmPlacement, finishDefeat,
+      finishExtraction, finishIntro, finishTransmission, resolveTrade]);
 
   // ── STYLES ───────────────────────────────────────────────────
   const F = "'Courier New',monospace";
@@ -1356,7 +1368,7 @@ export default function DeadPerimeter() {
               const order = picked ? expSoldierIdxs.indexOf(i) + 1 : null;
               return (
                 <div key={s.id} onClick={() => toggleSoldier(i)} style={{ ...card, cursor: 'pointer', borderColor: picked ? C.acc : C.uib, opacity: picked ? 1 : 0.7, position: 'relative' }}>
-                  {order && <div style={{ position: 'absolute', top: 4, right: 6, background: C.acc, color: '#0a0', fontSize: '9px', fontWeight: 'bold', borderRadius: '50%', width: '14px', height: '14px', textAlign: 'center', lineHeight: '14px' }}>{order}</div>}
+                  {order && <div style={{ position: 'absolute', top: 4, right: 6, background: C.acc, color: '#061006', fontSize: '9px', fontWeight: 'bold', borderRadius: '50%', width: '14px', height: '14px', textAlign: 'center', lineHeight: '14px' }}>{order}</div>}
                   <div style={{ color: C.acc, fontWeight: 'bold', fontSize: '11px' }}>{s.name}</div>
                   <div style={{ fontSize: '9px', color: C.txt }}>{WPN[s.weapon]?.name}</div>
                   <div style={{ fontSize: '9px', color: s.hp > 60 ? C.acc : s.hp > 30 ? C.wrn : C.dng }}>{s.hp}HP</div>
@@ -1993,7 +2005,7 @@ export default function DeadPerimeter() {
                 <div style={{ marginTop: '12px' }}>
                   Three legs:
                   <ol style={{ marginTop: '6px', paddingLeft: '18px', lineHeight: '1.7' }}>
-                    {VACCINE_SCENARIOS.map((s, i) => (
+                    {VACCINE_SCENARIOS.map(s => (
                       <li key={s.name}><b style={{ color: s.riskColor }}>{s.icon} {s.name}</b> — <span style={{ opacity: 0.8 }}>{s.desc}</span></li>
                     ))}
                   </ol>

@@ -1,4 +1,4 @@
-import { C, CW, CH, GY, WX, LANES, WORLD_W } from '../constants.js';
+import { C, CH, GY, WX, LANES, WORLD_W } from '../constants.js';
 import { STARS, BLDGS, SIEGE_DECOR } from '../data/expeditions.js';
 
 // Draws a single piece of siege scenery (cars, lampposts, rubble,
