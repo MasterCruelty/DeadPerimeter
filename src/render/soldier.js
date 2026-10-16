@@ -1,6 +1,7 @@
 import { C, GY, laneY, laneSc, WEAPON_SCALE } from '../constants.js';
 import { WPN } from '../data/weapons.js';
 import { dWpn } from './weapons.js';
+import { dContactShadow } from './background.js';
 
 // Deterministic per-soldier palette variant based on name + id so a given
 // soldier always renders the same way across frames and across saves.
@@ -120,6 +121,7 @@ export function dSoldier(ctx, s, now, isSelected) {
 
   const ly = laneY(s.lane);
   const sc = laneSc(s.lane);
+  dContactShadow(ctx, s.x, ly + 1, sc, s.state === 'dead' ? 26 : 15);
   const isCiv = s.civilian;
   const isBandit = !!s.bandit;
   const isPolice = !!s.police;
