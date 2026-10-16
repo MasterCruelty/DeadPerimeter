@@ -15,8 +15,10 @@ function dSpriteAt(drawFn, ctx, entity, screenX, screenFootY, scale, now) {
   ctx.translate(screenX, screenFootY - GY * scale);
   ctx.scale(scale, scale);
   const e = { ...entity, x: 0, lane: 0 };
-  drawFn(ctx, e, now);
+  const m = drawFn(ctx, e, now);
   ctx.restore();
+  // Screen position of the muzzle (dSoldier only), for flash overlays.
+  return m ? [screenX + m[0] * scale, screenFootY - GY * scale + m[1] * scale] : null;
 }
 function mkSold(opts = {}) {
   return {
@@ -29,7 +31,7 @@ function mkSold(opts = {}) {
     civilian: false, bandit: false, police: false, swat: false,
     onRoof: false, onExpedition: false,
     walkPhase: opts.walkPhase ?? 0,
-    lastShot: opts.lastShot ?? 0, reloadStart: 0, shootAt: 0, knifeTimer: 0,
+    lastShot: opts.lastShot ?? 0, reloadStart: 0, shootAt: opts.lastShot ?? 0, knifeTimer: 0,
     hurtTimer: 0, recoil: 0,
     deadAt: opts.deadAt,
   };
@@ -148,10 +150,10 @@ function dDefeatSoldier(ctx, d, elapsed, now) {
     lastShot: now - 30,
     walkPhase: d.x * 0.05,
   });
-  dSpriteAt(dSoldier, ctx, sol, d.x, footY, sc, now);
+  const mz = dSpriteAt(dSoldier, ctx, sol, d.x, footY, sc, now);
   if (firing) {
     // Muzzle flash overlay, scaled by lane depth.
-    const fx = d.x + 26 * sc, fy = footY - 40 * sc;
+    const [fx, fy] = mz || [d.x + 26 * sc, footY - 40 * sc];
     ctx.fillStyle = 'rgba(255,210,80,0.95)';
     ctx.beginPath();
     ctx.moveTo(fx, fy); ctx.lineTo(fx + 14 * sc, fy - 5 * sc);
@@ -160,8 +162,8 @@ function dDefeatSoldier(ctx, d, elapsed, now) {
     ctx.fillRect(fx + 16 * sc, fy - 0.7, (28 + (d.x % 20)) * sc, 1.4);
     // Ejecting brass casing
     const ejT = (now / cadence) % 1;
-    const ecx = d.x - 4 * sc + ejT * 18 * sc;
-    const ecy = fy - 12 * sc - ejT * 12 * sc + ejT * ejT * 30 * sc;
+    const ecx = fx - 34 * sc + ejT * 18 * sc;
+    const ecy = fy - 4 * sc - ejT * 12 * sc + ejT * ejT * 30 * sc;
     ctx.fillStyle = '#c4a850';
     ctx.fillRect(ecx, ecy, 4 * sc, 2 * sc);
   }

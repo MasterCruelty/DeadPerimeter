@@ -31,6 +31,7 @@ import { createPostFX } from './render/postfx.js';
 import { setNormalTarget } from './render/actors/paint.js';
 import { zombiePrewarm, registerZombieTypes } from './render/actors/zombies.js';
 import { ZTP } from './data/zombies.js';
+import { BIOMES } from './data/biomes.js';
 import { siegeLights, missionLights } from './render/lighting.js';
 import { dExtractionScene, EXTRACTION_DURATION, EXTRACTION_SCRIPT, mkExtraction } from './render/extraction.js';
 import { TRANSMISSIONS } from './data/transmissions.js';
@@ -199,9 +200,13 @@ export default function DeadPerimeter() {
   const togglePause = useCallback(() => {
     const n = !pausedRef.current;
     pausedRef.current = n; setPaused(n);
-    // Background drums belong to the siege only.
+    // Background drums belong to the siege only; everything else is
+    // ducked (not cut) while paused.
     const am = getAM();
-    if (am && !missionRef.current) { if (n) am.stopBg(); else if (!mutedR.current) am.startBg(); }
+    if (am) {
+      am.duck(n);
+      if (!missionRef.current) { if (n) am.stopBg(); else if (!mutedR.current) am.startBg(); }
+    }
   }, []);
 
   // Siege fast-forward (1× ↔ 2×). Stored on gs so the HUD can show it.
@@ -313,6 +318,8 @@ export default function DeadPerimeter() {
         try { saveGame(gs); } catch (e) { /* save failure is non-fatal */ }
       }
       try { window.speechSynthesis?.cancel(); } catch {}
+      // A skip mid-scene would otherwise leave the static / rotor loops on.
+      try { const am = getAM(); am?.staticStop(); am?.heliStop(); } catch {}
     } catch (e) {
       // Swallow + log: a bug in the drop apply must not freeze the game.
       console.error('finishTransmission error:', e);
@@ -334,6 +341,7 @@ export default function DeadPerimeter() {
       const gs = gsRef.current;
       if (gs) gs.phase = 'victory';
       try { window.speechSynthesis?.cancel(); } catch {}
+      try { const am = getAM(); am?.heliStop(); am?.windStop(); am?.staticStop(); } catch {}
       clearSave();
       setHasSave(false);
     } catch (e) {
@@ -368,7 +376,7 @@ export default function DeadPerimeter() {
 
   const startWave = useCallback(() => {
     const gs = gsRef.current;
-    pausedRef.current = false; setPaused(false);
+    pausedRef.current = false; setPaused(false); getAM()?.duck(false);
     const am = getAM(); if (am && !mutedR.current) am.startBg();
     gs.soldiers.forEach(s => {
       if (s.state === 'dead' || s.onExpedition) return;
@@ -438,7 +446,7 @@ export default function DeadPerimeter() {
     missionRef.current = m;
     inputRef.current = { left: false, right: false, shoot: false, up: false, down: false };
     gs.expeditionsToday = (gs.expeditionsToday || 0) + 1;
-    pausedRef.current = false; setPaused(false);
+    pausedRef.current = false; setPaused(false); getAM()?.duck(false);
     setScr('mission');
   }, []);
 
@@ -446,9 +454,10 @@ export default function DeadPerimeter() {
     const m = missionRef.current; if (!m) return;
     const gs = gsRef.current;
     // finishMission writes back every party member's hp/state/onExpedition.
+    const am0 = getAM(); if (am0) { am0.windStop(); am0.cityHumStop(); }
     const result = finishMission(m, gs);
     missionRef.current = null;
-    pausedRef.current = false; setPaused(false);
+    pausedRef.current = false; setPaused(false); getAM()?.duck(false);
     setExpResult(result); setExpPhase('done'); setExpEvents([]); setExpVisible(0);
     setUi({ ...gs, soldiers: gs.soldiers.map(s => ({ ...s })) });
     setScr('expedition');
@@ -479,6 +488,7 @@ export default function DeadPerimeter() {
     const campaign = vaccineRef.current; if (!campaign) return;
     const gs = gsRef.current; if (!gs) return;
     const m = campaign.current;
+    const am0 = getAM(); if (am0) { am0.windStop(); am0.cityHumStop(); }
     if (m.state === 'won') {
       const next = advanceVaccineScenario(campaign, gs);
       if (next) {
@@ -502,7 +512,9 @@ export default function DeadPerimeter() {
     // "continue" a finished campaign.
     clearSave(); setHasSave(false);
     setUi({ ...gs, soldiers: gs.soldiers.map(s => ({ ...s })) });
-    setScr('victory');
+    // Ending cinematic first; finishExtraction routes to the stats screen.
+    extractionRef.current = mkExtraction(gs, result, campaign.party.filter(s => s.state !== 'dead'));
+    setScr('extraction');
   }, []);
 
   const recruit = useCallback(() => {
@@ -870,7 +882,7 @@ export default function DeadPerimeter() {
       hdScale = k;
       [worldC, hudC, normC].forEach(c => { c.width = Math.round(CW * k); c.height = Math.round(CH * k); });
     };
-    if (import.meta.env.DEV) window.__dp = { worldC, hudC, gsRef, missionRef };
+    if (import.meta.env.DEV) window.__dp = { worldC, hudC, gsRef, missionRef, extractionRef, mkExtraction };
     const worldCtx = worldC.getContext('2d'), hudCtx = hudC.getContext('2d');
     let fx = null, fxTried = false;
     // Per-frame targets: in HD mode the world goes to worldCtx (lit by the
@@ -1161,11 +1173,16 @@ export default function DeadPerimeter() {
         // Fire each scripted line through speakRadio() the first time
         // its offset becomes active.
         const off = now - tr.startedAt;
+        // Without TTS the line falls back to stylised radio chatter.
+        if (!tr.soundQ) tr.soundQ = [];
         while (tr.lineIdx < tr.data.lines.length && off >= tr.data.lines[tr.lineIdx].at) {
           const l = tr.data.lines[tr.lineIdx];
-          speakRadio(l.text, { pitch: l.pitch });
+          if (!speakRadio(l.text, { pitch: l.pitch })) {
+            tr.soundQ.push({ t: 'chatter', syllables: Math.min(6, Math.max(2, Math.round(l.text.split(' ').length / 3))), pitch: l.pitch || 'mid' });
+          }
           tr.lineIdx++;
         }
+        processSounds(tr.soundQ, getAM(), mutedR);
         if (off >= tr.data.durMs) finishTransmission();
         return;
       }
@@ -1174,14 +1191,19 @@ export default function DeadPerimeter() {
       const ext = extractionRef.current;
       if (ext) {
         if (!ext.startedAt) ext.startedAt = now;
+        if (!ext.soundQ) ext.soundQ = [];
         dExtractionScene(ctx, ext, now);
         const off = now - ext.startedAt;
-        while (ext.lineIdx < EXTRACTION_SCRIPT.length && off >= EXTRACTION_SCRIPT[ext.lineIdx].at) {
-          const l = EXTRACTION_SCRIPT[ext.lineIdx];
-          speakRadio(l.text, { pitch: l.pitch });
+        const script = ext.script || EXTRACTION_SCRIPT;
+        while (ext.lineIdx < script.length && off >= script[ext.lineIdx].at) {
+          const l = script[ext.lineIdx];
+          if (!speakRadio(l.text, { pitch: l.pitch })) {
+            ext.soundQ.push({ t: 'chatter', syllables: Math.min(6, Math.max(2, Math.round(l.text.split(' ').length / 3))), pitch: l.pitch || 'mid' });
+          }
           ext.lineIdx++;
         }
-        if (off >= EXTRACTION_DURATION) finishExtraction();
+        processSounds(ext.soundQ, getAM(), mutedR);
+        if (off >= (ext.durMs || EXTRACTION_DURATION)) finishExtraction();
         return;
       }
 
@@ -1291,11 +1313,27 @@ export default function DeadPerimeter() {
         // Missions run on their own clock too, so pausing freezes the
         // DEFEND timer, reloads and effects instead of letting them run.
         if (m.simNow === undefined) m.simNow = now;
+        // Sortie ambience: wind outdoors, low room tone indoors; silence
+        // once the sortie is over.
+        {
+          const am = getAM();
+          if (am) {
+            const indoor = (BIOMES[m.biomeKey] || {}).indoor || (m.indoorBiomeKey && m.soldier.x >= m.entranceX);
+            const want = m.state !== 'active' ? 'none' : indoor ? 'room' : 'wind';
+            if (want !== m._amb) {
+              if (m._amb === 'wind') am.windStop();
+              if (m._amb === 'room') am.cityHumStop();
+              if (want === 'wind') am.windStart(0.45);
+              if (want === 'room') am.cityHumStart();
+              m._amb = want;
+            }
+          }
+        }
         const mPaused = pausedRef.current && m.state === 'active';
         if (!mPaused) {
           m.simNow += dt;
           updateMission(m, m.simNow, dt);
-          processSounds(m.soundQ, getAM(), mutedR);
+          processSounds(m.soundQ, getAM(), mutedR, m.cameraX || 0);
         }
         ctx.save(); ctx.clearRect(0, 0, CW, CH);
         dMissionWorld(ctx, m, m.simNow);
@@ -1334,7 +1372,7 @@ export default function DeadPerimeter() {
             gs.simNow += dt;
             update(gs, gs.simNow, dt);
           }
-          processSounds(gs.soundQ, getAM(), mutedR);
+          processSounds(gs.soundQ, getAM(), mutedR, gs.cameraX || 0);
         }
         const simNow = gs.simNow;
         // Camera pan from arrow-key input. 0.55 px/ms ≈ 33 px/frame at

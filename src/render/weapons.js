@@ -1,18 +1,33 @@
-import { WEAPON_SCALE } from '../constants.js';
 
-// Weapon sprites, drawn in weapon-local coordinates (pistol grip near
-// the origin, muzzle towards +x) and scaled by WEAPON_SCALE. The hand
-// holds in render/actors/people.js and the muzzle-flash anchors in
-// render/soldier.js are expressed in this same space, so keep the grip,
-// fore-grip and muzzle positions stable when touching the art.
+// Weapon sprites, drawn in weapon-local "art units" (pistol grip near
+// the origin, muzzle towards +x) and scaled per weapon by WSCALE so the
+// guns are in proportion with a ~60 px soldier (a carbine is a bit more
+// than half a person's height, a pistol a hand's length).
 //
 // Style: dark outline, metallic / polymer / wood fills with a top-lit
 // gradient and a thin specular edge, matching the shaded actors.
 
-const OUT = 'rgba(6,6,5,0.95)';
+export const WSCALE = { rifle: 0.42, shotgun: 0.44, sniper: 0.4, pistol: 0.34 };
 
-// The pistol art is authored large; it is drawn at this extra scale.
-export const PISTOL_K = 0.72;
+// Reference points in art units, used by the actor rig and the muzzle
+// flash / light code:
+//   butt  — end of the stock (pressed into the shoulder)
+//   stock — y of the stock's centre line
+//   grip  — trigger hand on the pistol grip
+//   fore  — support hand (hand-guard / pump / under the barrel)
+//   muzzle
+export const WPOINTS = {
+  rifle:   { butt: [-25, -1], grip: [5, 9],   fore: [25, -4],  muzzle: [69, -7.5] },
+  shotgun: { butt: [-26, 0],  grip: [9, 10],  fore: [21, 2],   muzzle: [50, -10] },
+  sniper:  { butt: [-30, -1], grip: [-1, 8],  fore: [19, -2],  muzzle: [78, -4] },
+  pistol:  { butt: [-4, 6],   grip: [2.5, 9], fore: [3.5, 11], muzzle: [42, -9] },
+};
+export const wpt = (w, k) => {
+  const p = (WPOINTS[w] || WPOINTS.rifle)[k], sc = WSCALE[w] || WSCALE.rifle;
+  return [p[0] * sc, p[1] * sc];
+};
+
+const OUT = 'rgba(6,6,5,0.95)';
 
 function path(ctx, pts) {
   ctx.beginPath();
@@ -136,9 +151,10 @@ function shotgun(ctx) {
 
 export function dWpn(ctx, w, rcl = 0) {
   ctx.save(); ctx.translate(-rcl, 0);
-  ctx.scale(WEAPON_SCALE, WEAPON_SCALE);
+  const k = WSCALE[w] || WSCALE.rifle;
+  ctx.scale(k, k);
   if (w === 'rifle') rifle(ctx);
-  else if (w === 'pistol') { ctx.scale(PISTOL_K, PISTOL_K); pistol(ctx); }
+  else if (w === 'pistol') pistol(ctx);
   else if (w === 'sniper') sniper(ctx);
   else shotgun(ctx);
   ctx.restore();
