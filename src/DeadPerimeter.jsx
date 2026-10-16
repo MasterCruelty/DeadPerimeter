@@ -341,6 +341,7 @@ export default function DeadPerimeter() {
       const gs = gsRef.current;
       if (gs) gs.phase = 'victory';
       try { window.speechSynthesis?.cancel(); } catch {}
+      try { const am = getAM(); am?.heliStop(); am?.windStop(); am?.staticStop(); } catch {}
       clearSave();
       setHasSave(false);
     } catch (e) {
@@ -511,7 +512,9 @@ export default function DeadPerimeter() {
     // "continue" a finished campaign.
     clearSave(); setHasSave(false);
     setUi({ ...gs, soldiers: gs.soldiers.map(s => ({ ...s })) });
-    setScr('victory');
+    // Ending cinematic first; finishExtraction routes to the stats screen.
+    extractionRef.current = mkExtraction(gs, result, campaign.party.filter(s => s.state !== 'dead'));
+    setScr('extraction');
   }, []);
 
   const recruit = useCallback(() => {
@@ -879,7 +882,7 @@ export default function DeadPerimeter() {
       hdScale = k;
       [worldC, hudC, normC].forEach(c => { c.width = Math.round(CW * k); c.height = Math.round(CH * k); });
     };
-    if (import.meta.env.DEV) window.__dp = { worldC, hudC, gsRef, missionRef };
+    if (import.meta.env.DEV) window.__dp = { worldC, hudC, gsRef, missionRef, extractionRef, mkExtraction };
     const worldCtx = worldC.getContext('2d'), hudCtx = hudC.getContext('2d');
     let fx = null, fxTried = false;
     // Per-frame targets: in HD mode the world goes to worldCtx (lit by the
@@ -1188,14 +1191,19 @@ export default function DeadPerimeter() {
       const ext = extractionRef.current;
       if (ext) {
         if (!ext.startedAt) ext.startedAt = now;
+        if (!ext.soundQ) ext.soundQ = [];
         dExtractionScene(ctx, ext, now);
         const off = now - ext.startedAt;
-        while (ext.lineIdx < EXTRACTION_SCRIPT.length && off >= EXTRACTION_SCRIPT[ext.lineIdx].at) {
-          const l = EXTRACTION_SCRIPT[ext.lineIdx];
-          speakRadio(l.text, { pitch: l.pitch });
+        const script = ext.script || EXTRACTION_SCRIPT;
+        while (ext.lineIdx < script.length && off >= script[ext.lineIdx].at) {
+          const l = script[ext.lineIdx];
+          if (!speakRadio(l.text, { pitch: l.pitch })) {
+            ext.soundQ.push({ t: 'chatter', syllables: Math.min(6, Math.max(2, Math.round(l.text.split(' ').length / 3))), pitch: l.pitch || 'mid' });
+          }
           ext.lineIdx++;
         }
-        if (off >= EXTRACTION_DURATION) finishExtraction();
+        processSounds(ext.soundQ, getAM(), mutedR);
+        if (off >= (ext.durMs || EXTRACTION_DURATION)) finishExtraction();
         return;
       }
 
