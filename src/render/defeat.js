@@ -1,5 +1,6 @@
 import { C, CW, CH, GY, WX, LANES, laneY } from '../constants.js';
 import { dBase } from './base.js';
+import { dBg } from './background.js';
 import { dSoldier } from './soldier.js';
 import { dZombie } from './zombie.js';
 import { ZTP } from '../data/zombies.js';
@@ -290,30 +291,22 @@ function scheduleDefenderVoices(defeat, elapsed) {
 
 // ── Shared scene helpers ───────────────────────────────────────
 // Backdrop sky + burning city for the active-combat phases.
-function dCombatBackdrop(ctx, elapsed, now, opts = {}) {
-  const sg = ctx.createLinearGradient(0, 0, 0, GY - 40);
-  sg.addColorStop(0, opts.skyTop || '#1a0808');
-  sg.addColorStop(1, opts.skyBot || '#3a1a14');
-  ctx.fillStyle = sg; ctx.fillRect(0, 0, CW, GY - 40);
-  // Blood-tinted crescent moon
-  ctx.fillStyle = '#cc7a5a';
-  ctx.beginPath(); ctx.arc(740, 72, 22, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = opts.skyTop || '#1a0808';
-  ctx.beginPath(); ctx.arc(748, 68, 22, 0, Math.PI * 2); ctx.fill();
-  // Distant burning city
-  const seeds = [40, 120, 220, 320, 420, 520, 620, 720, 820];
-  seeds.forEach((sx, i) => {
-    const bh = 70 + (i * 41) % 90;
-    ctx.fillStyle = '#0a0806'; ctx.fillRect(sx, GY - bh, 55, bh);
-    if ((i + elapsed / 600 | 0) % 3 === 0) {
-      dFire(ctx, sx + 25, GY - bh - 5, now, 0.6 + (i % 2) * 0.2);
-      dSmoke(ctx, sx + 25, GY - bh - 24, now, 0.45, 0.9);
-    }
+function dCombatBackdrop(ctx, elapsed, now) {
+  // Same layered city as the siege, washed in the red of a city that
+  // is losing: blood-red sky grade and extra fire glow on the horizon.
+  dBg(ctx, 0, now);
+  ctx.save();
+  ctx.globalCompositeOperation = 'multiply';
+  const sg = ctx.createLinearGradient(0, 0, 0, GY);
+  sg.addColorStop(0, '#c04030'); sg.addColorStop(1, '#ff8060');
+  ctx.fillStyle = sg; ctx.fillRect(0, 0, CW, GY);
+  ctx.restore();
+  const hg = ctx.createLinearGradient(0, GY - 160, 0, GY - 60);
+  hg.addColorStop(0, 'rgba(255,90,30,0)'); hg.addColorStop(1, `rgba(255,90,30,${0.18 + 0.06 * Math.sin(now / 300)})`);
+  ctx.fillStyle = hg; ctx.fillRect(0, GY - 160, CW, 100);
+  [140, 480, 800].forEach((x, i) => {
+    if ((i + (elapsed / 900 | 0)) % 2 === 0) dSmoke(ctx, x, GY - 120, now, 0.4, 1.2);
   });
-  // Ground (killzone road)
-  ctx.fillStyle = '#1a1812'; ctx.fillRect(0, GY, CW, CH - GY);
-  ctx.strokeStyle = 'rgba(0,0,0,0.4)'; ctx.beginPath();
-  ctx.moveTo(0, GY); ctx.lineTo(CW, GY); ctx.stroke();
 }
 
 // Wall, damaged proportionally to elapsed time. After OVERRUN phase

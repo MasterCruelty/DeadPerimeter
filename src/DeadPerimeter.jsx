@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 
-import { C, CW, CH, GY, WX, WORLD_W, laneY, clickToLane } from './constants.js';
+import { C, CW, CH, GY, WX, WORLD_W, DPR, laneY, clickToLane } from './constants.js';
 import { WPN } from './data/weapons.js';
 import { rollDestinations, RECRUIT_NAMES, RECRUIT_WEAPONS } from './data/expeditions.js';
 import { isHumanWaveNumber } from './data/humans.js';
@@ -27,6 +27,11 @@ import { dEvacScene, EVAC_DURATION } from './render/evac.js';
 import { dIntroScene, INTRO_DURATION } from './render/intro.js';
 import { dDefeatScene, DEFEAT_DURATION } from './render/defeat.js';
 import { dTransmissionScene } from './render/transmission.js';
+import { createPostFX } from './render/postfx.js';
+import { setNormalTarget } from './render/actors/paint.js';
+import { zombiePrewarm, registerZombieTypes } from './render/actors/zombies.js';
+import { ZTP } from './data/zombies.js';
+import { siegeLights, missionLights } from './render/lighting.js';
 import { dExtractionScene, EXTRACTION_DURATION, EXTRACTION_SCRIPT, mkExtraction } from './render/extraction.js';
 import { TRANSMISSIONS } from './data/transmissions.js';
 import { pushRadio } from './audio/radio.js';
@@ -124,6 +129,24 @@ export default function DeadPerimeter() {
   const [paused, setPaused] = useState(false);
   const [hasSave, setHasSave] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
+  // Graphics mode: 'hd' = WebGL lighting / bloom / grading layer over the
+  // Canvas 2D renderer, 'classic' = plain Canvas 2D. Remembered per browser.
+  const glCvs = useRef(null);
+  const [gfx, setGfx] = useState(() => {
+    try { return localStorage.getItem('dp-gfx') || 'hd'; } catch (_e) { return 'hd'; }
+  });
+  const gfxRef = useRef(gfx);
+  const [gfxNote, setGfxNote] = useState(null);
+  useEffect(() => {
+    if (!gfxNote) return;
+    const t = setTimeout(() => setGfxNote(null), 6000);
+    return () => clearTimeout(t);
+  }, [gfxNote]);
+  const toggleGfx = useCallback(() => {
+    const n = gfxRef.current === 'hd' ? 'classic' : 'hd';
+    gfxRef.current = n; setGfx(n);
+    try { localStorage.setItem('dp-gfx', n); } catch (_e) { /* ignore */ }
+  }, []);
   // Which soldier card currently has its upgrade panel expanded (id).
   // null = none. Toggled by the ⚙ UPGRADES button on each card.
   const [upgOpenId, setUpgOpenId] = useState(null);
@@ -188,6 +211,28 @@ export default function DeadPerimeter() {
     gs.speed = (gs.speed || 1) > 1 ? 1 : 2;
     setFastOn(gs.speed > 1);
   }, []);
+
+  // Fill the actor sprite cache in idle time while the player is on the
+  // command screen, so a wave never starts with a burst of first-time
+  // sprite renders.
+  useEffect(() => {
+    if (scr !== 'management' && scr !== 'expedition') return;
+    registerZombieTypes(ZTP);
+    const it = zombiePrewarm();
+    let id = null, done = false;
+    const ric = window.requestIdleCallback || (cb => setTimeout(() => cb({ timeRemaining: () => 6 }), 30));
+    const cic = window.cancelIdleCallback || clearTimeout;
+    const step = dl => {
+      while (!done && dl.timeRemaining() > 2) {
+        const n = it.next();
+        if (n.done) { done = true; break; }
+        n.value();
+      }
+      if (!done) id = ric(step);
+    };
+    id = ric(step);
+    return () => cic(id);
+  }, [scr]);
 
   // Detect existing save + load radio-voice preference on mount.
   useEffect(() => {
@@ -808,7 +853,31 @@ export default function DeadPerimeter() {
   // ── GAME LOOP ─────────────────────────────────────────────────
   useEffect(() => {
     const canvas = cvs.current; if (!canvas) return;
-    const ctx = canvas.getContext('2d');
+    // All canvases are allocated at DPR resolution; drawing stays in the
+    // logical CW × CH space via setTransform at the start of each frame.
+    canvas.width = CW * DPR; canvas.height = CH * DPR;
+    const mainCtx = canvas.getContext('2d');
+    const mkOff = () => { const c = document.createElement('canvas'); c.width = CW * DPR; c.height = CH * DPR; return c; };
+    const worldC = mkOff(), hudC = mkOff(), normC = mkOff();
+    const normCtx = normC.getContext('2d');
+    // Adaptive HD quality. Level 0 = full (DPR + normal-mapped actors),
+    // 1 = no normal map, 2 = HD layer at 1× resolution, 3 = give up and
+    // fall back to classic. Steps down when frames stay slow for ~4 s.
+    let hdLevel = 0, hdScale = DPR, slowFor = 0, emaDt = 16;
+    let lockQuality = false;
+    try { lockQuality = localStorage.getItem('dp-gfx-lock') === '1'; } catch (_e) { /* ignore */ }
+    const setHdScale = k => {
+      hdScale = k;
+      [worldC, hudC, normC].forEach(c => { c.width = Math.round(CW * k); c.height = Math.round(CH * k); });
+    };
+    if (import.meta.env.DEV) window.__dp = { worldC, hudC, gsRef, missionRef };
+    const worldCtx = worldC.getContext('2d'), hudCtx = hudC.getContext('2d');
+    let fx = null, fxTried = false;
+    // Per-frame targets: in HD mode the world goes to worldCtx (lit by the
+    // WebGL layer) and the HUD to hctx (composited unlit on top); in
+    // classic mode both point at the visible canvas.
+    let ctx = mainCtx, hctx = mainCtx, hudUsed = false;
+    let scene = null;
 
     const onClick = e => {
       // Cinematics: tap anywhere to skip.
@@ -916,6 +985,7 @@ export default function DeadPerimeter() {
         e.preventDefault();
         return;
       }
+      if ((e.key === 'g' || e.key === 'G') && !e.ctrlKey && !e.metaKey) { toggleGfx(); }
       if (e.key === 'Escape' || e.key === 'Esc') {
         // Cancel build placement if active.
         if (placementRef.current) { cancelPlacement(); e.preventDefault(); return; }
@@ -1057,7 +1127,7 @@ export default function DeadPerimeter() {
     window.addEventListener('keyup', onKeyUp);
 
 
-    const loop = now => {
+    const frame = now => {
       const dt = Math.min(now - prevT.current, 50); prevT.current = now;
       const gs = gsRef.current;
 
@@ -1069,7 +1139,6 @@ export default function DeadPerimeter() {
         dIntroScene(ctx, intro, now);
         processSounds(intro.soundQ, getAM(), mutedR);
         if (now - intro.startedAt >= INTRO_DURATION) finishIntro();
-        rafId.current = requestAnimationFrame(loop);
         return;
       }
 
@@ -1081,7 +1150,6 @@ export default function DeadPerimeter() {
         dDefeatScene(ctx, defeat, now);
         processSounds(defeat.soundQ, getAM(), mutedR);
         if (now - defeat.startedAt >= DEFEAT_DURATION) finishDefeat();
-        rafId.current = requestAnimationFrame(loop);
         return;
       }
 
@@ -1099,7 +1167,6 @@ export default function DeadPerimeter() {
           tr.lineIdx++;
         }
         if (off >= tr.data.durMs) finishTransmission();
-        rafId.current = requestAnimationFrame(loop);
         return;
       }
 
@@ -1115,7 +1182,6 @@ export default function DeadPerimeter() {
           ext.lineIdx++;
         }
         if (off >= EXTRACTION_DURATION) finishExtraction();
-        rafId.current = requestAnimationFrame(loop);
         return;
       }
 
@@ -1127,7 +1193,6 @@ export default function DeadPerimeter() {
         dEvacScene(ctx, evac, now);
         processSounds(evac.soundQ, getAM(), mutedR);
         if (now - evac.startedAt >= EVAC_DURATION) applyEvac();
-        rafId.current = requestAnimationFrame(loop);
         return;
       }
 
@@ -1148,7 +1213,7 @@ export default function DeadPerimeter() {
         const camX = pl.cameraX;
         ctx.save();
         ctx.translate(-camX, 0);
-        dBg(ctx); dBase(ctx, gs.baseHp, gs.baseMaxHp);
+        dBg(ctx, camX, now); dBase(ctx, gs.baseHp, gs.baseMaxHp, now);
         // Draw the existing fort: soldiers, barricades, turrets
         for (let lane = 2; lane >= 0; lane--) {
           gs.soldiers.filter(s => (s.lane || 0) === lane && !s.onExpedition && s.state !== 'dead').forEach(s => dSoldier(ctx, s, now, false));
@@ -1213,7 +1278,6 @@ export default function DeadPerimeter() {
         ctx.fillText('move cursor freely · [ESC] or right-click to cancel', CW / 2, 31);
         ctx.textAlign = 'left';
         ctx.restore();
-        rafId.current = requestAnimationFrame(loop);
         return;
       }
 
@@ -1235,24 +1299,26 @@ export default function DeadPerimeter() {
         }
         ctx.save(); ctx.clearRect(0, 0, CW, CH);
         dMissionWorld(ctx, m, m.simNow);
-        dMissionHUD(ctx, m, m.simNow);
-        if (mPaused) {
-          ctx.fillStyle = 'rgba(0,0,0,0.62)'; ctx.fillRect(0, 0, CW, CH);
-          ctx.fillStyle = 'rgba(6,14,6,0.95)'; ctx.fillRect(CW / 2 - 190, CH / 2 - 80, 380, 150);
-          ctx.strokeStyle = C.acc; ctx.lineWidth = 1; ctx.strokeRect(CW / 2 - 189.5, CH / 2 - 79.5, 379, 149);
-          ctx.fillStyle = C.acc; ctx.font = 'bold 28px monospace'; ctx.textAlign = 'center';
-          ctx.fillText('⏸ SORTIE PAUSED', CW / 2, CH / 2 - 38);
-          ctx.fillStyle = C.txt; ctx.font = '11px monospace';
-          ctx.fillText('Esc — resume', CW / 2, CH / 2 - 12);
-          ctx.fillStyle = 'rgba(184,204,170,0.65)'; ctx.font = '10px monospace';
-          ctx.fillText('A/D or ←/→ move · Space / mouse hold: fire', CW / 2, CH / 2 + 10);
-          ctx.fillText('hold fire while moving back = backpedal shooting', CW / 2, CH / 2 + 26);
-          ctx.fillText('W: jump / climb ladder · S: climb down / drop', CW / 2, CH / 2 + 42);
-          ctx.fillText('stand by ★ containers to search them', CW / 2, CH / 2 + 58);
-          ctx.textAlign = 'left';
-        }
         ctx.restore();
-        rafId.current = requestAnimationFrame(loop);
+        scene = missionLights(m, m.simNow);
+        hctx.save(); hudUsed = true;
+        dMissionHUD(hctx, m, m.simNow);
+        if (mPaused) {
+          hctx.fillStyle = 'rgba(0,0,0,0.62)'; hctx.fillRect(0, 0, CW, CH);
+          hctx.fillStyle = 'rgba(6,14,6,0.95)'; hctx.fillRect(CW / 2 - 190, CH / 2 - 80, 380, 150);
+          hctx.strokeStyle = C.acc; hctx.lineWidth = 1; hctx.strokeRect(CW / 2 - 189.5, CH / 2 - 79.5, 379, 149);
+          hctx.fillStyle = C.acc; hctx.font = 'bold 28px monospace'; hctx.textAlign = 'center';
+          hctx.fillText('⏸ SORTIE PAUSED', CW / 2, CH / 2 - 38);
+          hctx.fillStyle = C.txt; hctx.font = '11px monospace';
+          hctx.fillText('Esc — resume', CW / 2, CH / 2 - 12);
+          hctx.fillStyle = 'rgba(184,204,170,0.65)'; hctx.font = '10px monospace';
+          hctx.fillText('A/D or ←/→ move · Space / mouse hold: fire', CW / 2, CH / 2 + 10);
+          hctx.fillText('hold fire while moving back = backpedal shooting', CW / 2, CH / 2 + 26);
+          hctx.fillText('W: jump / climb ladder · S: climb down / drop', CW / 2, CH / 2 + 42);
+          hctx.fillText('stand by ★ containers to search them', CW / 2, CH / 2 + 58);
+          hctx.textAlign = 'left';
+        }
+        hctx.restore();
         return;
       }
 
@@ -1324,7 +1390,7 @@ export default function DeadPerimeter() {
           // in screen-space and never scrolls.
           ctx.save();
           ctx.translate(-(gs.cameraX || 0), 0);
-          dBg(ctx); dBase(ctx, gs.baseHp, gs.baseMaxHp, simNow);
+          dBg(ctx, gs.cameraX || 0, simNow); dBase(ctx, gs.baseHp, gs.baseMaxHp, simNow);
           for (let lane = 2; lane >= 0; lane--) {
             gs.zombies.filter(z => z.state === 'dead' && z.lane === lane).forEach(z => dZombie(ctx, z, simNow));
             gs.zombies.filter(z => z.state !== 'dead' && z.lane === lane).forEach(z => dZombie(ctx, z, simNow));
@@ -1338,25 +1404,76 @@ export default function DeadPerimeter() {
           gs.bullets.forEach(b => dBlt(ctx, b));
           dSquadMarker(ctx, gs.squadTarget, gs.squadLane, simNow);
           ctx.restore();
+          scene = siegeLights(gs, simNow);
           // HUD lives in screen-space.
-          dHUD(ctx, gs, simNow, mutedR.current);
+          hudUsed = true;
+          dHUD(hctx, gs, simNow, mutedR.current);
           if (pausedRef.current) {
-            ctx.fillStyle = 'rgba(0,0,0,0.62)'; ctx.fillRect(0, 0, CW, CH);
-            ctx.fillStyle = 'rgba(6,14,6,0.95)'; ctx.fillRect(CW / 2 - 170, CH / 2 - 70, 340, 130);
-            ctx.strokeStyle = C.acc; ctx.lineWidth = 1; ctx.strokeRect(CW / 2 - 169.5, CH / 2 - 69.5, 339, 129);
-            ctx.fillStyle = C.acc; ctx.font = 'bold 30px monospace'; ctx.textAlign = 'center';
-            ctx.fillText('⏸ PAUSED', CW / 2, CH / 2 - 26);
-            ctx.fillStyle = C.txt; ctx.font = '11px monospace';
-            ctx.fillText('Esc — resume', CW / 2, CH / 2 + 2);
-            ctx.fillStyle = 'rgba(184,204,170,0.6)'; ctx.font = '10px monospace';
-            ctx.fillText('click lane: move · 1-9: select soldier', CW / 2, CH / 2 + 22);
-            ctx.fillText('←/→ or radar: pan · F: 2× speed', CW / 2, CH / 2 + 38);
-            ctx.textAlign = 'left';
+            hctx.fillStyle = 'rgba(0,0,0,0.62)'; hctx.fillRect(0, 0, CW, CH);
+            hctx.fillStyle = 'rgba(6,14,6,0.95)'; hctx.fillRect(CW / 2 - 170, CH / 2 - 70, 340, 130);
+            hctx.strokeStyle = C.acc; hctx.lineWidth = 1; hctx.strokeRect(CW / 2 - 169.5, CH / 2 - 69.5, 339, 129);
+            hctx.fillStyle = C.acc; hctx.font = 'bold 30px monospace'; hctx.textAlign = 'center';
+            hctx.fillText('⏸ PAUSED', CW / 2, CH / 2 - 26);
+            hctx.fillStyle = C.txt; hctx.font = '11px monospace';
+            hctx.fillText('Esc — resume', CW / 2, CH / 2 + 2);
+            hctx.fillStyle = 'rgba(184,204,170,0.6)'; hctx.font = '10px monospace';
+            hctx.fillText('click lane: move · 1-9: select soldier', CW / 2, CH / 2 + 22);
+            hctx.fillText('←/→ or radar: pan · F: 2× speed', CW / 2, CH / 2 + 38);
+            hctx.textAlign = 'left';
           }
           ctx.restore();
           if (Math.floor(now / 250) !== Math.floor((now - dt) / 250)) setUi(mkSnap(gs));
         }
       }
+    };
+    const loop = now => {
+      const wantFx = gfxRef.current === 'hd' && glCvs.current;
+      if (wantFx && !fx && !fxTried) {
+        fxTried = true;
+        fx = createPostFX(glCvs.current, CW, CH);
+        // No WebGL → fall back to classic for good.
+        if (!fx) { gfxRef.current = 'classic'; setGfx('classic'); }
+      }
+      if (fx && fx.lost()) fx = null;
+      const useFx = !!(wantFx && fx);
+      ctx = useFx ? worldCtx : mainCtx;
+      hctx = useFx ? hudCtx : mainCtx;
+      const useNormals = useFx && hdLevel === 0;
+      mainCtx.setTransform(DPR, 0, 0, DPR, 0, 0);
+      worldCtx.setTransform(hdScale, 0, 0, hdScale, 0, 0);
+      hudCtx.setTransform(hdScale, 0, 0, hdScale, 0, 0);
+      // Clear the HUD layer with a real draw op ('copy' of transparent):
+      // a bare clearRect on a canvas that receives nothing else was seen
+      // to leave the previous HUD visible in Chromium.
+      if (useFx) {
+        hudCtx.save(); hudCtx.setTransform(1, 0, 0, 1, 0, 0);
+        hudCtx.globalCompositeOperation = 'copy'; hudCtx.fillStyle = 'rgba(0,0,0,0)';
+        hudCtx.fillRect(0, 0, hudC.width, hudC.height); hudCtx.restore();
+      }
+      hudUsed = false;
+      if (useNormals) {
+        normCtx.setTransform(1, 0, 0, 1, 0, 0);
+        normCtx.fillStyle = 'rgb(128,128,255)';
+        normCtx.fillRect(0, 0, normC.width, normC.height);
+      }
+      setNormalTarget(useNormals ? normCtx : null);
+      scene = null;
+      frame(now);
+      if (useFx) fx.render(worldC, hudUsed ? hudC : null, scene, now, useNormals ? normC : null);
+      setNormalTarget(null);
+      // Adaptive quality: watch real frame time while HD is on.
+      if (useFx && !lockQuality && !document.hidden) {
+        const fdt = Math.min(100, now - (loop.last || now));
+        emaDt = emaDt * 0.95 + fdt * 0.05;
+        slowFor = emaDt > 24 ? slowFor + fdt : 0;
+        if (slowFor > 4000) {
+          slowFor = 0; emaDt = 16; hdLevel++;
+          if (hdLevel === 2) setHdScale(1);
+          if (hdLevel >= 3) { gfxRef.current = 'classic'; setGfx('classic'); setGfxNote('HD off — this device was too slow for it'); }
+          else setGfxNote(hdLevel === 1 ? 'HD: normal-mapped lighting off for speed' : 'HD: lower resolution for speed');
+        }
+      }
+      loop.last = now;
       rafId.current = requestAnimationFrame(loop);
     };
     rafId.current = requestAnimationFrame(loop);
@@ -1373,7 +1490,7 @@ export default function DeadPerimeter() {
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
     };
-  }, [toggleMute, togglePause, toggleSpeed, applyEvac, cancelPlacement, confirmPlacement, finishDefeat,
+  }, [toggleMute, togglePause, toggleSpeed, toggleGfx, applyEvac, cancelPlacement, confirmPlacement, finishDefeat,
       finishExtraction, finishIntro, finishTransmission, resolveTrade]);
 
   // ── STYLES ───────────────────────────────────────────────────
@@ -1592,7 +1709,15 @@ export default function DeadPerimeter() {
   return (
     <div style={{ background: '#030504', minHeight: '100vh', fontFamily: F, color: C.txt }}>
       <div style={{ display: (scr === 'siege' || scr === 'mission' || scr === 'evac' || scr === 'intro' || scr === 'defeat' || scr === 'transmission' || scr === 'extraction' || scr === 'placement') ? 'flex' : 'none', flexDirection: 'column', alignItems: 'center', padding: '10px 0' }}>
-        <canvas ref={cvs} width={CW} height={CH} style={{ border: `1px solid ${C.uib}`, maxWidth: '100%', cursor: scr === 'mission' ? 'crosshair' : 'crosshair', display: 'block', outline: 'none' }} tabIndex={0} />
+        <div style={{ position: 'relative', width: '100%', maxWidth: CW + 2, border: `1px solid ${C.uib}`, lineHeight: 0 }}>
+          <canvas ref={cvs} width={CW} height={CH} style={{ width: '100%', height: 'auto', aspectRatio: `${CW} / ${CH}`, cursor: 'crosshair', display: 'block', outline: 'none' }} tabIndex={0} />
+          {/* HD layer: WebGL composite drawn over the 2D canvas. Pointer
+              events pass through to the 2D canvas underneath. */}
+          <canvas ref={glCvs} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none', display: gfx === 'hd' ? 'block' : 'none' }} />
+          {gfxNote && (
+            <div style={{ position: 'absolute', left: '50%', bottom: '12px', transform: 'translateX(-50%)', background: 'rgba(10,16,8,0.9)', border: `1px solid ${C.wrn}`, color: C.wrn, fontSize: '11px', padding: '4px 10px', lineHeight: 1.4, pointerEvents: 'none' }}>{gfxNote}</div>
+          )}
+        </div>
         {scr === 'siege' && (
           <div style={{ display: 'flex', gap: '7px', marginTop: '7px', flexWrap: 'wrap', justifyContent: 'center', alignItems: 'center', width: '100%', maxWidth: CW }}>
             <button style={ctrlBtn} onClick={() => moveSquad('retreat')}>◀ RETREAT</button>
@@ -1636,6 +1761,7 @@ export default function DeadPerimeter() {
             <button style={ctrlBtn} onClick={() => moveSquad('advance')}>ADVANCE ▶</button>
             <button style={mbtn} onClick={togglePause}>{paused ? '▶ RESUME' : '⏸ PAUSE'}</button>
             <button style={{ ...mbtn, color: fastOn ? C.wrn : C.txt, borderColor: fastOn ? C.wrn : C.uib }} onClick={toggleSpeed} title="Fast-forward (F)">{fastOn ? '▶▶ 2×' : '▶ 1×'}</button>
+            <button style={mbtn} onClick={toggleGfx} title="Graphics: HD lighting (WebGL) or classic Canvas (G)">{gfx === 'hd' ? '✨ HD' : '▭ CLASSIC'}</button>
             <button style={mbtn} onClick={toggleMute}>{muted ? '🔇' : '🔊'}</button>
             {voiceAvail && (
               <button style={mbtn} onClick={toggleVoice} title="Radio voice (TTS)">{voiceOn ? '🗣' : '🚫'}</button>
@@ -1648,6 +1774,7 @@ export default function DeadPerimeter() {
               <>
                 <span style={{ color: '#888', fontSize: '10px' }}>A/D move · SPACE or hold mouse: fire · W jump/climb · S down · Esc pause</span>
                 <button style={mbtn} onClick={togglePause}>{paused ? '▶ RESUME' : '⏸ PAUSE'}</button>
+                <button style={mbtn} onClick={toggleGfx} title="Graphics (G)">{gfx === 'hd' ? '✨ HD' : '▭ CLASSIC'}</button>
                 <button style={mbtn} onClick={toggleMute}>{muted ? '🔇' : '🔊'}</button>
                 {voiceAvail && (
                   <button style={mbtn} onClick={toggleVoice} title="Radio voice (TTS)">{voiceOn ? '🗣' : '🚫'}</button>
@@ -1746,6 +1873,7 @@ export default function DeadPerimeter() {
                 <div style={{ color: C.dng, fontWeight: 'bold', fontSize: '20px' }}>WAVE {gs?.wave || 1}/{BALANCE.maxWaves}</div>
                 <div style={{ display: 'flex', gap: '6px' }}>
                   <button style={mbtn} onClick={toggleMute}>{muted ? '🔇 MUTED' : '🔊 SOUND'}</button>
+                  <button style={mbtn} onClick={toggleGfx} title="HD lighting (WebGL) or classic Canvas">{gfx === 'hd' ? '✨ HD GFX' : '▭ CLASSIC GFX'}</button>
                   {voiceAvail && (
                     <button style={mbtn} onClick={toggleVoice} title="Radio voice (TTS)">{voiceOn ? '🗣 VOICE' : '🚫 SILENT'}</button>
                   )}

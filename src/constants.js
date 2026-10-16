@@ -12,6 +12,12 @@ export const WORLD_W = 1980;
 export const GY = 400;
 export const WX = 162;
 
+// Backing-store resolution multiplier. The game keeps drawing in the
+// logical CW × CH space; canvases are allocated at CW·DPR × CH·DPR and
+// every frame starts with setTransform(DPR, …) so lines and text stay
+// crisp on high-density screens. Capped at 2 to bound fill cost.
+export const DPR = typeof window !== 'undefined' ? Math.min(2, Math.max(1, window.devicePixelRatio || 1)) : 1;
+
 // Depth lanes. Lane 0 = FRONT (nearest, biggest), Lane 2 = BACK (farthest).
 export const LANES = [
   { dy: 0,   sc: 1.00, gshade: '#1d1b11' }, // front
