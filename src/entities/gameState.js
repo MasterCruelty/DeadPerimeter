@@ -2,6 +2,7 @@ import { WX } from '../constants.js';
 import { mkSoldier } from './soldier.js';
 import { mkCity } from '../data/city.js';
 import { mkArmory } from './gear.js';
+import { mkCompact } from '../data/faction.js';
 
 // Bump the right loss counter when a roster member dies. Centralised so
 // each death site is one call and the civilian-vs-soldier split is in
@@ -56,6 +57,8 @@ export const mkGS = () => {
     city: mkCity(),
     // Spare guns + melee weapons (entities/gear.js).
     armory: mkArmory(),
+    // The Northgate Compact (data/faction.js).
+    compact: mkCompact(),
     // Fort survivors' jobs + story unlocks (update/quests.js).
     quests: { done: [], active: [], offers: {}, unlocks: {}, nextSide: {}, seq: 0 },
     // End-of-run stats. startedAt is wall-clock at newGame; on save/load

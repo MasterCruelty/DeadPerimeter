@@ -47,6 +47,7 @@ export const LOCATIONS = [
   { id: 'precinct', name: 'Precinct HQ',       icon: '🚔', district: 'civic',   x: 585, y: 205, tier: 'HIGH', size: 'L', street: 'armory',   interiors: ['police_interior', 'armory_interior'],  loot: ['ammo', 'sniperAmmo', 'lostSoldier', 'turretAmmo', 'ammo'], desc: 'The main armory. Brute reported on-site.' },
   { id: 'hospital', name: 'Central Hospital',  icon: '🏥', district: 'medical', x: 720, y: 110, tier: 'HIGH', size: 'L', street: 'hospital', interiors: ['office_interior', 'police_interior'],  loot: ['medicine', 'medicine', 'civilian', 'lostSoldier', 'food'], desc: 'Military ward inside. Massive draw for the dead.' },
   { id: 'mall',     name: 'Shopping Mall',     icon: '🛍️', district: 'industry', x: 650, y: 300, tier: 'HIGH', size: 'L', street: 'downtown', interiors: ['office_interior', 'armory_interior'], loot: ['ammo', 'food', 'materials', 'civilian', 'medicine'], desc: 'A thousand dead between you and the prize.' },
+  { id: 'compound', name: 'Northgate Compound', icon: '🏴', district: 'industry', x: 792, y: 236, tier: 'HIGH', size: 'L', street: 'armory', interiors: ['armory_interior', 'police_interior'], loot: ['ammo', 'materials', 'food', 'medicine'], desc: 'Walled depot held by the Northgate Compact — deserters with their own flag.', faction: true },
   { id: 'depot',    name: 'Industrial Depot',  icon: '🏭', district: 'industry', x: 770, y: 360, tier: 'HIGH', size: 'L', street: 'armory',   interiors: ['armory_interior'],                     loot: ['materials', 'turretAmmo', 'ammo', 'materials', 'lostSoldier'], desc: 'Truck yard. Heavy infected presence.' },
 ];
 
@@ -82,6 +83,8 @@ export const riskOf = infest => infest < 0.42 ? 'LOW' : infest < 0.75 ? 'MED' : 
 export const distOf = l => Math.hypot(l.x - FORT_POS.x, l.y - FORT_POS.y);
 // Food per party member for the round trip.
 export const travelCost = l => Math.max(1, Math.ceil(distOf(l) / 210));
+// Far places (3+ legs) take the whole day: both sortie slots.
+export const travelSlots = l => (travelCost(l) >= 3 ? 2 : 1);
 
 // Today's condition + side objective (stable for the whole day).
 function todayOf(gs, l, st) {
@@ -100,15 +103,20 @@ export function cityDests(gs) {
     const st = gs.city.locs[l.id];
     const risk = riskOf(st.infest);
     const t = todayOf(gs, l, st);
+    // The Compact's compound: trade / assault target until it falls.
+    const cp = l.faction ? (gs.compact || null) : null;
+    const faction = !!(cp && cp.status !== 'destroyed');
     return {
-      locId: l.id, name: l.name, icon: l.icon, desc: l.desc, loot: l.loot,
+      faction, compactStatus: cp ? cp.status : null,
+      compactInfo: faction ? { guns: cp.guns, treasury: { ...cp.treasury } } : null,
+      locId: l.id, name: cp && !faction ? `${l.name} (ruins)` : l.name, icon: l.icon, desc: l.desc, loot: l.loot,
       biome: l.street, interiors: l.interiors, W: SIZE_W[l.size], size: l.size,
       risk, riskColor: RISK_COLOR[risk],
       zSpawn: 0.4 + st.infest * 1.5,
       solDmg: [0, 0], missionLen: SIZE_W[l.size],
       valueMul: destValueMul(st.infest, travelCost(l)),
       infest: st.infest, lootLeft: st.loot, seed: st.seed, visits: st.visits, lastDay: st.lastDay,
-      travel: travelCost(l), district: l.district,
+      travel: travelCost(l), slots: travelSlots(l), district: l.district,
       cond: t.cond, side: t.side,
       // Active jobs that need something from this place (update/quests.js).
       quests: ((gs.quests && gs.quests.active) || []).filter(j => j.loc === l.id)

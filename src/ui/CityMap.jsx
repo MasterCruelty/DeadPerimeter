@@ -112,7 +112,7 @@ export default function CityMap({ city, dests, selected, onPick, day, jobs = [] 
             <div style={{ color: '#88ddff', fontSize: '9px', marginTop: '3px' }}>{sel.rewards}</div>
             <Bar label="Infestation" value={sel.infest / 1.2} color="#cc4433" />
             <Bar label="Loot left" value={sel.lootLeft} color="#88ddff" />
-            <div style={{ fontSize: '9px', color: C.wrn, marginTop: '4px' }}>Travel: −{sel.travel} 🥫 per soldier</div>
+            <div style={{ fontSize: '9px', color: C.wrn, marginTop: '4px' }}>Travel: −{sel.travel} 🥫 per soldier{sel.slots > 1 ? ' · ⏱ takes the whole day (2 sorties)' : ' · ⏱ half a day'}</div>
           </div>
           <div style={{ flex: '1 1 220px', fontSize: '9px' }}>
             <div style={{ color: 'rgba(184,204,170,0.6)' }}>TODAY (DAY {day})</div>

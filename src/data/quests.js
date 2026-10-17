@@ -41,7 +41,7 @@ export const STORY = [
   { id: 's2', npc: 'hale', after: 's1', minWave: 4, kind: 'fetch', loc: 'police', item: 'Radio transceiver',
     title: 'Ears on the city', unlock: 'radio',
     offer: 'The precinct had a long-range transceiver in the dispatch room. With it we can coordinate more runs a day.',
-    done: 'Static, then voices. We are not alone out there. More teams can go out each day.' },
+    done: 'Static, then voices. We are not alone: a group calling itself the Northgate Compact is broadcasting from the north. And more teams can go out each day.' },
   { id: 's3', npc: 'jun', after: 's2', minWave: 6, kind: 'fetch', loc: 'depot', item: 'Generator coil',
     title: 'Spark', unlock: 'generator',
     offer: 'Our generator is coughing. The industrial depot stocks replacement coils — heavy, and the yard is crawling.',
@@ -108,7 +108,7 @@ export function sideJob(npc, gs, discoveredIds, rnd = Math.random) {
     return { kind: 'fetch', loc, item, title: `${item} run`, offer: `I need a ${item.toLowerCase()} — try the ${'{loc}'}.`, reward: reward(res), xp: 30 };
   }
   if (r < 0.75) {
-    const hot = discoveredIds.filter(id => (gs.city.locs[id].infest || 0) > 0.5);
+    const hot = discoveredIds.filter(id => id !== 'compound' && (gs.city.locs[id].infest || 0) > 0.5);
     if (hot.length) {
       const loc = hot[Math.floor(rnd() * hot.length)];
       return { kind: 'clear', loc, below: 0.35, title: 'Thin the herd', offer: `The ${'{loc}'} is crawling. Clear it out so our runners can pass.`, reward: reward(res), xp: 40 };
