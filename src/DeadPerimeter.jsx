@@ -36,7 +36,7 @@ import { siegeLights, missionLights } from './render/lighting.js';
 import { dExtractionScene, EXTRACTION_DURATION, EXTRACTION_SCRIPT, mkExtraction } from './render/extraction.js';
 import { TRANSMISSIONS } from './data/transmissions.js';
 import { pushRadio } from './audio/radio.js';
-import { initRadioVoice, isRadioVoiceEnabled, isRadioVoiceAvailable, setRadioVoiceEnabled, speakRadio } from './audio/radioVoice.js';
+import { initRadioVoice, isRadioVoiceEnabled, isRadioVoiceAvailable, setRadioVoiceEnabled, speakOrChatter } from './audio/radioVoice.js';
 
 import { update } from './update/siege.js';
 import { mkMission, updateMission, dMissionWorld, dMissionHUD } from './update/mission.js';
@@ -1173,13 +1173,10 @@ export default function DeadPerimeter() {
         // Fire each scripted line through speakRadio() the first time
         // its offset becomes active.
         const off = now - tr.startedAt;
-        // Without TTS the line falls back to stylised radio chatter.
         if (!tr.soundQ) tr.soundQ = [];
         while (tr.lineIdx < tr.data.lines.length && off >= tr.data.lines[tr.lineIdx].at) {
           const l = tr.data.lines[tr.lineIdx];
-          if (!speakRadio(l.text, { pitch: l.pitch })) {
-            tr.soundQ.push({ t: 'chatter', syllables: Math.min(6, Math.max(2, Math.round(l.text.split(' ').length / 3))), pitch: l.pitch || 'mid' });
-          }
+          speakOrChatter(l.text, { pitch: l.pitch }, tr.soundQ);
           tr.lineIdx++;
         }
         processSounds(tr.soundQ, getAM(), mutedR);
@@ -1197,9 +1194,7 @@ export default function DeadPerimeter() {
         const script = ext.script || EXTRACTION_SCRIPT;
         while (ext.lineIdx < script.length && off >= script[ext.lineIdx].at) {
           const l = script[ext.lineIdx];
-          if (!speakRadio(l.text, { pitch: l.pitch })) {
-            ext.soundQ.push({ t: 'chatter', syllables: Math.min(6, Math.max(2, Math.round(l.text.split(' ').length / 3))), pitch: l.pitch || 'mid' });
-          }
+          speakOrChatter(l.text, { pitch: l.pitch }, ext.soundQ);
           ext.lineIdx++;
         }
         processSounds(ext.soundQ, getAM(), mutedR);

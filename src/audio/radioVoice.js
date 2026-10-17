@@ -13,6 +13,9 @@ let _enabled = true;
 let _voices = [];
 let _ctx = null;
 let _hissNode = null;
+let _current = null;     // utterance in flight
+let _fails = 0;          // consecutive utterances that never started
+let _ttsBroken = false;  // engine produces nothing: use chatter instead
 
 const STORAGE_KEY = 'fortomega_radioVoice';
 
@@ -32,6 +35,15 @@ export function initRadioVoice() {
     window.speechSynthesis.onvoiceschanged = () => {
       _voices = window.speechSynthesis.getVoices();
     };
+    // Mobile browsers only allow speech once speak() ran inside a user
+    // gesture: prime the engine with a silent utterance on first input.
+    const unlock = () => {
+      window.removeEventListener('pointerdown', unlock, true);
+      window.removeEventListener('keydown', unlock, true);
+      try { const u = new SpeechSynthesisUtterance(' '); u.volume = 0; window.speechSynthesis.speak(u); } catch {}
+    };
+    window.addEventListener('pointerdown', unlock, true);
+    window.addEventListener('keydown', unlock, true);
   }
 }
 
@@ -39,6 +51,7 @@ export function isRadioVoiceEnabled() { return _enabled && isRadioVoiceAvailable
 
 export function setRadioVoiceEnabled(b) {
   _enabled = !!b;
+  if (_enabled) { _ttsBroken = false; _fails = 0; }
   try {
     if (typeof localStorage !== 'undefined') {
       localStorage.setItem(STORAGE_KEY, _enabled ? '1' : '0');
@@ -144,7 +157,7 @@ function clean(text) {
 //   opts.pitch:  'low'|'mid'|'high'|<number>  speaker tier
 //   opts.urgent: boolean                      louder hiss, faster rate
 export function speakRadio(text, opts = {}) {
-  if (!isRadioVoiceEnabled()) return false;
+  if (!isRadioVoiceEnabled() || _ttsBroken) return false;
   if (!text) return false;
   try {
     const c = clean(text);
@@ -154,9 +167,14 @@ export function speakRadio(text, opts = {}) {
     if (!ctx) return false;
     if (ctx.state === 'suspended') { try { ctx.resume(); } catch {} }
 
-    // Rapid bursts: cancel anything in flight so we don't queue 4 lines
-    // back-to-back and lag behind the on-screen subtitle.
-    try { window.speechSynthesis.cancel(); } catch {}
+    // Rapid bursts: cut the line in flight so we don't queue 4 lines
+    // back-to-back and lag behind the on-screen subtitle. Only cancel
+    // when something is actually queued: Chrome can swallow a speak()
+    // issued right after a no-op cancel().
+    const ss = window.speechSynthesis;
+    if (_current) _current._superseded = true;
+    if (ss.speaking || ss.pending) { try { ss.cancel(); } catch {} }
+    try { ss.resume(); } catch {}          // un-stick a paused queue
     stopHiss();
 
     radioClick(ctx.currentTime, 0.05, opts.urgent ? 0.26 : 0.20);
@@ -169,17 +187,46 @@ export function speakRadio(text, opts = {}) {
     const v = pickVoice(opts.pitch);
     if (v) u.voice = v;
 
+    // speak() can "succeed" and still produce nothing (no voices
+    // installed, synthesis-failed, engine stuck). Detect that and hand
+    // the line back to the caller's fallback (procedural chatter);
+    // after repeated failures stop trying TTS for this session.
+    let started = false, failed = false;
+    const fail = () => {
+      if (started || failed || u._superseded) return;
+      failed = true; stopHiss();
+      if (++_fails >= 2) _ttsBroken = true;
+      if (opts.onFail) { try { opts.onFail(); } catch {} }
+    };
+    u.onstart = () => { started = true; _fails = 0; };
     u.onend = () => {
       const t = (_ctx && _ctx.currentTime) || 0;
       radioClick(t + 0.04, 0.04, 0.18);
       stopHiss();
+      if (_current === u) _current = null;
     };
-    u.onerror = () => { stopHiss(); };
+    u.onerror = e => {
+      stopHiss();
+      if (e && (e.error === 'interrupted' || e.error === 'canceled')) return;
+      fail();
+    };
+    setTimeout(fail, 1200);
 
-    window.speechSynthesis.speak(u);
+    _current = u;                          // Chrome GCs unreferenced utterances
+    ss.speak(u);
     return true;
   } catch (e) {
     stopHiss();
     return false;
   }
+}
+
+// Speak a line, or play the procedural radio chatter on `soundQ` when
+// TTS is off, unavailable or fails at runtime.
+export function speakOrChatter(text, opts, soundQ) {
+  const chatter = () => soundQ && soundQ.push({
+    t: 'chatter', pitch: opts.pitch ?? 'mid', urgent: !!opts.urgent,
+    syllables: Math.max(2, Math.min(6, Math.round((text || '').length / 5))),
+  });
+  if (!speakRadio(text, { ...opts, onFail: chatter })) chatter();
 }
