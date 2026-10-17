@@ -1,6 +1,6 @@
 import { C, WORLD_W, GY, WX, uid, rng, laneY, laneSc } from '../constants.js';
 import { WPN, wbase, MELEE } from '../data/weapons.js';
-import { meleeStats, wearMelee } from '../entities/gear.js';
+import { meleeStats, wearMelee, tickStam } from '../entities/gear.js';
 import { addXp, KILL_XP, BOSS_XP, WAVE_XP } from '../data/progression.js';
 import { HUMAN_AMMO_DROP, isHumanWaveNumber } from '../data/humans.js';
 import { BALANCE, RESEARCHES, waveClearAmmoFor, getSoldierPerkEffect } from '../data/difficulty.js';
@@ -14,6 +14,8 @@ import { WAVE_MODS, rollWaveMod } from '../data/waveMods.js';
 import { ZTP } from '../data/zombies.js';
 import { tickSiegeEvent, settleSiegeEvent } from './siegeEvents.js';
 import { cityDayTick } from '../data/city.js';
+import { compactDayTick } from './faction.js';
+import { hasUnlock } from './quests.js';
 
 // Visibility conditions (fog / night) shrink every friendly weapon range.
 const modRange = gs => (gs.waveMod && WAVE_MODS[gs.waveMod] && WAVE_MODS[gs.waveMod].rangeMul) || 1;
@@ -92,7 +94,9 @@ export function update(gs, now, dt) {
   while (gs.spawnQueue.length && gs.spawnQueue[0].at <= gs.waveTime) {
     const spawn = gs.spawnQueue.shift();
     if (gs.isHumanWave) {
-      gs.humans.push(mkHuman(spawn.type));
+      const h = mkHuman(spawn.type);
+      if (gs.compactRaid) { h.compact = true; h.hp = h.maxHp = Math.round(h.hp * 1.5); }
+      gs.humans.push(h);
     } else {
       const z = mkZombie(spawn.type, spawn.boss ? { boss: true, wave: gs.wave } : null);
       if (z.type === 'spitter') {
@@ -290,6 +294,7 @@ export function update(gs, now, dt) {
   gs.soldiers.forEach(s => {
     if (s.state === 'dead' || s.onExpedition) return;
     s.hurtTimer = Math.max(0, s.hurtTimer - dt);
+    tickStam(s, dt);
 
     // Rooftop sniper branch
     if (s.onRoof) {
@@ -550,11 +555,12 @@ export function update(gs, now, dt) {
     gs.waveComplete = false; gs.waveClearAt = null; gs.wave++; gs.day++;
     gs.soldiers.forEach(s => { if (s.state !== 'dead' && !s.onExpedition) addXp(s, WAVE_XP); });
     cityDayTick(gs);
+    compactDayTick(gs);
     // Research tick: 1 wave-clear = 1 progress on the active node.
     // On completion, apply persistent effects (Reinforced Walls bumps
     // baseMaxHp + heals up to the new cap immediately).
     if (gs.research && gs.research.activeId) {
-      gs.research.progress = (gs.research.progress || 0) + 1;
+      gs.research.progress = (gs.research.progress || 0) + (hasUnlock(gs, 'lab') ? 2 : 1);
       const node = RESEARCHES.find(r => r.id === gs.research.activeId);
       if (node && gs.research.progress >= node.waves) {
         const completed = Array.isArray(gs.research.completed) ? gs.research.completed : [];
