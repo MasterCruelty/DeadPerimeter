@@ -13,6 +13,7 @@ import { CW, GY, WX, laneY, laneSc } from '../constants.js';
 import { MISSION_W, MGY } from '../data/expeditions.js';
 import { BIOMES, DEFAULT_BIOME } from '../data/biomes.js';
 import { CITY_FIRES, CITY_FIRE_PARALLAX } from './background.js';
+import { isIndoorAt, VAN_X } from '../update/cityMission.js';
 
 const WARM   = [1.0, 0.72, 0.42];
 const MUZZLE = [1.0, 0.70, 0.30];
@@ -118,11 +119,11 @@ export function missionLights(m, now) {
   const fullyIndoor = !!biome.indoor;
 
   // Ceiling fixtures of indoor sections (same spacing as dIndoorBackdrop).
-  const ceiling = (b, fromX) => {
+  const ceiling = (b, fromX, toX = MISSION_W) => {
     const ls = b.lightSpacing || 220;
     const col = rgb(b.lightColor, WARM);
     for (let lx = ls / 2; lx < MISSION_W; lx += ls) {
-      if (lx < fromX) continue;
+      if (lx < fromX || lx > toX) continue;
       const sx = lx - cam;
       if (sx < -200 || sx > CW + 200) continue;
       cones.length < 4 && cones.push({ x: sx, y: 14, dir: Math.PI / 2, half: 0.62, r: 420, i: 0.55 * flick(now, lx), c: col });
@@ -131,6 +132,7 @@ export function missionLights(m, now) {
   };
   if (fullyIndoor) ceiling(biome, 0);
   else if (indoorBiome && m.entranceX > 0) ceiling(indoorBiome, m.entranceX);
+  (m.segs || []).forEach(sg => ceiling(BIOMES[sg.biomeKey] || biome, sg.x0, sg.x1));
 
   // Outdoor props that emit light.
   (m.props || []).forEach(p => {
@@ -146,7 +148,7 @@ export function missionLights(m, now) {
     if (now - (p.shootAt || -1e9) < 75) push(lights, p.x + (p.facing || 1) * 42, y - 11, 190, 1.25, MUZZLE, cam);
   });
   const lead = m.soldier;
-  const leadIndoor = fullyIndoor || (indoorBiome && lead.x >= m.entranceX);
+  const leadIndoor = isIndoorAt(m, lead.x);
   if (lead && lead.hp > 0) {
     const y = MGY - 30 + (lead.standingY || 0) + (lead.jumpY || 0) + (lead._laneY || 0);
     const f = lead.facing || 1;
@@ -169,7 +171,8 @@ export function missionLights(m, now) {
     const y = MGY - 30 + (p.standingY || 0) + (p.lane === 1 ? -34 : 0);
     push(lights, p.x, y, p.type === 'vaccine' ? 120 : 55, p.type === 'vaccine' ? 0.8 : 0.3, p.type === 'vaccine' ? [0.5, 1, 0.55] : [0.55, 0.85, 0.4], cam);
   });
-  if (m.objective !== 'defend') push(lights, MISSION_W - 30, MGY - 60, 150, 0.45, [0.5, 0.9, 0.35], cam);
+  if (m.objective === 'explore') push(lights, VAN_X + 40, MGY - 20, 140, 0.55, [1.0, 0.92, 0.7], cam);
+  else if (m.objective !== 'defend') push(lights, MISSION_W - 30, MGY - 60, 150, 0.45, [0.5, 0.9, 0.35], cam);
   else push(lights, m.defendAnchor + 12, MGY - 60, 120, 0.5, [1.0, 0.6, 0.2], cam);
   if (m.extraction) {
     const e = m.extraction, dir = e.phase === 'leaving' ? -1 : 1;

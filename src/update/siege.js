@@ -11,6 +11,7 @@ import { pushRadio } from '../audio/radio.js';
 import { WAVE_MODS, rollWaveMod } from '../data/waveMods.js';
 import { ZTP } from '../data/zombies.js';
 import { tickSiegeEvent, settleSiegeEvent } from './siegeEvents.js';
+import { cityDayTick } from '../data/city.js';
 
 // Visibility conditions (fog / night) shrink every friendly weapon range.
 const modRange = gs => (gs.waveMod && WAVE_MODS[gs.waveMod] && WAVE_MODS[gs.waveMod].rangeMul) || 1;
@@ -552,6 +553,7 @@ export function update(gs, now, dt) {
   }
   if (gs.waveComplete && now - gs.waveClearAt > 3000) {
     gs.waveComplete = false; gs.waveClearAt = null; gs.wave++; gs.day++;
+    cityDayTick(gs);
     // Research tick: 1 wave-clear = 1 progress on the active node.
     // On completion, apply persistent effects (Reinforced Walls bumps
     // baseMaxHp + heals up to the new cap immediately).
