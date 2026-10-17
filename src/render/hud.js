@@ -1,5 +1,7 @@
 import { C, CW, CH, WX, WORLD_W, laneY, laneSc } from '../constants.js';
-import { BALANCE } from '../data/difficulty.js';
+import { BALANCE, waveClearAmmoFor } from '../data/difficulty.js';
+import { WAVE_MODS } from '../data/waveMods.js';
+import { dSiegeEventBanner } from './siegeEvents.js';
 
 export function dSquadMarker(ctx, target, lane, now) {
   if (target === null || lane === null) return;
@@ -119,6 +121,29 @@ export function dHUD(ctx, gs, now, muted) {
     ctx.fillText('⚠ HOSTILE SURVIVORS ⚠', 112, 57); ctx.textAlign = 'left';
   }
 
+  // Wave condition tag (beside the human-wave banner when both apply).
+  const md = gs.waveMod && WAVE_MODS[gs.waveMod];
+  if (md) {
+    const tx = gs.isHumanWave ? 220 : 12;
+    ctx.font = 'bold 10px monospace';
+    const tw = ctx.measureText(`${md.icon} ${md.name}`).width + 16;
+    ctx.fillStyle = 'rgba(14,14,10,0.85)'; ctx.fillRect(tx, 44, tw, 18);
+    ctx.strokeStyle = md.color; ctx.lineWidth = 1; ctx.strokeRect(tx + 0.5, 44.5, tw - 1, 17);
+    ctx.fillStyle = md.color; ctx.fillText(`${md.icon} ${md.name}`, tx + 8, 57);
+  }
+  // Mini-boss health bar (top centre).
+  const boss = gs.boss && gs.boss.state !== 'dead' ? gs.boss : null;
+  if (boss) {
+    const bw = 300, bx = (CW - bw) / 2, by = 88;
+    ctx.fillStyle = 'rgba(20,4,2,0.85)'; ctx.fillRect(bx - 6, by - 16, bw + 12, 30);
+    ctx.fillStyle = '#ff5533'; ctx.font = 'bold 11px monospace'; ctx.textAlign = 'center';
+    ctx.fillText(`☠ ${boss.bossName} ☠`, CW / 2, by - 4);
+    ctx.textAlign = 'left';
+    bar(ctx, bx, by + 1, bw, 7, boss.hp / boss.maxHp, boss.hurtTimer > 0 ? '#ffaa66' : '#cc3322');
+  }
+
+  dSiegeEventBanner(ctx, gs, now);
+
   // Low-wall vignette: red pulse around the edges when the wall is failing.
   if (wp <= 0.3 && gs.baseHp > 0) {
     const a = 0.18 + 0.12 * Math.sin(now / 220);
@@ -138,7 +163,7 @@ export function dHUD(ctx, gs, now, muted) {
       ctx.fillStyle = C.acc; ctx.font = 'bold 26px monospace'; ctx.textAlign = 'center';
       ctx.fillText('✦ WAVE CLEARED ✦', CW / 2, CH / 2 + 4);
       ctx.fillStyle = C.txt; ctx.font = '10px monospace';
-      ctx.fillText(`+${BALANCE.waveClearAmmo} ammo · returning to command`, CW / 2, CH / 2 + 22);
+      ctx.fillText(`+${waveClearAmmoFor(gs.wave)} ammo · returning to command`, CW / 2, CH / 2 + 22);
       ctx.textAlign = 'left'; ctx.restore();
     }
   }

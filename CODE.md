@@ -922,6 +922,9 @@ are right next to the constants.
 | Fork (high/low) | `update/mission.js` (fork rolling, lane switch input, pickup lane gate, render) |
 | Survivor encounters | `data/expeditions.js` (`TRADE_OFFERS`, `rollEncounter`), `update/mission.js` (humans block, AI loop, trade dialog), `DeadPerimeter.jsx` (`resolveTrade`) |
 | Lead promotion | `update/mission.js` (`promoteLeadOnDeath` + top-of-frame guard) |
+| Wave conditions / surge pacing / mini-boss | `data/waveMods.js`, `entities/wave.js` (`mkWave(n, mod)`), `entities/zombie.js` (boss), `update/siege.js` (`modRange`, `spitterTick`, boss spawn + bounty, `nextWaveMod` roll), `render/weather.js`, `render/hud.js` (tag + boss bar), `render/lighting.js`, `DeadPerimeter.jsx` (`ensureNextWaveMod`, intel panel) |
+| Siege mid-wave events (survivor, supply crate) | `update/siegeEvents.js`, `render/siegeEvents.js`, `update/siege.js` (tick + wave-clear hold) |
+| Mission conditions / side objectives / car alarm | `data/missionExtras.js`, `update/missionExtras.js` (`setupMissionExtras`, `tickMissionExtras`, `bulletHitsSide`), `render/missionExtras.js`, `data/expeditions.js` (`rollDestinations`), `DeadPerimeter.jsx` (destination cards) |
 | Hostile human waves | `data/humans.js`, `entities/{human,wave,gameState}.js`, `render/human.js`, `update/siege.js`, `render/hud.js` (banner) |
 | Helicopter EVAC | `render/evac.js`, `DeadPerimeter.jsx` (`callEvac`, `applyEvac`, `skipEvac`, `evacRef`) |
 | Opening intro | `render/intro.js`, `DeadPerimeter.jsx` (`newGame` → `introRef`, `finishIntro`) |

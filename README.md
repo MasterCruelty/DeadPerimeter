@@ -46,6 +46,21 @@
   Also click-to-place.
 - **Hostile human survivor waves** (every 5 waves from wave 4): knifemen rush
   the wall while gunmen open fire from range. They drop ammo on death.
+- **Wave conditions** briefed in the command-center intel before each wave:
+  Dense Fog (−35% range, the far field is grey), Moonless Night (−20%
+  range, darker), Runner Stampede, Heavy Assault (tanks + brutes) and
+  Spitter Pack (ranged acid at soldiers and at the wall).
+- **Surge pacing**: waves come in packs with short lulls to reload and
+  reposition; tanks and brutes join from the second surge.
+- **Spitters and brutes in the siege** from the mid game, and a named
+  **mini-boss** every 5th wave (boss bar, salvage bounty on the kill).
+- **Mid-wave radio events**: cover a survivor sprinting for the gate (they
+  join the reserve) or send a soldier out to recover a parachuted supply
+  crate before it's lost.
+- **Ammo economy**: the wave-clear resupply scales with the wave
+  (`30 + 5 × wave`, capped at 160), Delta gets +2 sniper rounds per wave,
+  unused sortie magazines return to the stash, and when the stash runs
+  low Command almost always drops an ammo crate mid-wave.
 - **Daily food consumption** — every alive squad + reserve member eats
   `BALANCE.foodPerPersonPerDay` per wave-clear. Starvation deals real damage.
 - **Wall repair** (`💪 REPAIR`) — spend materials to patch the base wall HP.
@@ -130,6 +145,13 @@ mode, deeper mission system:
 - **Hazards**: shootable AOE mines + acid pools (slow + damage tick).
 - **Ranged zombies** (Spitters), **Brutes** (HIGH-risk end-of-stage boss),
   Tanks, Runners, Walkers — wave-scaled.
+- **Mission conditions** shown on the destination cards: Night Raid (the
+  dead wake later, darker), Horde (+60% dead, +50% loot), Picked Over.
+- **Optional side objectives** with their own rewards: crack a military
+  cache (stand by it while the noise draws a pack), burn a zombie nest that
+  keeps spawning walkers, or answer an SOS before the timer runs out.
+- **Car alarms** on some routes: walk past and a pack closes in from both
+  sides.
 - **Survivor encounters** mid-mission: peaceful trader camps (offer trades
   via a centered dialog — accept to swap resources, refuse to fight) or
   hostile bandits (immediate firefight). Zombies leave both camps alone
