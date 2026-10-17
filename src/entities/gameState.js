@@ -1,6 +1,7 @@
 import { WX } from '../constants.js';
 import { mkSoldier } from './soldier.js';
 import { mkCity } from '../data/city.js';
+import { mkArmory } from './gear.js';
 
 // Bump the right loss counter when a roster member dies. Centralised so
 // each death site is one call and the civilian-vs-soldier split is in
@@ -53,6 +54,8 @@ export const mkGS = () => {
     research: { activeId: null, progress: 0, completed: [] },
     // City map: persistent per-location state (data/city.js).
     city: mkCity(),
+    // Spare guns + melee weapons (entities/gear.js).
+    armory: mkArmory(),
     // End-of-run stats. startedAt is wall-clock at newGame; on save/load
     // we persist the elapsed time so closing the tab doesn't inflate it.
     startedAt: Date.now(),

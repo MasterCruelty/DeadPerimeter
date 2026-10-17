@@ -1,3 +1,4 @@
+import { wbase } from '../data/weapons.js';
 // Procedural Web Audio engine. No external samples.
 // Source of truth: PROJECT_STATE.md §10.
 
@@ -70,11 +71,15 @@ export class AudioEngine {
     const g = this.ctx.createGain(); g.gain.setValueAtTime(v, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.50);
     o.connect(g); g.connect(this.bg); o.start(t); o.stop(t + 0.55);
   }
-  shot(w, pan) {
+  shot(wk, pan) {
+    // Found guns borrow their handling class's report; the SMG is a
+    // lighter crack and the double barrel a heavier boom.
+    const w0 = wbase(wk), w = w0 === 'sniper' ? 'rifle' : w0;
+    const light = wk === 'smg', heavy = wk === 'dbarrel' || wk === 'ak' || wk === 'revolver';
     const t = this.ctx.currentTime; const out = this._out(pan);
     const dur = w === 'shotgun' ? 0.32 : w === 'rifle' ? 0.22 : 0.13;
-    const vol = w === 'shotgun' ? 1.25 : w === 'rifle' ? 0.95 : 0.70;
-    const fc  = w === 'shotgun' ? 360  : w === 'rifle' ? 880  : 1650;
+    const vol = (w === 'shotgun' ? 1.25 : w === 'rifle' ? 0.95 : 0.70) * (heavy ? 1.15 : light ? 0.7 : 1);
+    const fc  = (w === 'shotgun' ? 360  : w === 'rifle' ? 880  : 1650) * (light ? 1.4 : heavy ? 0.85 : 1);
     const len = Math.ceil(this.ctx.sampleRate * dur);
     const buf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
     const d = buf.getChannelData(0); for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 1.4);
@@ -93,7 +98,7 @@ export class AudioEngine {
     const eg = this.ctx.createGain(); eg.gain.value = w === 'pistol' ? 0.12 : 0.18;
     const elp = this.ctx.createBiquadFilter(); elp.type = 'lowpass'; elp.frequency.value = 900;
     gn.connect(echo); echo.connect(elp); elp.connect(eg); eg.connect(out);
-    if (w === 'shotgun') setTimeout(() => this.pump(pan), 330);
+    if (wk === 'shotgun') setTimeout(() => this.pump(pan), 330);
   }
   // Shotgun pump: two mechanical clacks (back, forward).
   pump(pan) {
