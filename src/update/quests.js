@@ -18,6 +18,7 @@ export function ensureQuests(gs) {
   q.unlocks = q.unlocks || {};
   q.nextSide = q.nextSide || {};
   q.seq = q.seq || 0;
+  q.log = Array.isArray(q.log) ? q.log : [];
   return q;
 }
 
@@ -101,6 +102,11 @@ function grant(gs, job) {
   if (xp) gs.soldiers.forEach(s => { if (s.state !== 'dead') addXp(s, Math.round(xp / 2)); });
   if (job.unlock) {
     q.unlocks[job.unlock] = true;
+    if (job.unlock === 'radio') {
+      // First thing the new radio picks up: the Compact's broadcast.
+      const st = ensureCity(gs).locs.compound;
+      if (st) st.discovered = true;
+    }
     if (job.unlock === 'cole') {
       const cole = mkSoldier('Cole', 'ak', 270, 120, 1, false, false, { veteran: true });
       cole.ammo = 0; cole.level = 3; cole.xp = 180; cole.skillPts = 2;
@@ -109,6 +115,9 @@ function grant(gs, job) {
     }
   }
   if (!job.story) q.nextSide[job.npc] = (gs.day || 1) + 1;
+  // Journal entry (newest first, capped).
+  q.log.unshift({ day: gs.day || 1, npc: job.npc, title: job.title, story: !!job.story, reward: rewardText(r) + extra, unlock: job.unlock || null });
+  if (q.log.length > 30) q.log.length = 30;
   return {
     id: job.id, npc: job.npc, title: job.title,
     line: job.done || (SIDE_THANKS[job.npc] || ['Good work out there.'])[Math.floor(Math.random() * 3)],

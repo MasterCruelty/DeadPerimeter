@@ -55,9 +55,37 @@ function dLockedDoor(ctx, s, now) {
   ctx.textAlign = 'left';
 }
 
+// Interior partition (ground floor) with a door, closed or open.
+function dInteriorDoor(ctx, d) {
+  const x = d.x, top = MGY - 80, y = MGY;
+  const g = ctx.createLinearGradient(x - 6, 0, x + 6, 0);
+  g.addColorStop(0, '#24201c'); g.addColorStop(0.5, '#3a342c'); g.addColorStop(1, '#1c1916');
+  ctx.fillStyle = g; ctx.fillRect(x - 6, top, 12, y - top - 58);
+  ctx.fillStyle = '#141210'; ctx.fillRect(x - 13, y - 60, 26, 3);           // lintel
+  if (d.open) {
+    ctx.fillStyle = 'rgba(8,8,6,0.85)'; ctx.fillRect(x - 11, y - 57, 22, 57);
+    ctx.fillStyle = '#5a4026'; ctx.beginPath();
+    ctx.moveTo(x + 11, y - 57); ctx.lineTo(x + 19, y - 53); ctx.lineTo(x + 19, y - 3); ctx.lineTo(x + 11, y); ctx.closePath(); ctx.fill();
+    return;
+  }
+  const dg = ctx.createLinearGradient(0, y - 57, 0, y);
+  dg.addColorStop(0, '#6a4c2c'); dg.addColorStop(1, '#3e2a16');
+  ctx.fillStyle = dg; ctx.fillRect(x - 11, y - 57, 22, 57);
+  ctx.strokeStyle = 'rgba(0,0,0,0.45)'; ctx.lineWidth = 1;
+  ctx.strokeRect(x - 8.5, y - 53.5, 17, 22); ctx.strokeRect(x - 8.5, y - 27.5, 17, 22);
+  ctx.fillStyle = '#c8a040'; ctx.beginPath(); ctx.arc(x + 7, y - 30, 1.6, 0, Math.PI * 2); ctx.fill();
+  if (d.prog > 0) {
+    ctx.strokeStyle = 'rgba(0,0,0,0.6)'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(x, y - 72, 8, 0, Math.PI * 2); ctx.stroke();
+    ctx.strokeStyle = '#c8b890'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(x, y - 72, 8, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.min(1, d.prog)); ctx.stroke();
+  }
+}
+
 // World pass (camera space).
 export function dCityWorld(ctx, m, now) {
   if (m.objective !== 'explore') return;
+  (m.idoors || []).forEach(d => dInteriorDoor(ctx, d));
   dVan(ctx, VAN_X, now, true);
   (m.segs || []).forEach(s => { if (s.locked) dLockedDoor(ctx, s, now); });
   const p = leaveProgress(m, now);

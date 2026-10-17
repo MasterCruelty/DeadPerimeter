@@ -13,6 +13,7 @@ import { BIOMES, SEARCHABLE_TYPES } from '../data/biomes.js';
 import { LOCKED_MUL } from '../data/rewards.js';
 import { rollGear, FOUND_GUNS, MELEE_FINDS } from '../data/weapons.js';
 import { gearIcon, gearName } from '../entities/gear.js';
+import { setupAssault } from './faction.js';
 import { MISSION_W, MGY } from '../data/expeditions.js';
 import { pushRadio } from '../audio/radio.js';
 
@@ -77,7 +78,26 @@ export function setupCityMission(m, dest) {
   // A locked building (never the first one), key hidden before it.
   let lockedSeg = null;
   if (segs.length >= 2 && r() < 0.7) { lockedSeg = segs[1 + Math.floor(r() * (segs.length - 1))]; lockedSeg.locked = true; }
-  const keyHidden = lockedSeg && r() < 0.65;
+  // Assault on the Compact: the armory is the last building, always locked.
+  if (dest.faction && segs.length) {
+    segs.forEach(s => { s.locked = false; });
+    lockedSeg = segs[segs.length - 1]; lockedSeg.locked = true;
+  }
+  const keyHidden = lockedSeg && !dest.faction && r() < 0.65;
+
+  // Rooms: most buildings split their ground floor with an interior
+  // wall and a closed door (stand at it to open). The upper floor stays
+  // one open corridor, so the stairs are the way around.
+  const idoors = [];
+  segs.forEach(s => {
+    const w = s.x1 - s.x0;
+    if (w < 470 || r() > 0.75) return;
+    const n = w >= 560 && r() < 0.4 ? 2 : 1;
+    for (let k = 0; k < n; k++) {
+      const f = n === 1 ? 0.42 + r() * 0.16 : (k === 0 ? 0.36 : 0.62) + r() * 0.04;
+      idoors.push({ id: idoors.length, x: Math.round(s.x0 + w * f), open: false, prog: 0, seg: s.id });
+    }
+  });
 
   const buildings = [], platforms = [], ladders = [];
   segs.forEach(s => {
@@ -141,6 +161,8 @@ export function setupCityMission(m, dest) {
     m.pickups.push({ id: uid(), x, type: 'gear', item, value: 1, collected: false, lane: 0 });
   });
 
+  if (dest.faction) setupAssault(m, dest, segs, lockedSeg, m.wave || 1);
+
   // Job targets (update/quests.js): the item / person sits in the last
   // building (the locked one if there is one), on the upper floor.
   (dest.quests || []).forEach((q, i) => {
@@ -179,7 +201,7 @@ export function setupCityMission(m, dest) {
 
   Object.assign(m, {
     objective: 'explore', fork: null, entranceX: 0, indoorBiomeKey: null,
-    segs, buildings, platforms, ladders, obstacles, props, keys: 0,
+    segs, idoors, buildings, platforms, ladders, obstacles, props, keys: 0,
   });
   // Start next to the van.
   [m.soldier, ...(m.followers || [])].forEach((p, i) => { p.x = 200 - i * 30; });
@@ -245,6 +267,20 @@ export function tickCity(m, now, dt, party) {
     }
   });
 
+  // Interior doors: a party member on the ground standing at one opens it.
+  (m.idoors || []).forEach(d => {
+    if (d.open) return;
+    const at = party.some(p => Math.abs(p.x - d.x) < 30 && Math.abs(p.standingY || 0) < 18);
+    if (!at) { d.prog = Math.max(0, d.prog - dt / 1200); return; }
+    d.prog += dt / 600;
+    if (d.prog >= 1) {
+      d.open = true;
+      m.soundQ.push({ t: 'thud', x: d.x });
+      m.effects.push({ type: 'txt', x: d.x, y: MGY - 70, v: 'DOOR OPEN', col: '#c8b890', at: now, dur: 900 });
+    }
+  });
+  holdDoors(m, party);
+
   // Leave: walk back to the van after heading out.
   if (m._ventured && lead.x < VAN_X + 80 && Math.abs(lead.standingY || 0) < 4) {
     if (!m._leaveAt) m._leaveAt = now;
@@ -256,9 +292,24 @@ export function tickCity(m, now, dt, party) {
   } else m._leaveAt = 0;
 }
 
+// Closed interior doors block everyone on the ground floor; whoever is
+// upstairs walks over them. Each entity remembers which side it's on.
+function holdDoors(m, list) {
+  (m.idoors || []).forEach(d => {
+    const k = '_d' + d.id;
+    list.forEach(e => {
+      if (!e || e.state === 'dead' || e.hp <= 0) return;
+      if (d.open || Math.abs(e.standingY || 0) >= 18) { delete e[k]; return; }
+      if (e[k] === undefined) e[k] = e.x < d.x ? -1 : 1;
+      e.x = e[k] < 0 ? Math.min(e.x, d.x - 12) : Math.max(e.x, d.x + 12);
+    });
+  });
+}
+
 // Keep the dead, civilians and survivors on their side of a locked door
 // (after AI movement; the party is held back in tickCity).
 export function clampCity(m) {
+  holdDoors(m, [...m.zombies, ...(m.rescuables || []), ...(m.humans || [])]);
   (m.segs || []).forEach(s => {
     if (!s.locked) return;
     [...m.zombies, ...(m.rescuables || []), ...(m.humans || [])].forEach(z => {
