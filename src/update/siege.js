@@ -1,6 +1,6 @@
 import { C, WORLD_W, GY, WX, uid, rng, laneY, laneSc } from '../constants.js';
 import { WPN } from '../data/weapons.js';
-import { HUMAN_AMMO_DROP } from '../data/humans.js';
+import { HUMAN_AMMO_DROP, isHumanWaveNumber } from '../data/humans.js';
 import { BALANCE, RESEARCHES, PERKS } from '../data/difficulty.js';
 import { TRANSMISSION_WAVES } from '../data/transmissions.js';
 import { mkZombie } from '../entities/zombie.js';
@@ -8,6 +8,12 @@ import { mkHuman } from '../entities/human.js';
 import { mkSoldier } from '../entities/soldier.js';
 import { recordDeath } from '../entities/gameState.js';
 import { pushRadio } from '../audio/radio.js';
+import { WAVE_MODS, rollWaveMod } from '../data/waveMods.js';
+import { ZTP } from '../data/zombies.js';
+import { tickSiegeEvent, settleSiegeEvent } from './siegeEvents.js';
+
+// Visibility conditions (fog / night) shrink every friendly weapon range.
+const modRange = gs => (gs.waveMod && WAVE_MODS[gs.waveMod] && WAVE_MODS[gs.waveMod].rangeMul) || 1;
 
 // Read the multiplier from a completed research node by effect-key.
 // Defaults to 1 when no node touches this key. Kept local to avoid
@@ -51,7 +57,7 @@ function effRange(gs, sol, weaponKey, w) {
     }
   }
   bonus += perkBonus(sol, 'rangeBonus');
-  return w.range + bonus;
+  return (w.range + bonus) * modRange(gs);
 }
 
 // Helper for soldier "I'm hit / I'm down" callouts. Toggles a flag on
@@ -95,10 +101,24 @@ export function update(gs, now, dt) {
     if (gs.isHumanWave) {
       gs.humans.push(mkHuman(spawn.type));
     } else {
-      gs.zombies.push(mkZombie(spawn.type));
+      const z = mkZombie(spawn.type, spawn.boss ? { boss: true, wave: gs.wave } : null);
+      if (z.type === 'spitter') {
+        const above = Math.max(0, gs.wave - 5);
+        z._spitDmg = Math.max(3, Math.round(ZTP.spitter.dmg * (0.7 + above * 0.10)));
+        z._spitRate = Math.max(1500, 2800 - above * 130);
+      }
+      gs.zombies.push(z);
+      if (z.boss) {
+        gs.boss = z; gs.shakeTimer = 500;
+        gs.soundQ.push({ t: 'roar', x: z.x });
+        pushRadio(gs, 'baseHit', { line: `${z.bossName} incoming, middle lane! Focus fire!`, urgent: true, cooldown: 0 });
+        gs.effects.push({ type: 'txt', x: z.x - 200, y: laneY(1) - 110, v: `☠ ${z.bossName} ☠`, col: '#ff5533', at: now, dur: 2600 });
+      } else if (z.type === 'brute') gs.soundQ.push({ t: 'roar', x: z.x });
     }
     gs.zombiesSpawned++;
   }
+
+  tickSiegeEvent(gs, now, dt);
 
   // Ambient groan (zombies only)
   const living = gs.zombies.filter(z => z.state !== 'dead');
@@ -111,6 +131,7 @@ export function update(gs, now, dt) {
   gs.zombies.forEach(z => {
     if (z.state === 'dead') return;
     z.hurtTimer = Math.max(0, z.hurtTimer - dt);
+    if (z.z.ranged) { spitterTick(gs, z, now, dt); return; }
     if (z.state === 'walk') {
       z.x += z.spd * z.facing * (dt / 16);
       const ns = gs.soldiers.find(s => s.state !== 'dead' && !s.onExpedition && s.lane === z.lane && Math.abs(s.x - z.x) < 42);
@@ -122,7 +143,7 @@ export function update(gs, now, dt) {
       }
     } else if (z.state === 'attack') {
       z.atkTimer += dt;
-      if (z.atkTimer > 1100) {
+      if (z.atkTimer > (z.z.atkRate || 1100)) {
         z.atkTimer = 0;
         if (z.targetBarId) {
           const bar = gs.barricades.find(b => b.id === z.targetBarId);
@@ -248,8 +269,9 @@ export function update(gs, now, dt) {
     if ((gs.resources.turretAmmo || 0) <= 0) return; // dry — needs a refill at base
     if (now - (t.lastShot || 0) < BALANCE.turretRate) return;
     const pool = gs.isHumanWave ? gs.humans : gs.zombies;
+    const tRange = BALANCE.turretRange * modRange(gs);
     const tgt = pool
-      .filter(e => e.state !== 'dead' && e.x > WX && Math.abs(e.x - t.x) <= BALANCE.turretRange)
+      .filter(e => e.state !== 'dead' && e.x > WX && Math.abs(e.x - t.x) <= tRange)
       .sort((a, b) => Math.abs(a.x - t.x) - Math.abs(b.x - t.x))[0];
     if (!tgt) return;
     t.lastShot = now;
@@ -453,6 +475,13 @@ export function update(gs, now, dt) {
     if (b.life <= 0 || b.x < 0 || b.x > WORLD_W) return false;
 
     if (b.hostile) {
+      // Acid lobbed at the wall itself.
+      if (b.wallHit && b.x <= WX + 40) {
+        gs.baseHp -= b.dmg; gs.shakeTimer = Math.max(gs.shakeTimer, 160);
+        gs.soundQ.push({ t: 'bhit' });
+        gs.effects.push({ type: 'txt', x: WX / 2, y: GY - 120, v: `-${b.dmg}`, col: '#8ad858', at: now, dur: 800 });
+        return false;
+      }
       // Hostile bullet → check soldier collisions (any soldier in target lane).
       const hit = gs.soldiers.find(s =>
         s.state !== 'dead' && !s.onExpedition && !s.onRoof &&
@@ -513,7 +542,11 @@ export function update(gs, now, dt) {
     const liveZ = gs.zombies.filter(z => z.state !== 'dead').length;
     const liveH = gs.humans.filter(h => h.state !== 'dead').length;
     const live = gs.isHumanWave ? liveH : liveZ;
-    if (gs.zombiesSpawned > 0 && gs.spawnQueue.length === 0 && live === 0) {
+    // A survivor still running for the gate holds the wave open.
+    const ev = gs.waveEvent;
+    const runner = ev && ev.type === 'survivor' && ev.state === 'active';
+    if (gs.zombiesSpawned > 0 && gs.spawnQueue.length === 0 && live === 0 && !runner) {
+      settleSiegeEvent(gs, now);
       gs.waveComplete = true; gs.waveClearAt = now; gs.soundQ.push({ t: 'wclr' });
     }
   }
@@ -546,6 +579,10 @@ export function update(gs, now, dt) {
       return;
     }
     gs.phase = 'management';
+    gs.boss = null;
+    // Roll the next wave's condition now so the command center can
+    // brief it (and the player can prepare).
+    gs.nextWaveMod = rollWaveMod(gs.wave, isHumanWaveNumber(gs.wave), gs.waveMod, BALANCE.maxWaves);
     // Intermediate story-beat transmissions interleave with the wave
     // pacing. Trigger once per wave (transmissionsDone is persisted)
     // so reloading a save doesn't replay the cinematic.
@@ -641,10 +678,18 @@ function killTarget(gs, target, now, shooter) {
   target.hp = 0; target.state = 'dead'; target.deadAt = now;
   // Random kill chatter (8% chance, throttled by pushRadio cooldown).
   if (shooter) maybeKillChatter(gs, shooter);
-  if (target.type === 'walker' || target.type === 'runner' || target.type === 'tank') {
+  if (ZTP[target.type]) {
     gs.soundQ.push({ t: 'zdie', zt: target.type, x: target.x });
     gs.kills++;
-    gs.score += target.type === 'tank' ? 50 : target.type === 'runner' ? 20 : 10;
+    gs.score += target.boss ? 400 : ({ tank: 50, brute: 120, spitter: 30, runner: 20 }[target.type] || 10);
+    if (target.boss) {
+      // Mini-boss bounty: salvage off the carcass.
+      gs.boss = null; gs.shakeTimer = 600;
+      gs.resources.materials = Math.min(999, (gs.resources.materials || 0) + 15);
+      gs.resources.ammo = Math.min(999, gs.resources.ammo + 30);
+      gs.effects.push({ type: 'txt', x: target.x, y: laneY(target.lane) - 90, v: '+15 🔧  +30 AMMO', col: '#ffd54a', at: now, dur: 1800 });
+      pushRadio(gs, 'kill', { line: `${target.bossName} is down!`, cooldown: 0, speaker: shooter || undefined });
+    }
   } else {
     // Human
     gs.soundQ.push({ t: 'zdie', zt: 'walker', x: target.x });
@@ -664,4 +709,34 @@ function killTarget(gs, target, now, shooter) {
     });
   }
   if (shooter) shooter.kills = (shooter.kills || 0) + 1;
+}
+
+// Spitter in the siege: walks in until a soldier in its lane (or the
+// wall) is within acid range, then holds position and lobs acid.
+function spitterTick(gs, z, now, dt) {
+  const meta = z.z;
+  const sol = gs.soldiers.find(s => s.state !== 'dead' && !s.onExpedition && !s.onRoof && s.lane === z.lane
+    && s.x < z.x && z.x - s.x <= meta.spitRange);
+  const atWall = !sol && z.x - WX <= meta.spitRange * 0.85;
+  if (!sol && !atWall) {
+    z.state = 'walk'; z.facing = -1;
+    z.x += z.spd * z.facing * (dt / 16);
+    return;
+  }
+  z.state = 'attack'; z.facing = -1;
+  z.atkTimer += dt;
+  if (z.atkTimer < (z._spitRate || meta.spitRate)) return;
+  z.atkTimer = 0;
+  const tx = sol ? sol.x : WX + 20;
+  const dist = Math.max(40, z.x - tx);
+  const y0 = laneY(z.lane) - Math.round(30 * laneSc(z.lane));
+  const y1 = sol ? laneY(sol.lane) - Math.round(30 * laneSc(sol.lane)) : GY - 120;
+  const steps = dist / meta.spitSpd;
+  gs.bullets.push({
+    id: uid(), x: z.x - 14, y: y0,
+    dx: -meta.spitSpd, dy: (y1 - y0) / steps,
+    dmg: z._spitDmg || meta.dmg, life: Math.ceil(steps * 1.3),
+    targetLane: z.lane, hostile: true, spit: true, wallHit: !sol,
+  });
+  gs.soundQ.push({ t: 'spit', x: z.x });
 }

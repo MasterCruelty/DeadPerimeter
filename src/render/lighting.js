@@ -49,8 +49,9 @@ export function siegeLights(gs, now) {
     const sx = f.x - cam * CITY_FIRE_PARALLAX - 20;
     if (sx > -260 && sx < CW + 260) lights.push({ x: sx, y: f.y, r: 230 * f.s, i: 0.55 * flick(now, k), c: FIRE });
   });
-  // Moonlight (screen-fixed, like the sky layer).
-  lights.push({ x: CW * 0.56, y: 112, r: 560, i: 0.16, c: MOON });
+  // Moonlight (screen-fixed, like the sky layer) — gone on a moonless night.
+  const mod = gs.waveMod;
+  if (mod !== 'night') lights.push({ x: CW * 0.56, y: 112, r: 560, i: mod === 'fog' ? 0.08 : 0.16, c: MOON });
 
   // Fort Omega: watchtower cabin + parapet floodlights (cones).
   push(lights, WX - 22, GY - 228, 110, 0.55, WARM, cam);
@@ -97,11 +98,15 @@ export function siegeLights(gs, now) {
     if (life > 0) push(lights, e.x, e.y, 60, 0.7 * life, MUZZLE, cam);
   }
 
-  return {
+  const base = {
     ambient: 0.78, tint: [0.74, 0.8, 1.0], lights, cones,
     bloom: 0.62, threshold: 0.6, scatter: 0.26, vignette: 0.38, grain: 0.035, sat: 0.92,
     flash: gs.shakeTimer > 220 ? 0.04 : 0,
   };
+  if (mod === 'night') return { ...base, ambient: 0.58, tint: [0.62, 0.7, 1.0], vignette: 0.52 };
+  if (mod === 'fog')   return { ...base, ambient: 0.8, scatter: 0.5, sat: 0.72, tint: [0.86, 0.88, 0.92] };
+  if (mod === 'acid')  return { ...base, tint: [0.78, 0.92, 0.72] };
+  return base;
 }
 
 // ── Mission (sortie) ─────────────────────────────────────────────
@@ -182,6 +187,12 @@ export function missionLights(m, now) {
     if (life > 0) push(lights, e.x, e.y, 60, 0.7 * life, MUZZLE, cam);
   }
 
+  // Mission extras: car alarm strobe, nest glow; night raid is darker.
+  if (m.alarm && m.alarm.triggered && now - m.alarm.at < 9000 && Math.floor(now / 220) % 2 === 0) push(lights, m.alarm.x, MGY - 16, 150, 0.9, [1.0, 0.65, 0.2], cam);
+  if (m.side && m.side.type === 'nest' && m.side.state === 'active') push(lights, m.side.x, MGY - 24, 90, 0.4, [1.0, 0.3, 0.4], cam);
+  if (m.cond === 'night' && !fullyIndoor) {
+    return { ambient: 0.5, tint: [0.6, 0.7, 1.0], lights, cones, bloom: 0.62, threshold: 0.58, scatter: 0.3, vignette: 0.5, grain: 0.04, sat: 0.85 };
+  }
   return fullyIndoor
     ? { ambient: 0.6, tint: [0.82, 0.84, 0.92], lights, cones, bloom: 0.55, threshold: 0.62, scatter: 0.3, vignette: 0.42, grain: 0.04, sat: 0.9 }
     : { ambient: 0.68, tint: [0.72, 0.8, 1.0], lights, cones, bloom: 0.6, threshold: 0.6, scatter: 0.26, vignette: 0.38, grain: 0.035, sat: 0.92 };
