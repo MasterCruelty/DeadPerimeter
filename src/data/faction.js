@@ -35,7 +35,7 @@ export const discountOf = standing => (standing >= 60 ? 0.85 : 1);
 export const mkCompact = () => ({
   status: 'neutral',                    // neutral | hostile | destroyed
   standing: 0,
-  guns: 3,                              // rifles in their armory
+  guns: 3,                              // guns in their armory
   treasury: { materials: 30, food: 40, medicine: 8, ammo: 120 },
   envoyDay: -1,                         // day an envoy was last sent
   nextRaidDay: 0,                       // hostile: next reprisal raid

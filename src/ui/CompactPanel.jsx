@@ -32,7 +32,7 @@ export default function CompactPanel({ gs, sortiesPerDay, onChange }) {
         </div>
       </div>
       <div style={{ marginTop: '5px', color: '#ffcc88' }}>
-        Intel: about {c.guns} rifles in their armory · treasury ≈ {fmt(c.treasury)}
+        Intel: about {c.guns} guns in their armory · treasury ≈ {fmt(c.treasury)}
         <span style={{ opacity: 0.7 }}> (everything you pay them ends up there)</span>
       </div>
       {c.status === 'neutral' ? (
