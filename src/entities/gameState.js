@@ -15,7 +15,7 @@ export const mkGS = () => {
   delta.x = WX - 40; delta.state = 'idle';
   return {
     phase: 'menu', day: 1, wave: 1, baseHp: 300, baseMaxHp: 300,
-    resources: { food: 50, ammo: 150, medicine: 12, materials: 35, sniperAmmo: 15, turretAmmo: 30 },
+    resources: { food: 80, ammo: 150, medicine: 12, materials: 35, sniperAmmo: 15, turretAmmo: 30 },
     soldiers: [
       mkSoldier('Alpha',   'rifle',  224, 100, 0),
       mkSoldier('Bravo',   'rifle',  248, 100, 1),

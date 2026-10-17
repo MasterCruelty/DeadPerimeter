@@ -80,7 +80,13 @@ export const BALANCE = {
   // Per-wave clear bonuses. Food is intentionally 0 — daily rations
   // come from expedition food runs and helicopter evac payouts, not
   // from holding the wall. Ammo bonus stays so combat stays sustainable.
-  waveClearAmmo: 25,
+  // Ammo resupply scales with the wave: a flat 25 couldn't keep up
+  // with consumption (~10 rounds per wave number from wave 5 on), so
+  // the stash bled dry around wave 10 even with careful play.
+  waveClearAmmo: 30,
+  waveClearAmmoPerWave: 5,
+  waveClearAmmoMax: 160,
+  waveClearSniperAmmo: 2,           // Delta's 15 starting rounds lasted ~3 waves
   waveClearFood: 0,
 
   // Per-sortie fatigue: each surviving party member eats this much
@@ -88,12 +94,16 @@ export const BALANCE = {
   // post-action calories). Counters the food-inflation problem where
   // the stash kept growing because expeditions only added food but
   // never spent it.
-  sortieFoodCostPerSoldier: 5,
+  sortieFoodCostPerSoldier: 3,
 
   // Workshop / Research lab one-time build costs.
   workbenchCost:    { materials: 30 },
   researchLabCost:  { materials: 50, medicine: 5 },
 };
+
+// Ammo issued on clearing wave `wave`.
+export const waveClearAmmoFor = wave =>
+  Math.min(BALANCE.waveClearAmmoMax, BALANCE.waveClearAmmo + BALANCE.waveClearAmmoPerWave * wave);
 
 // Craft recipes — material conversion at the workbench. Each recipe
 // is "one click" and consumes the cost / produces the output. The

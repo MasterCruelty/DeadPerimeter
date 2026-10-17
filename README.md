@@ -57,6 +57,10 @@
 - **Mid-wave radio events**: cover a survivor sprinting for the gate (they
   join the reserve) or send a soldier out to recover a parachuted supply
   crate before it's lost.
+- **Ammo economy**: the wave-clear resupply scales with the wave
+  (`30 + 5 × wave`, capped at 160), Delta gets +2 sniper rounds per wave,
+  unused sortie magazines return to the stash, and when the stash runs
+  low Command almost always drops an ammo crate mid-wave.
 - **Daily food consumption** — every alive squad + reserve member eats
   `BALANCE.foodPerPersonPerDay` per wave-clear. Starvation deals real damage.
 - **Wall repair** (`💪 REPAIR`) — spend materials to patch the base wall HP.

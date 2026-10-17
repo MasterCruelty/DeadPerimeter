@@ -51,4 +51,4 @@ export function rollWaveMod(wave, isHuman, prev = null, maxWaves = 30) {
 const BOSS_NAMES = ['THE BUTCHER', 'GOLIATH', 'THE WARDEN', 'MOTHER', 'THE OX'];
 export const isBossWave = (wave, maxWaves = 30) => wave % 5 === 0 && wave < maxWaves;
 export const bossName = wave => BOSS_NAMES[(Math.floor(wave / 5) - 1) % BOSS_NAMES.length];
-export const bossHp = wave => 520 + wave * 48;
+export const bossHp = wave => 400 + wave * 30;
