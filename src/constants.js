@@ -25,6 +25,14 @@ export const LANES = [
   { dy: -64, sc: 0.64, gshade: '#111008' }, // back
 ];
 
+// Siege zoom (1×–2×): the world is scaled around a line just above the
+// lanes, so zooming in fills the screen with the fight, not the sky.
+// Screen ← world:  sx = (wx - cam) · z,  sy = ZOOM_FY + (wy - ZOOM_FY) · z.
+export const ZOOM_MIN = 1, ZOOM_MAX = 2, ZOOM_FY = GY - 20;
+export const zoomOf = gs => (gs && gs.zoom) || 1;
+export const camMaxFor = gs => WORLD_W - CW / zoomOf(gs);
+export const clampCam = (gs, x) => Math.max(0, Math.min(camMaxFor(gs), x));
+
 export const laneY  = lane => GY + LANES[lane].dy;
 export const laneSc = lane => LANES[lane].sc;
 export const clickToLane = my => (my < GY - 50 ? 2 : my < GY - 20 ? 1 : 0);

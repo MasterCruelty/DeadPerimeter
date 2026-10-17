@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 
-import { C, CW, CH, GY, WX, WORLD_W, DPR, laneY, clickToLane } from './constants.js';
+import { C, CW, CH, GY, WX, WORLD_W, DPR, laneY, clickToLane, ZOOM_FY, zoomOf, clampCam } from './constants.js';
+import { setZoom } from './update/zoom.js';
+import { leaveRoomIfInside } from './update/rooms.js';
 import { WPN, wbase, ammoPool, MELEE } from './data/weapons.js';
 import { stashGear, ensureArmory, magSize } from './entities/gear.js';
 import { SKILLS, SKILL_MAX, xpForLevel, spendSkill } from './data/progression.js';
@@ -41,13 +43,13 @@ import { dDefeatScene, DEFEAT_DURATION } from './render/defeat.js';
 import { dTransmissionScene } from './render/transmission.js';
 import { createPostFX } from './render/postfx.js';
 import { setNormalTarget } from './render/actors/paint.js';
-import { zombiePrewarm, registerZombieTypes } from './render/actors/zombies.js';
+import { zombiePrewarm, registerZombieTypes, setWalkerPool } from './render/actors/zombies.js';
 import { ZTP } from './data/zombies.js';
-import { siegeLights, missionLights } from './render/lighting.js';
+import { zoomLights, siegeLights, missionLights } from './render/lighting.js';
 import { dExtractionScene, EXTRACTION_DURATION, EXTRACTION_SCRIPT, mkExtraction } from './render/extraction.js';
 import { TRANSMISSIONS } from './data/transmissions.js';
 import { pushRadio } from './audio/radio.js';
-import { initRadioVoice, isRadioVoiceEnabled, isRadioVoiceAvailable, setRadioVoiceEnabled, speakOrChatter } from './audio/radioVoice.js';
+import { initRadioVoice, setRadioVoiceEnabled, speakOrChatter } from './audio/radioVoice.js';
 
 import { update } from './update/siege.js';
 import { mkMission, updateMission, dMissionWorld, dMissionHUD } from './update/mission.js';
@@ -148,29 +150,14 @@ export default function DeadPerimeter() {
   const inputRef = useRef({ left: false, right: false, shoot: false });
   const pausedRef = useRef(false);
   const [scr, setScr] = useState('menu'), [ui, setUi] = useState(null), [muted, setMuted] = useState(false);
-  const [voiceOn, setVoiceOn] = useState(true);
-  const voiceAvail = isRadioVoiceAvailable();
   const [paused, setPaused] = useState(false);
   const [hasSave, setHasSave] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
-  // Graphics mode: 'hd' = WebGL lighting / bloom / grading layer over the
-  // Canvas 2D renderer, 'classic' = plain Canvas 2D. Remembered per browser.
+  // Graphics: always the full HD layer (WebGL lighting / bloom / grading
+  // over Canvas 2D). 'classic' only if the browser has no WebGL.
   const glCvs = useRef(null);
-  const [gfx, setGfx] = useState(() => {
-    try { return localStorage.getItem('dp-gfx') || 'hd'; } catch (_e) { return 'hd'; }
-  });
+  const [gfx, setGfx] = useState('hd');
   const gfxRef = useRef(gfx);
-  const [gfxNote, setGfxNote] = useState(null);
-  useEffect(() => {
-    if (!gfxNote) return;
-    const t = setTimeout(() => setGfxNote(null), 6000);
-    return () => clearTimeout(t);
-  }, [gfxNote]);
-  const toggleGfx = useCallback(() => {
-    const n = gfxRef.current === 'hd' ? 'classic' : 'hd';
-    gfxRef.current = n; setGfx(n);
-    try { localStorage.setItem('dp-gfx', n); } catch (_e) { /* ignore */ }
-  }, []);
   // Which soldier card currently has its upgrade panel expanded (id).
   // null = none. Toggled by the ⚙ UPGRADES button on each card.
   const [upgOpenId, setUpgOpenId] = useState(null);
@@ -210,12 +197,6 @@ export default function DeadPerimeter() {
   }, []);
   const pickDest = useCallback(i => { expDstRef.current = i; setExpDestIdx(i); }, []);
 
-  const toggleVoice = useCallback(() => {
-    const n = !isRadioVoiceEnabled();
-    setRadioVoiceEnabled(n);
-    setVoiceOn(n);
-  }, []);
-
   const toggleMute = useCallback(() => {
     const am = getAM();
     const n = !mutedR.current;
@@ -249,6 +230,7 @@ export default function DeadPerimeter() {
   useEffect(() => {
     if (scr !== 'management' && scr !== 'expedition') return;
     registerZombieTypes(ZTP);
+    setWalkerPool(gsRef.current ? gsRef.current.day : 1);   // today's walker outfits
     const it = zombiePrewarm();
     let id = null, done = false;
     const ric = window.requestIdleCallback || (cb => setTimeout(() => cb({ timeRemaining: () => 6 }), 30));
@@ -269,7 +251,7 @@ export default function DeadPerimeter() {
   useEffect(() => {
     setHasSave(hasSavedGame());
     initRadioVoice();
-    setVoiceOn(isRadioVoiceEnabled());
+    setRadioVoiceEnabled(true);   // voices are always on
   }, []);
 
   // Expedition animation ticker
@@ -495,6 +477,7 @@ export default function DeadPerimeter() {
   const finalizeMission = useCallback(() => {
     const m = missionRef.current; if (!m) return;
     const gs = gsRef.current;
+    leaveRoomIfInside(m);   // the result reads the street, not a room
     // finishMission writes back every party member's hp/state/onExpedition.
     const am0 = getAM(); if (am0) { am0.windStop(); am0.cityHumStop(); }
     const result = finishMission(m, gs);
@@ -956,16 +939,7 @@ export default function DeadPerimeter() {
     const mkOff = () => { const c = document.createElement('canvas'); c.width = CW * DPR; c.height = CH * DPR; return c; };
     const worldC = mkOff(), hudC = mkOff(), normC = mkOff();
     const normCtx = normC.getContext('2d');
-    // Adaptive HD quality. Level 0 = full (DPR + normal-mapped actors),
-    // 1 = no normal map, 2 = HD layer at 1× resolution, 3 = give up and
-    // fall back to classic. Steps down when frames stay slow for ~4 s.
-    let hdLevel = 0, hdScale = DPR, slowFor = 0, emaDt = 16;
-    let lockQuality = false;
-    try { lockQuality = localStorage.getItem('dp-gfx-lock') === '1'; } catch (_e) { /* ignore */ }
-    const setHdScale = k => {
-      hdScale = k;
-      [worldC, hudC, normC].forEach(c => { c.width = Math.round(CW * k); c.height = Math.round(CH * k); });
-    };
+    const hdScale = DPR;
     if (import.meta.env.DEV) window.__dp = { worldC, hudC, gsRef, missionRef, extractionRef, mkExtraction, expDestsRef };
     const worldCtx = worldC.getContext('2d'), hudCtx = hudC.getContext('2d');
     let fx = null, fxTried = false;
@@ -980,7 +954,8 @@ export default function DeadPerimeter() {
       if (transmissionRef.current) { finishTransmission(); return; }
       if (extractionRef.current)   { finishExtraction();   return; }
       const r = canvas.getBoundingClientRect();
-      const mx = (e.clientX - r.left) * (CW / r.width), my = (e.clientY - r.top) * (CH / r.height);
+      const mx = (e.clientX - r.left) * (CW / r.width);
+      let my = (e.clientY - r.top) * (CH / r.height);
       // Build placement: click in the green zone to confirm.
       const pl = placementRef.current;
       if (pl) {
@@ -1026,7 +1001,7 @@ export default function DeadPerimeter() {
       // Radar click: centre the camera on that slice of the battlefield.
       if (inRect(HUD_RADAR)) {
         const wx = ((mx - HUD_RADAR.x) / HUD_RADAR.w) * WORLD_W;
-        gs.cameraX = Math.max(0, Math.min(WORLD_W - CW, wx - CW / 2));
+        gs.cameraX = clampCam(gs, wx - CW / zoomOf(gs) / 2);
         return;
       }
       if (my <= 38) return;
@@ -1035,7 +1010,9 @@ export default function DeadPerimeter() {
       // siege view scrolls. Translate the click into world coordinates
       // so entity-hit tests and target placement line up with what the
       // player sees regardless of cameraX.
-      const worldX = mx + (gs.cameraX || 0);
+      const z = zoomOf(gs);
+      const worldX = mx / z + (gs.cameraX || 0);
+      my = ZOOM_FY + (my - ZOOM_FY) / z;          // screen → world y (zoom)
 
       const clickedSol = gs.soldiers.find(s => {
         if (s.state === 'dead' || s.onExpedition || s.onRoof) return false;
@@ -1081,7 +1058,6 @@ export default function DeadPerimeter() {
         e.preventDefault();
         return;
       }
-      if ((e.key === 'g' || e.key === 'G') && !e.ctrlKey && !e.metaKey) { toggleGfx(); }
       if (e.key === 'Escape' || e.key === 'Esc') {
         // Cancel build placement if active.
         if (placementRef.current) { cancelPlacement(); e.preventDefault(); return; }
@@ -1105,11 +1081,14 @@ export default function DeadPerimeter() {
         if (e.key === 'ArrowUp'    || e.key === 'w' || e.key === 'W') { inputRef.current.up = true;    e.preventDefault(); }
         if (e.key === 'ArrowDown'  || e.key === 's' || e.key === 'S') { inputRef.current.down = true;  e.preventDefault(); }
         if (e.key === ' ' || e.key === 'Spacebar') { inputRef.current.shoot = true; e.preventDefault(); }
+        if ((e.key === 'e' || e.key === 'E') && !e.repeat) { missionRef.current.inputInteract = true; e.preventDefault(); }
       } else {
         // Siege phase: arrow keys pan the camera across the wider WORLD_W.
         const gs = gsRef.current;
         if (gs && gs.phase === 'siege' && !missionRef.current) {
           if (e.key === 'f' || e.key === 'F') { toggleSpeed(); e.preventDefault(); return; }
+          if (e.key === '+' || e.key === '=') { setZoom(gs, zoomOf(gs) * 1.25); e.preventDefault(); return; }
+          if (e.key === '-' || e.key === '_') { setZoom(gs, zoomOf(gs) / 1.25); e.preventDefault(); return; }
           // 1-9: quick-select a ground soldier (same order as the chips
           // under the canvas). Pressing the selected one again deselects.
           if (/^[1-9]$/.test(e.key)) {
@@ -1118,7 +1097,7 @@ export default function DeadPerimeter() {
             if (pick) {
               gs.selectedSoldierId = gs.selectedSoldierId === pick.id ? null : pick.id;
               // Bring the picked soldier into view.
-              if (gs.selectedSoldierId) gs.cameraX = Math.max(0, Math.min(WORLD_W - CW, pick.x - CW / 3));
+              if (gs.selectedSoldierId) gs.cameraX = clampCam(gs, pick.x - CW / zoomOf(gs) / 3);
             }
             e.preventDefault(); return;
           }
@@ -1211,6 +1190,15 @@ export default function DeadPerimeter() {
       }
     };
 
+    // Siege zoom: mouse wheel, keeping the point under the cursor fixed.
+    const onWheel = e => {
+      const gs = gsRef.current;
+      if (!gs || gs.phase !== 'siege' || missionRef.current || placementRef.current) return;
+      e.preventDefault();
+      const r = canvas.getBoundingClientRect();
+      setZoom(gs, zoomOf(gs) * (e.deltaY < 0 ? 1.12 : 1 / 1.12), (e.clientX - r.left) * (CW / r.width));
+    };
+    canvas.addEventListener('wheel', onWheel, { passive: false });
     canvas.addEventListener('click', onClick);
     canvas.addEventListener('mousedown', onMouseDown);
     canvas.addEventListener('mousemove', onMouseMove);
@@ -1461,7 +1449,7 @@ export default function DeadPerimeter() {
           let cx = gs.cameraX || 0;
           if (inputRef.current.panLeft)  cx -= panSpd;
           if (inputRef.current.panRight) cx += panSpd;
-          gs.cameraX = Math.max(0, Math.min(WORLD_W - CW, cx));
+          gs.cameraX = clampCam(gs, cx);
         }
         if (gs.phase !== 'siege') {
           const am = getAM(); if (am) am.stopBg();
@@ -1506,6 +1494,8 @@ export default function DeadPerimeter() {
           // wider WORLD_W. HUD is drawn after ctx.restore() so it stays
           // in screen-space and never scrolls.
           ctx.save();
+          const zm = zoomOf(gs);
+          if (zm !== 1) { ctx.translate(0, ZOOM_FY * (1 - zm)); ctx.scale(zm, zm); }
           ctx.translate(-(gs.cameraX || 0), 0);
           dBg(ctx, gs.cameraX || 0, simNow); dBase(ctx, gs.baseHp, gs.baseMaxHp, simNow);
           for (let lane = 2; lane >= 0; lane--) {
@@ -1523,7 +1513,7 @@ export default function DeadPerimeter() {
           dWaveCondition(ctx, gs, simNow);
           dSquadMarker(ctx, gs.squadTarget, gs.squadLane, simNow);
           ctx.restore();
-          scene = siegeLights(gs, simNow);
+          scene = zoomLights(siegeLights(gs, simNow), zm);
           // HUD lives in screen-space.
           hudUsed = true;
           dHUD(hctx, gs, simNow, mutedR.current);
@@ -1537,7 +1527,7 @@ export default function DeadPerimeter() {
             hctx.fillText('Esc — resume', CW / 2, CH / 2 + 2);
             hctx.fillStyle = 'rgba(184,204,170,0.6)'; hctx.font = '10px monospace';
             hctx.fillText('click lane: move · 1-9: select soldier', CW / 2, CH / 2 + 22);
-            hctx.fillText('←/→ or radar: pan · F: 2× speed', CW / 2, CH / 2 + 38);
+            hctx.fillText('←/→ or radar: pan · F: 2× speed · wheel or +/−: zoom', CW / 2, CH / 2 + 38);
             hctx.textAlign = 'left';
           }
           ctx.restore();
@@ -1557,7 +1547,7 @@ export default function DeadPerimeter() {
       const useFx = !!(wantFx && fx);
       ctx = useFx ? worldCtx : mainCtx;
       hctx = useFx ? hudCtx : mainCtx;
-      const useNormals = useFx && hdLevel === 0;
+      const useNormals = useFx;
       mainCtx.setTransform(DPR, 0, 0, DPR, 0, 0);
       worldCtx.setTransform(hdScale, 0, 0, hdScale, 0, 0);
       hudCtx.setTransform(hdScale, 0, 0, hdScale, 0, 0);
@@ -1580,24 +1570,12 @@ export default function DeadPerimeter() {
       frame(now);
       if (useFx) fx.render(worldC, hudUsed ? hudC : null, scene, now, useNormals ? normC : null);
       setNormalTarget(null);
-      // Adaptive quality: watch real frame time while HD is on.
-      if (useFx && !lockQuality && !document.hidden) {
-        const fdt = Math.min(100, now - (loop.last || now));
-        emaDt = emaDt * 0.95 + fdt * 0.05;
-        slowFor = emaDt > 24 ? slowFor + fdt : 0;
-        if (slowFor > 4000) {
-          slowFor = 0; emaDt = 16; hdLevel++;
-          if (hdLevel === 2) setHdScale(1);
-          if (hdLevel >= 3) { gfxRef.current = 'classic'; setGfx('classic'); setGfxNote('HD off — this device was too slow for it'); }
-          else setGfxNote(hdLevel === 1 ? 'HD: normal-mapped lighting off for speed' : 'HD: lower resolution for speed');
-        }
-      }
-      loop.last = now;
       rafId.current = requestAnimationFrame(loop);
     };
     rafId.current = requestAnimationFrame(loop);
     return () => {
       cancelAnimationFrame(rafId.current);
+      canvas.removeEventListener('wheel', onWheel);
       canvas.removeEventListener('click', onClick);
       canvas.removeEventListener('mousedown', onMouseDown);
       canvas.removeEventListener('mousemove', onMouseMove);
@@ -1609,7 +1587,7 @@ export default function DeadPerimeter() {
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
     };
-  }, [toggleMute, togglePause, toggleSpeed, toggleGfx, applyEvac, cancelPlacement, confirmPlacement, finishDefeat,
+  }, [toggleMute, togglePause, toggleSpeed, applyEvac, cancelPlacement, confirmPlacement, finishDefeat,
       finishExtraction, finishIntro, finishTransmission, resolveTrade]);
 
   // ── STYLES ───────────────────────────────────────────────────
@@ -1866,9 +1844,6 @@ export default function DeadPerimeter() {
           {/* HD layer: WebGL composite drawn over the 2D canvas. Pointer
               events pass through to the 2D canvas underneath. */}
           <canvas ref={glCvs} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none', display: gfx === 'hd' ? 'block' : 'none' }} />
-          {gfxNote && (
-            <div style={{ position: 'absolute', left: '50%', bottom: '12px', transform: 'translateX(-50%)', background: 'rgba(10,16,8,0.9)', border: `1px solid ${C.wrn}`, color: C.wrn, fontSize: '11px', padding: '4px 10px', lineHeight: 1.4, pointerEvents: 'none' }}>{gfxNote}</div>
-          )}
         </div>
         {scr === 'siege' && (
           <div style={{ display: 'flex', gap: '7px', marginTop: '7px', flexWrap: 'wrap', justifyContent: 'center', alignItems: 'center', width: '100%', maxWidth: CW }}>
@@ -1913,24 +1888,21 @@ export default function DeadPerimeter() {
             <button style={ctrlBtn} onClick={() => moveSquad('advance')}>ADVANCE ▶</button>
             <button style={mbtn} onClick={togglePause}>{paused ? '▶ RESUME' : '⏸ PAUSE'}</button>
             <button style={{ ...mbtn, color: fastOn ? C.wrn : C.txt, borderColor: fastOn ? C.wrn : C.uib }} onClick={toggleSpeed} title="Fast-forward (F)">{fastOn ? '▶▶ 2×' : '▶ 1×'}</button>
-            <button style={mbtn} onClick={toggleGfx} title="Graphics: HD lighting (WebGL) or classic Canvas (G)">{gfx === 'hd' ? '✨ HD' : '▭ CLASSIC'}</button>
+            <button style={mbtn} onClick={() => { const G = gsRef.current; if (G) setZoom(G, zoomOf(G) / 1.25); }} title="Zoom out (− or mouse wheel)">🔍−</button>
+            <button style={mbtn} onClick={() => { const G = gsRef.current; if (G) setZoom(G, zoomOf(G) * 1.25); }} title="Zoom in (+ or mouse wheel)">🔍+</button>
             <button style={mbtn} onClick={toggleMute}>{muted ? '🔇' : '🔊'}</button>
-            {voiceAvail && (
-              <button style={mbtn} onClick={toggleVoice} title="Radio voice (TTS)">{voiceOn ? '🗣' : '🚫'}</button>
-            )}
           </div>
         )}
         {scr === 'mission' && (
           <div style={{ display: 'flex', gap: '8px', marginTop: '8px', flexWrap: 'wrap', justifyContent: 'center', alignItems: 'center', width: '100%', maxWidth: CW }}>
             {missionRef.current && missionRef.current.state === 'active' ? (
               <>
-                <span style={{ color: '#888', fontSize: '10px' }}>A/D move · SPACE or hold mouse: fire · W jump/climb · S down · Esc pause</span>
-                <button style={mbtn} onClick={togglePause}>{paused ? '▶ RESUME' : '⏸ PAUSE'}</button>
-                <button style={mbtn} onClick={toggleGfx} title="Graphics (G)">{gfx === 'hd' ? '✨ HD' : '▭ CLASSIC'}</button>
-                <button style={mbtn} onClick={toggleMute}>{muted ? '🔇' : '🔊'}</button>
-                {voiceAvail && (
-                  <button style={mbtn} onClick={toggleVoice} title="Radio voice (TTS)">{voiceOn ? '🗣' : '🚫'}</button>
+                <span style={{ color: '#888', fontSize: '10px' }}>A/D move · SPACE or hold mouse: fire · W jump/climb · S down · E enter/exit rooms · Esc pause</span>
+                {missionRef.current.objective === 'explore' && (
+                  <button style={mbtn} onClick={() => { if (missionRef.current) missionRef.current.inputInteract = true; }} title="Enter / leave a room (E)">🚪 E</button>
                 )}
+                <button style={mbtn} onClick={togglePause}>{paused ? '▶ RESUME' : '⏸ PAUSE'}</button>
+                <button style={mbtn} onClick={toggleMute}>{muted ? '🔇' : '🔊'}</button>
               </>
             ) : vaccineRef.current ? (() => {
               const camp = vaccineRef.current;
@@ -2025,10 +1997,6 @@ export default function DeadPerimeter() {
                 <div style={{ color: C.dng, fontWeight: 'bold', fontSize: '20px' }}>WAVE {gs?.wave || 1}/{BALANCE.maxWaves}</div>
                 <div style={{ display: 'flex', gap: '6px' }}>
                   <button style={mbtn} onClick={toggleMute}>{muted ? '🔇 MUTED' : '🔊 SOUND'}</button>
-                  <button style={mbtn} onClick={toggleGfx} title="HD lighting (WebGL) or classic Canvas">{gfx === 'hd' ? '✨ HD GFX' : '▭ CLASSIC GFX'}</button>
-                  {voiceAvail && (
-                    <button style={mbtn} onClick={toggleVoice} title="Radio voice (TTS)">{voiceOn ? '🗣 VOICE' : '🚫 SILENT'}</button>
-                  )}
                 </div>
               </div>
             </div>

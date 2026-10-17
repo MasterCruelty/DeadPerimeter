@@ -1,9 +1,10 @@
 // Explore-mission dressing (see update/cityMission.js): the van you
-// leave by, locked doors with their forcing progress, and the HUD bits
-// (keys, leaving countdown).
+// leave by, barricades with their tearing-down progress, and the HUD
+// bits (bolt cutters, leaving countdown). Rooms are in render/rooms.js.
 import { C } from '../constants.js';
 import { MGY } from '../data/expeditions.js';
 import { VAN_X, leaveProgress } from '../update/cityMission.js';
+import { dRoomsWorld } from './rooms.js';
 
 function dVan(ctx, x, now, lit) {
   const y = MGY;
@@ -31,76 +32,59 @@ function dVan(ctx, x, now, lit) {
   ctx.fillStyle = Math.floor(now / 500) % 2 ? '#ffb030' : '#6a4a10'; ctx.fillRect(x - 10, y - 48, 8, 4);
 }
 
-function dLockedDoor(ctx, s, now) {
+// Chained barricade blocking the street: planks, a car door, sandbags
+// and a chained gate. Cut the chain (bolt cutters) or tear it down.
+function dBarricade(ctx, s, now) {
   const x = s.x0, y = MGY;
-  // Boarded-up door with a chained padlock.
-  ctx.fillStyle = '#2a1e12'; ctx.fillRect(x - 12, y - 70, 24, 70);
-  ctx.fillStyle = '#5a3f22';
-  [[-16, -60, 0.25], [-16, -38, -0.2], [-16, -16, 0.15]].forEach(([dx, dy, a]) => {
-    ctx.save(); ctx.translate(x, y + dy); ctx.rotate(a); ctx.fillRect(dx, -4, 32, 8);
-    ctx.fillStyle = '#3a2814'; ctx.fillRect(dx + 2, -1, 2, 2); ctx.fillRect(dx + 28, -1, 2, 2); ctx.restore();
-    ctx.fillStyle = '#5a3f22';
+  // Sandbag base
+  ctx.fillStyle = '#7a6a48';
+  for (let k = 0; k < 3; k++) for (let j = 0; j < 3 - k; j++) {
+    ctx.beginPath(); ctx.ellipse(x - 18 + j * 18 + k * 9, y - 7 - k * 11, 11, 7, 0, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.strokeStyle = 'rgba(0,0,0,0.35)'; ctx.lineWidth = 1;
+  for (let k = 0; k < 3; k++) { ctx.beginPath(); ctx.moveTo(x - 30 + k * 9, y - 7 - k * 11); ctx.lineTo(x + 30 - k * 9, y - 7 - k * 11); ctx.stroke(); }
+  // Uprights + crossed planks
+  ctx.fillStyle = '#3a2a18'; ctx.fillRect(x - 16, y - 96, 6, 96); ctx.fillRect(x + 10, y - 96, 6, 96);
+  ctx.fillStyle = '#6a4c2c';
+  [[-60, 0.32], [-44, -0.28], [-74, 0.05], [-28, 0.12]].forEach(([dy, a]) => {
+    ctx.save(); ctx.translate(x, y + dy); ctx.rotate(a); ctx.fillRect(-30, -4, 60, 8);
+    ctx.fillStyle = '#3a2814'; ctx.fillRect(-26, -1, 2, 2); ctx.fillRect(24, -1, 2, 2); ctx.restore();
+    ctx.fillStyle = '#6a4c2c';
   });
-  ctx.fillStyle = '#c8a040'; ctx.fillRect(x - 5, y - 44, 10, 9);
-  ctx.strokeStyle = '#c8a040'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, y - 44, 4, Math.PI, 0); ctx.stroke();
+  // Scrap car door
+  ctx.fillStyle = '#5a2a22'; ctx.beginPath(); ctx.moveTo(x - 24, y - 52); ctx.lineTo(x + 6, y - 58); ctx.lineTo(x + 8, y - 32); ctx.lineTo(x - 22, y - 30); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = 'rgba(140,170,190,0.35)'; ctx.fillRect(x - 18, y - 54, 18, 8);
+  // Barbed wire across the top
+  ctx.strokeStyle = '#8a8a80'; ctx.lineWidth = 1;
+  ctx.beginPath();
+  for (let k = 0; k <= 8; k++) ctx.lineTo(x - 26 + k * 6.5, y - 98 + Math.sin(k * 1.7) * 3);
+  ctx.stroke();
+  // Chain + padlock
+  if (!s.force || s.force < 0.5) {
+    ctx.strokeStyle = '#a8a8a0'; ctx.lineWidth = 2;
+    for (let k = 0; k < 6; k++) { ctx.beginPath(); ctx.ellipse(x - 14 + k * 5.5, y - 66 + (k % 2), 3, 2, 0, 0, Math.PI * 2); ctx.stroke(); }
+    ctx.fillStyle = '#c8a040'; ctx.fillRect(x - 4, y - 64, 9, 8);
+    ctx.strokeStyle = '#c8a040'; ctx.beginPath(); ctx.arc(x + 0.5, y - 64, 3.5, Math.PI, 0); ctx.stroke();
+  }
   if (s.force > 0) {
     ctx.strokeStyle = 'rgba(0,0,0,0.6)'; ctx.lineWidth = 4;
-    ctx.beginPath(); ctx.arc(x, y - 96, 11, 0, Math.PI * 2); ctx.stroke();
+    ctx.beginPath(); ctx.arc(x, y - 122, 11, 0, Math.PI * 2); ctx.stroke();
     ctx.strokeStyle = '#ffb030'; ctx.lineWidth = 3;
-    ctx.beginPath(); ctx.arc(x, y - 96, 11, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * s.force); ctx.stroke();
+    ctx.beginPath(); ctx.arc(x, y - 122, 11, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * s.force); ctx.stroke();
   }
   const b = Math.sin(now / 220) * 2;
   ctx.font = 'bold 9px monospace'; ctx.textAlign = 'center';
-  ctx.fillStyle = '#ff9a6a'; ctx.fillText(s.force > 0 ? 'FORCING…' : '🔒 LOCKED', x, y - 80 + b);
+  ctx.fillStyle = '#ff9a6a'; ctx.fillText(s.force > 0 ? 'TEARING DOWN…' : '⛓ BARRICADE', x, y - 106 + b);
   ctx.textAlign = 'left';
-}
-
-// Interior partition (ground floor) with a door, closed or open. A caged
-// lamp over the frame (also a light source in HD, see missionLights) and
-// light leaking under a closed door keep it readable at night.
-function dInteriorDoor(ctx, d, now) {
-  const x = d.x, top = MGY - 80, y = MGY;
-  const g = ctx.createLinearGradient(x - 6, 0, x + 6, 0);
-  g.addColorStop(0, '#2c2722'); g.addColorStop(0.5, '#4a4238'); g.addColorStop(1, '#24201c');
-  ctx.fillStyle = g; ctx.fillRect(x - 6, top, 12, y - top - 58);
-  ctx.fillStyle = '#141210'; ctx.fillRect(x - 13, y - 60, 26, 3);           // lintel
-  // Caged lamp
-  const on = 0.85 + 0.15 * Math.sin(now / 900 + x);
-  ctx.fillStyle = `rgba(255,214,140,${0.18 * on})`;
-  ctx.beginPath(); ctx.arc(x, y - 66, 13, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = '#1a1714'; ctx.fillRect(x - 4, y - 70, 8, 2);
-  ctx.fillStyle = `rgba(255,226,160,${on})`; ctx.fillRect(x - 3, y - 68, 6, 4);
-  ctx.strokeStyle = '#2a2520'; ctx.lineWidth = 1; ctx.strokeRect(x - 3.5, y - 68.5, 7, 5);
-  // Frame
-  ctx.strokeStyle = 'rgba(200,180,140,0.55)'; ctx.lineWidth = 1.5;
-  ctx.strokeRect(x - 12, y - 58, 24, 58);
-  if (d.open) {
-    ctx.fillStyle = 'rgba(8,8,6,0.85)'; ctx.fillRect(x - 11, y - 57, 22, 57);
-    ctx.fillStyle = '#7a5a36'; ctx.beginPath();
-    ctx.moveTo(x + 11, y - 57); ctx.lineTo(x + 19, y - 53); ctx.lineTo(x + 19, y - 3); ctx.lineTo(x + 11, y); ctx.closePath(); ctx.fill();
-    return;
-  }
-  const dg = ctx.createLinearGradient(0, y - 57, 0, y);
-  dg.addColorStop(0, '#8a6638'); dg.addColorStop(1, '#5a3e20');
-  ctx.fillStyle = dg; ctx.fillRect(x - 11, y - 57, 22, 57);
-  ctx.strokeStyle = 'rgba(0,0,0,0.45)'; ctx.lineWidth = 1;
-  ctx.strokeRect(x - 8.5, y - 53.5, 17, 22); ctx.strokeRect(x - 8.5, y - 27.5, 17, 22);
-  ctx.fillStyle = '#e8c050'; ctx.beginPath(); ctx.arc(x + 7, y - 30, 1.8, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = 'rgba(255,210,130,0.75)'; ctx.fillRect(x - 11, y - 2, 22, 2);   // light under the door
-  if (d.prog > 0) {
-    ctx.strokeStyle = 'rgba(0,0,0,0.6)'; ctx.lineWidth = 3;
-    ctx.beginPath(); ctx.arc(x, y - 86, 8, 0, Math.PI * 2); ctx.stroke();
-    ctx.strokeStyle = '#c8b890'; ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.arc(x, y - 86, 8, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.min(1, d.prog)); ctx.stroke();
-  }
 }
 
 // World pass (camera space).
 export function dCityWorld(ctx, m, now) {
   if (m.objective !== 'explore') return;
-  (m.idoors || []).forEach(d => dInteriorDoor(ctx, d, now));
+  dRoomsWorld(ctx, m, now);
+  if (m.room) return;
   dVan(ctx, VAN_X, now, true);
-  (m.segs || []).forEach(s => { if (s.locked) dLockedDoor(ctx, s, now); });
+  (m.segs || []).forEach(s => { if (s.locked) dBarricade(ctx, s, now); });
   const p = leaveProgress(m, now);
   if (m._ventured) {
     const b = Math.sin(now / 240) * 2;
@@ -119,6 +103,6 @@ export function dCityWorld(ctx, m, now) {
 export function dCityHUD(ctx, m) {
   if (m.objective !== 'explore' || !m.keys) return;
   ctx.font = 'bold 10px monospace'; ctx.fillStyle = '#ffd54a';
-  ctx.fillText(`🔑 ×${m.keys}`, 12, 112);
+  ctx.fillText(`✂ ×${m.keys}`, 12, 112);
   ctx.fillStyle = C.txt;
 }

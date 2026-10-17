@@ -1,6 +1,6 @@
 // Siege mid-wave events (see update/siegeEvents.js): the running
 // survivor and the parachuted supply crate, plus their HUD banner.
-import { CW, laneY, laneSc } from '../constants.js';
+import { CW, laneY, laneSc, zoomOf } from '../constants.js';
 import { drawSoldierBody } from './actors/people.js';
 import { dContactShadow } from './background.js';
 import { dCrate } from './transmission.js';
@@ -63,7 +63,7 @@ export function dSiegeEventBanner(ctx, gs, now) {
   }
   // Direction hint when the target is off-screen.
   const sx = ev.x - (gs.cameraX || 0);
-  if (ev.state === 'active') { if (sx < 0) text = `◀ ${text}`; else if (sx > CW) text = `${text} ▶`; }
+  if (ev.state === 'active') { if (sx < 0) text = `◀ ${text}`; else if (sx > CW / zoomOf(gs)) text = `${text} ▶`; }
   ctx.save();
   ctx.font = 'bold 10px monospace';
   const w = ctx.measureText(text).width + 22, x = (CW - w) / 2, y = gs.boss && gs.boss.state !== 'dead' ? 108 : 72;

@@ -174,6 +174,23 @@ export function paintHead(T, G, look, expr = {}) {
         g.beginPath(); g.moveTo(-0.5, 1.5); g.quadraticCurveTo(R * 0.2, 7.5, R * 0.95, 4.6); g.lineTo(R * 0.95, 3.6); g.quadraticCurveTo(R * 0.4, 5, 0, 1); g.fill();
       }
     }
+    // Lower-face mask (balaclava / bandana / shemagh)
+    if (look.mask) {
+      g.fillStyle = look.mask;
+      g.beginPath(); g.moveTo(-R * 0.6, 0.2); g.lineTo(R + 1.4, 0); g.lineTo(R + 0.6, 4.2); g.quadraticCurveTo(R * 0.5, 7.4, -R * 0.2, 6.4); g.closePath(); g.fill();
+      g.strokeStyle = 'rgba(0,0,0,0.25)'; g.lineWidth = 0.6;
+      g.beginPath(); g.moveTo(R * 0.1, 2.4); g.lineTo(R + 0.8, 2.2); g.stroke();
+    }
+    // Glasses / sunglasses / ski goggles
+    if (look.eyewear) {
+      const dark = look.eyewear === 'shades';
+      g.fillStyle = dark ? '#0c0c10' : 'rgba(170,200,220,0.35)';
+      g.fillRect(R * 0.22, -2.9, R * 0.8, 2.4);
+      g.strokeStyle = dark ? '#0c0c10' : '#2a2420'; g.lineWidth = 0.7;
+      g.strokeRect(R * 0.22, -2.9, R * 0.8, 2.4);
+      g.beginPath(); g.moveTo(R * 0.22, -1.8); g.lineTo(-1.2, -1.2); g.stroke();
+      if (dark) { g.fillStyle = 'rgba(160,190,220,0.5)'; g.fillRect(R * 0.5, -2.6, R * 0.2, 0.7); }
+    }
   });
   if (look.headgear) look.headgear(T, G, hx, hy, R, a);
 }
@@ -185,6 +202,11 @@ export function paintArm(T, G, arm, look, back, opts = {}) {
   const longSleeve = look.sleeves !== 'none';
   const k = look.limbK || 1;
   limb(T, sx, sy, 2.9 * k, arm.elbow[0], arm.elbow[1], 2.5 * k, longSleeve ? sleeve : skin);
+  if (look.armband && longSleeve) {
+    const at = f => [sx + (arm.elbow[0] - sx) * f, sy + (arm.elbow[1] - sy) * f];
+    const a0 = at(0.32), a1 = at(0.5);
+    limb(T, a0[0], a0[1], 3.05 * k, a1[0], a1[1], 2.85 * k, back ? shade(look.armband, -0.2) : look.armband);
+  }
   const foreCol = look.sleeves === 'long' ? sleeve : skin;
   limb(T, arm.elbow[0], arm.elbow[1], 2.4 * k, arm.hand[0], arm.hand[1], 2.0 * k, foreCol);
   const handCol = look.gloves ? (back ? shade(look.gloves, -0.2) : look.gloves) : skin;
@@ -216,7 +238,10 @@ export function hashOf(str) {
 
 const SKINS = ['#d6a283', '#c48b6a', '#a8724f', '#8a5a3c', '#6e4630', '#e0b296'];
 const HAIRS = ['#1e140c', '#3a2414', '#5a3a1e', '#141414', '#7a5a34'];
-const CAMO = ['#4b5a3a', '#55603f', '#465436', '#5a5a42'];
+const CAMO = ['#4b5a3a', '#55603f', '#465436', '#5a5a42', '#6a5e44', '#4a5048', '#5e5236'];
+const DESERT = ['#9a8460', '#a08a62', '#8a7a58'];
+const CIV_TOPS = ['#6a4430', '#3c4e6a', '#5a5a3a', '#6a2e2e', '#2e4a3a', '#7a6a4a', '#4a3a5a', '#8a8070', '#2a2a30', '#9a5a2a', '#506a7a', '#7a3a4a'];
+const CIV_PANTS = ['#33415a', '#2a3448', '#4a4232', '#22222a', '#5a5048', '#3a2e24'];
 
 function camo(base) {
   return (g, P) => {
@@ -304,6 +329,9 @@ function hairCut(col, style) {
   };
 }
 
+// Headgear builders, shared with the zombie looks.
+export { helmet, cap, beanie };
+
 // The look table. `kind` comes from the actor; `seed` picks variants.
 export function humanLook(kind, seed = 0, extra) {
   extra = extra || {};
@@ -313,16 +341,32 @@ export function humanLook(kind, seed = 0, extra) {
   const base = { skin, hair, beard, boots: '#1d1712', belt: '#221a12' };
   switch (kind) {
     case 'veteran': {
-      const shirt = CAMO[(seed >> 2) % CAMO.length];
-      return { ...base, beard: beard || hair, shirt, sleeve: shirt, sleeves: 'long', pants: shade(shirt, -0.12), vest: '#7a6a48', kneePad: '#2a2a24', gloves: '#3a3226',
-        torsoDetail: camo(shirt), headgear: boonie('#6a6648'), patch: '#c8b040' };
+      const shirt = CAMO[(seed >> 2) % CAMO.length], hv = (seed >> 7) % 4;
+      return { ...base, beard: beard || hair, shirt, sleeve: shirt, sleeves: (seed >> 9) & 1 ? 'short' : 'long', pants: shade(shirt, -0.12), vest: ['#7a6a48', '#5a5a44', '#3a3a32'][(seed >> 5) % 3], kneePad: '#2a2a24', gloves: '#3a3226',
+        torsoDetail: camo(shirt), patch: '#c8b040', eyewear: ((seed >> 11) & 3) === 0 ? 'shades' : null,
+        headgear: hv === 0 ? boonie('#6a6648') : hv === 1 ? cap('#4a4a36', '#2a2a20') : hv === 2 ? beanie('#3a3a2e') : boonie('#5a5a48') };
     }
-    case 'civilian':
-      return { ...base, shirt: ['#6a4430', '#3c4e6a', '#5a5a3a', '#6a2e2e'][(seed >> 2) % 4], sleeves: 'long', pants: '#33415a', boots: '#2a2018',
-        torsoDetail: (g, P) => { g.strokeStyle = 'rgba(0,0,0,0.3)'; g.lineWidth = 0.8; const a = P(5, 2), b = P(4, 20); g.beginPath(); g.moveTo(a[0], a[1]); g.lineTo(b[0], b[1]); g.stroke(); },
-        headgear: (seed & 1) ? cap('#a04020', '#5a2010') : hairCut(hair, (seed >> 4) & 1 ? 'long' : 'short') };
+    case 'civilian': {
+      const top = CIV_TOPS[(seed >> 2) % CIV_TOPS.length], hg = (seed >> 4) % 7, style = (seed >> 8) % 5;
+      const torso = (g, P) => {
+        g.strokeStyle = 'rgba(0,0,0,0.3)'; g.lineWidth = 0.8; const a = P(5, 2), b = P(4, 20); g.beginPath(); g.moveTo(a[0], a[1]); g.lineTo(b[0], b[1]); g.stroke();
+        if (style === 1) { g.fillStyle = '#d8d8c8'; const t = P(4, 20); g.fillRect(t[0] - 1, t[1] - 5, 2, 5); }                        // collar / tie
+        if (style === 2) { g.fillStyle = 'rgba(230,220,200,0.85)'; const a2 = P(-6, 0), b2 = P(8, 14); g.fillRect(Math.min(a2[0], b2[0]), Math.min(a2[1], b2[1]), Math.abs(b2[0] - a2[0]), Math.abs(b2[1] - a2[1])); }  // apron
+        if (style === 3) { g.strokeStyle = '#e0d040'; g.lineWidth = 1.6; [6, 14].forEach(u => { const a3 = P(-9, u), b3 = P(10, u); g.beginPath(); g.moveTo(a3[0], a3[1]); g.lineTo(b3[0], b3[1]); g.stroke(); }); }  // hi-vis stripes
+        if (style === 4) { g.fillStyle = shade(top, 0.25); const s1 = P(2, 19), s2 = P(9, 15); g.fillRect(Math.min(s1[0], s2[0]), Math.min(s1[1], s2[1]), 4, 4); }   // scarf knot
+      };
+      return { ...base, shirt: style === 3 ? '#d86a1a' : top, sleeves: (seed >> 6) & 1 ? 'short' : 'long', pants: CIV_PANTS[(seed >> 9) % CIV_PANTS.length], boots: ['#2a2018', '#1a1a1a', '#4a3a2a'][(seed >> 12) % 3],
+        vest: style === 0 && (seed & 8) ? shade(top, -0.3) : null, torsoDetail: torso,
+        eyewear: ((seed >> 10) & 7) === 0 ? 'glasses' : null,
+        headgear: hg === 0 ? cap(['#a04020', '#20406a', '#2a2a2a', '#6a6a2a'][(seed >> 13) % 4], '#1a1a1a')
+          : hg === 1 ? beanie(['#5a2a2a', '#2a3a5a', '#3a3a3a'][(seed >> 13) % 3])
+          : hg === 2 ? hood(shade(top, -0.15))
+          : hairCut(hair, hg === 3 ? 'long' : hg === 4 && (seed & 32) ? 'bald' : 'short') };
+    }
     case 'bandit':
-      return { ...base, shirt: '#3a2424', sleeves: 'long', pants: '#1f1f24', gloves: '#141414', headgear: beanie('#161616'),
+      return { ...base, shirt: ['#3a2424', '#2a2a2e', '#3a3226', '#24303a'][(seed >> 2) % 4], sleeves: 'long', pants: '#1f1f24', gloves: '#141414',
+        vest: (seed >> 5) & 1 ? '#2a2018' : null,
+        headgear: [beanie('#161616'), hood('#262626'), beanie('#3a1414'), cap('#141414', '#0a0a0a')][(seed >> 6) % 4],
         face: (g, R) => {
           g.fillStyle = '#f0e8dc'; g.beginPath(); g.ellipse(R * 0.52, -1.6, 1.3, 1, 0, 0, Math.PI * 2); g.fill();
           g.fillStyle = '#100808'; g.beginPath(); g.arc(R * 0.62, -1.5, 0.7, 0, Math.PI * 2); g.fill();
@@ -333,6 +377,14 @@ export function humanLook(kind, seed = 0, extra) {
       return { ...base, shirt: '#1d2a44', sleeves: 'long', pants: '#1a1c24', belt: '#0e0e10', boots: '#0e0e10', patch: '#dfb84a',
         torsoDetail: (g, P) => { const b = P(4, 15); g.fillStyle = '#dfb84a'; g.beginPath(); g.arc(b[0], b[1], 1.3, 0, Math.PI * 2); g.fill(); },
         headgear: cap('#121a2a', '#050505', { badge: true }) };
+    case 'guard': {
+      // Northgate Compact: Guard deserters in desert camo with a gold
+      // armband; the colonel wears an officer's cap.
+      const shirt = DESERT[(seed >> 2) % DESERT.length];
+      return { ...base, shirt, sleeve: shirt, sleeves: 'long', pants: shade(shirt, -0.12), vest: ['#6a5a3a', '#4a4232', '#5a5040'][(seed >> 5) % 3], kneePad: '#3a3226', gloves: '#3a3022',
+        torsoDetail: camo(shirt), armband: '#d8b060', patch: '#d8b060', mask: ((seed >> 7) & 3) === 0 ? '#8a7a5a' : null,
+        headgear: extra.officer ? cap('#4a4430', '#1a1a14', { badge: true }) : (seed >> 9) & 1 ? helmet('#7a6a48', { goggles: ((seed >> 10) & 1) === 1 }) : cap('#7a6a48', '#3a3226') };
+    }
     case 'swat':
       return { ...base, shirt: '#1a1c22', sleeves: 'long', pants: '#16181e', vest: '#0f1014', gloves: '#0c0c0c', kneePad: '#0c0c0e', boots: '#0c0c0c',
         headgear: helmet('#121418', { goggles: true }) };
@@ -344,8 +396,14 @@ export function humanLook(kind, seed = 0, extra) {
         headgear: cap(extra.cap || '#1f1f1f', '#0e0e0e') };
     default: { // recruit
       const shirt = extra.jacket || CAMO[(seed >> 2) % CAMO.length];
-      return { ...base, shirt, sleeve: shirt, sleeves: 'long', pants: shade(shirt, -0.15), vest: '#3e4632', kneePad: '#2a3022', gloves: '#262a20',
-        torsoDetail: camo(shirt), headgear: helmet(extra.helmet || '#3a4628', { nvg: ((seed >> 5) & 3) === 0 }), patch: '#6a8a40' };
+      const hv = (seed >> 7) % 10;
+      const lid = extra.helmet || ['#3a4628', '#4a4a34', '#2e3626'][(seed >> 11) % 3];
+      return { ...base, shirt, sleeve: shirt, sleeves: ((seed >> 9) & 3) === 0 ? 'short' : 'long', pants: shade(shirt, -0.15),
+        vest: ['#3e4632', '#4a4430', '#2a2c26'][(seed >> 13) % 3], kneePad: '#2a3022', gloves: (seed >> 10) & 1 ? '#262a20' : null,
+        torsoDetail: camo(shirt), patch: '#6a8a40', mask: ((seed >> 14) & 7) === 0 ? '#2a2a26' : null,
+        eyewear: ((seed >> 15) & 7) === 1 ? 'shades' : null,
+        headgear: hv < 6 ? helmet(lid, { nvg: ((seed >> 5) & 3) === 0, goggles: ((seed >> 5) & 3) === 1 })
+          : hv === 6 ? boonie('#5a5e40') : hv === 7 ? cap(shade(shirt, -0.2), '#1a1a14') : hv === 8 ? beanie('#2a2e24') : hairCut(hair, 'short') };
     }
   }
 }

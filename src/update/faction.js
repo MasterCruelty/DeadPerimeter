@@ -75,7 +75,7 @@ export function setupAssault(m, dest, segs, lockedSeg, wave) {
   voss.colonel = true; voss.name = COMPACT.leader;
   m.humans.push(voss);
   m.compactTotal = n + 1;
-  // Armory + treasury: everything behind the locked door.
+  // Armory + treasury: everything behind the barricade.
   if (arm) {
     const at = k => Math.round(arm.x0 + 80 + (arm.x1 - arm.x0 - 160) * k);
     for (let g = 0; g < info.guns; g++) {
