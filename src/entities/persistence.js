@@ -38,7 +38,10 @@ export function saveGame(gs) {
         kind: s.kind,
         onRoof: !!s.onRoof,
         upgrades: { ...(s.upgrades || {}) },
+        xp: s.xp || 0, level: s.level || 1, skillPts: s.skillPts || 0,
+        skills: { ...(s.skills || {}) }, melee: s.melee ? { ...s.melee } : null,
       })),
+      armory: gs.armory || null,
       barricades: gs.barricades.map(b => ({ id: b.id, x: b.x, hp: b.hp, maxHp: b.maxHp })),
       turrets: (gs.turrets || []).map(t => ({ id: t.id, x: t.x, lane: t.lane })),
       score: gs.score, kills: gs.kills,
@@ -104,8 +107,11 @@ export function loadGame(mkGS) {
         walkPhase: Math.random() * Math.PI * 2, hurtTimer: 0,
         reloadTriggered: false, onExpedition: false,
         upgrades: { ...(s.upgrades || {}) },
+        xp: s.xp || 0, level: s.level || 1, skillPts: s.skillPts || 0,
+        skills: { ...(s.skills || {}) }, melee: s.melee ? { ...s.melee } : null,
       };
     });
+    if (data.armory) gs.armory = data.armory;
     gs.barricades = data.barricades.map(b => ({ ...b }));
     gs.turrets = (data.turrets || []).map(t => ({ ...t, lastShot: 0 }));
     gs.score = data.score || 0; gs.kills = data.kills || 0;
