@@ -1,5 +1,5 @@
 import { C, CW, CH, WX, WORLD_W, laneY, laneSc } from '../constants.js';
-import { BALANCE } from '../data/difficulty.js';
+import { BALANCE, waveClearAmmoFor } from '../data/difficulty.js';
 import { WAVE_MODS } from '../data/waveMods.js';
 import { dSiegeEventBanner } from './siegeEvents.js';
 
@@ -163,7 +163,7 @@ export function dHUD(ctx, gs, now, muted) {
       ctx.fillStyle = C.acc; ctx.font = 'bold 26px monospace'; ctx.textAlign = 'center';
       ctx.fillText('✦ WAVE CLEARED ✦', CW / 2, CH / 2 + 4);
       ctx.fillStyle = C.txt; ctx.font = '10px monospace';
-      ctx.fillText(`+${BALANCE.waveClearAmmo} ammo · returning to command`, CW / 2, CH / 2 + 22);
+      ctx.fillText(`+${waveClearAmmoFor(gs.wave)} ammo · returning to command`, CW / 2, CH / 2 + 22);
       ctx.textAlign = 'left'; ctx.restore();
     }
   }

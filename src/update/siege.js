@@ -1,7 +1,7 @@
 import { C, WORLD_W, GY, WX, uid, rng, laneY, laneSc } from '../constants.js';
 import { WPN } from '../data/weapons.js';
 import { HUMAN_AMMO_DROP, isHumanWaveNumber } from '../data/humans.js';
-import { BALANCE, RESEARCHES, PERKS } from '../data/difficulty.js';
+import { BALANCE, RESEARCHES, PERKS, waveClearAmmoFor } from '../data/difficulty.js';
 import { TRANSMISSION_WAVES } from '../data/transmissions.js';
 import { mkZombie } from '../entities/zombie.js';
 import { mkHuman } from '../entities/human.js';
@@ -417,10 +417,10 @@ export function update(gs, now, dt) {
         s.knifeTimer = (s.knifeTimer || 0) + dt;
         if (s.knifeTimer >= 650) {
           s.knifeTimer = 0; s.state = 'knife'; s.shootAt = now;
-          meleeTgt.hp -= 10; meleeTgt.hurtTimer = 220;
+          meleeTgt.hp -= 15; meleeTgt.hurtTimer = 220;
           gs.soundQ.push({ t: 'slash', x: s.x });
           gs.effects.push({ type: 'slash', x: meleeTgt.x + s.facing * 10, y: laneY(meleeTgt.lane) - 28, at: now, dur: 230 });
-          gs.effects.push({ type: 'txt', x: meleeTgt.x, y: laneY(meleeTgt.lane) - 58, v: '-10', col: '#ffcc44', at: now, dur: 600 });
+          gs.effects.push({ type: 'txt', x: meleeTgt.x, y: laneY(meleeTgt.lane) - 58, v: '-15', col: '#ffcc44', at: now, dur: 600 });
           if (meleeTgt.hp <= 0) killTarget(gs, meleeTgt, now, s);
         }
       } else { s.knifeTimer = 0; }
@@ -590,7 +590,8 @@ export function update(gs, now, dt) {
     if (TRANSMISSION_WAVES.includes(gs.wave) && !gs.transmissionsDone.includes(gs.wave)) {
       gs.pendingTransmission = gs.wave;
     }
-    gs.resources.ammo = Math.min(999, gs.resources.ammo + BALANCE.waveClearAmmo);
+    gs.resources.ammo = Math.min(999, gs.resources.ammo + waveClearAmmoFor(gs.wave - 1));
+    gs.resources.sniperAmmo = Math.min(99, (gs.resources.sniperAmmo || 0) + BALANCE.waveClearSniperAmmo);
     gs.resources.food = Math.min(999, gs.resources.food + BALANCE.waveClearFood);
     // Barricades that survived the wave get patched back up to full HP
     // for free (squad maintenance between waves). Destroyed ones stay

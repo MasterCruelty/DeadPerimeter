@@ -8,6 +8,7 @@ export function finishMission(m, gs) {
   // Write each party member's mission state back onto the original soldier
   // in gs.soldiers. The lead drives the win / lose outcome.
   const partyMission = [m.soldier, ...(m.followers || [])];
+  let returned = 0;
   const writeBack = (mSol) => {
     const orig = gs.soldiers.find(s => s.id === mSol.origId);
     if (!orig) return;
@@ -20,6 +21,14 @@ export function finishMission(m, gs) {
     } else {
       orig.hp = Math.max(1, mSol.hp);
       orig.ammo = mSol.ammo;
+      // Unused spare magazines go back into the stash (they used to
+      // vanish, so every sortie burned its whole loadout).
+      const spare = Math.max(0, mSol.magsLeft || 0) * (mSol.maxAmmo || 0);
+      if (spare > 0) {
+        const key = mSol.weapon === 'sniper' ? 'sniperAmmo' : 'ammo';
+        gs.resources[key] = Math.min(key === 'sniperAmmo' ? 99 : 999, (gs.resources[key] || 0) + spare);
+        returned += spare;
+      }
     }
     orig.onExpedition = false;
   };
@@ -40,6 +49,7 @@ export function finishMission(m, gs) {
 
   const reward = {};
   if (foodCost > 0) reward.foodCost = foodCost;
+  if (returned > 0) reward.returnedAmmo = returned;
   // Sortie kills count toward the run's tally + score.
   gs.kills = (gs.kills || 0) + (m.killedCount || 0);
   gs.score = (gs.score || 0) + (m.killedCount || 0) * 10 + (m.state === 'won' ? 50 : 0);

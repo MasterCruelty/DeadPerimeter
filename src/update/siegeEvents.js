@@ -16,7 +16,13 @@ const SURVIVOR_NAMES = ['Lena', 'Marco', 'Rosa', 'Ivan', 'Jun', 'Sami', 'Nora', 
 const CRATE_LIFE = 26000;
 
 export function rollSiegeEvent(gs) {
-  if (gs.wave < 3 || gs.wave >= BALANCE.maxWaves || Math.random() > 0.45) return null;
+  if (gs.wave < 3 || gs.wave >= BALANCE.maxWaves) return null;
+  // Safety net: when the stash runs low Command almost always flies in
+  // a crate, with a guaranteed ammo load.
+  if ((gs.resources.ammo || 0) < 40 + gs.wave * 6 && Math.random() < 0.85) {
+    return { type: 'supply', at: rng(9000, 20000), state: 'pending', rich: true };
+  }
+  if (Math.random() > 0.45) return null;
   const type = gs.isHumanWave || Math.random() < 0.5 ? 'supply' : 'survivor';
   return { type, at: rng(12000, 30000), state: 'pending' };
 }
@@ -38,7 +44,7 @@ function startEvent(gs, ev, now) {
     pushRadio(gs, 'deploy', { line: `Survivor running for the gate, lane ${ev.lane + 1}! Cover them!`, urgent: true, cooldown: 0 });
   } else {
     ev.x = WX + rng(320, 640); ev.dropY = -320; ev.landed = false;
-    pushRadio(gs, 'deploy', { line: 'Command dropping a crate in the field. Go get it!', cooldown: 0 });
+    pushRadio(gs, 'deploy', { line: ev.rich ? 'Command heard we are running dry. Ammo crate inbound!' : 'Command dropping a crate in the field. Go get it!', cooldown: 0 });
     gs.soundQ.push({ t: 'heliStart', intensity: 0.5 });
   }
 }
@@ -81,8 +87,11 @@ export function tickSiegeEvent(gs, now, dt) {
   const s = gs.soldiers.find(q => q.state !== 'dead' && !q.onExpedition && !q.onRoof && Math.abs(q.x - ev.x) < 30);
   if (s) {
     const r = gs.resources;
-    const loot = [['ammo', 40], ['medicine', 10], ['materials', 15], ['turretAmmo', 30], ['sniperAmmo', 6]]
-      .sort(() => Math.random() - 0.5).slice(0, 2);
+    const pool = [['ammo', 40], ['medicine', 10], ['materials', 15], ['turretAmmo', 30], ['sniperAmmo', 6]]
+      .sort(() => Math.random() - 0.5);
+    const loot = ev.rich
+      ? [['ammo', 50 + gs.wave * 4], pool.find(([k]) => k !== 'ammo')]
+      : pool.slice(0, 2);
     loot.forEach(([k, v]) => { r[k] = Math.min(k === 'sniperAmmo' ? 99 : 999, (r[k] || 0) + v); });
     ev.loot = loot;
     gs.soundQ.push({ t: 'pickup', x: ev.x });
