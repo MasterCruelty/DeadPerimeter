@@ -110,6 +110,9 @@ export function cityDests(gs) {
       infest: st.infest, lootLeft: st.loot, seed: st.seed, visits: st.visits, lastDay: st.lastDay,
       travel: travelCost(l), district: l.district,
       cond: t.cond, side: t.side,
+      // Active jobs that need something from this place (update/quests.js).
+      quests: ((gs.quests && gs.quests.active) || []).filter(j => j.loc === l.id)
+        .map(j => ({ id: j.id, kind: j.kind, item: j.item, person: j.person, title: j.title })),
       rewards: lootSummary(l.loot),
     };
   });

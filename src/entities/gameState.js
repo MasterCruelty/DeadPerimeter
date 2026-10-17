@@ -56,6 +56,8 @@ export const mkGS = () => {
     city: mkCity(),
     // Spare guns + melee weapons (entities/gear.js).
     armory: mkArmory(),
+    // Fort survivors' jobs + story unlocks (update/quests.js).
+    quests: { done: [], active: [], offers: {}, unlocks: {}, nextSide: {}, seq: 0 },
     // End-of-run stats. startedAt is wall-clock at newGame; on save/load
     // we persist the elapsed time so closing the tab doesn't inflate it.
     startedAt: Date.now(),

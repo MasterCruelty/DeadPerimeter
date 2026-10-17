@@ -104,6 +104,21 @@
   Marksman (damage), Fast Hands (reload), Toughness (HP), Brawler (melee
   damage, less wear). Skills apply in the siege and on sorties.
 
+### Survivors at the fort & story
+- Three survivors live at Fort Omega — **Dr. Elena Reyes** (medic),
+  **Sgt. Marcus Hale** (quartermaster) and **Jun Park** (mechanic) — and
+  hand out jobs from the command center (up to 3 running): **recover** an
+  item at a city location (it waits on an upper floor, often behind the
+  locked door), **rescue** a named survivor and walk them to the van,
+  **clear** a place's infestation, or **hand over** supplies. Accepting
+  a job reveals its location; the map marks it with `!`, the sortie HUD
+  tracks it, and the result screen shows the NPC's thanks and reward.
+- A **six-step main story** (insulin for the infirmary, a radio for the
+  precinct, a generator coil, a lab centrifuge, a soldier left behind,
+  the Central Hospital research archive) unlocks permanent fort upgrades:
+  cheaper heals, +1 sortie per day, cheaper turrets, faster research,
+  a veteran rifleman, and a more forgiving vaccine finale.
+
 ### Workshop progression
 Unlocked mid-run by spending materials at the management screen:
 

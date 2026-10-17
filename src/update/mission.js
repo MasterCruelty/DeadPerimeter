@@ -607,7 +607,7 @@ export function mkMission(soldier, dest, wave = 1, magsPerSoldier = 2, researchC
     state: 'active',
     // Activation tracking for the goal kill-ratio gate
     activatedCount: 0, killedCount: 0, _lastGoalHint: 0,
-    collected: { ammo: 0, medicine: 0, food: 0, materials: 0, sniperAmmo: 0, turretAmmo: 0, civilian: null, rescuedCivs: 0, lostSoldier: null, gear: [] },
+    collected: { ammo: 0, medicine: 0, food: 0, materials: 0, sniperAmmo: 0, turretAmmo: 0, civilian: null, rescuedCivs: 0, lostSoldier: null, gear: [], quests: [] },
     startedAt: 0, endedAt: 0,
   };
   if (explore) setupCityMission(mission, dest);
@@ -1704,6 +1704,11 @@ export function updateMission(m, now, dt) {
       } else if (p.type === 'lostSoldier') {
         m.collected.lostSoldier = true;
         m.effects.push({ type: 'txt', x: p.x, y: MGY - 70, v: 'LOST SOLDIER!', col: '#ffd54a', at: now, dur: 1200 });
+      } else if (p.type === 'quest') {
+        (m.collected.quests || (m.collected.quests = [])).push(p.questId);
+        m.soundQ.push({ t: 'pickup', x: p.x });
+        m.effects.push({ type: 'txt', x: p.x, y: MGY - 96 + (p.standingY || 0), v: `📋 ${p.label.toUpperCase()} — BRING IT HOME`, col: '#ffd54a', at: now, dur: 2400 });
+        pushRadio(m, 'kill', { line: `Got the ${p.label.toLowerCase()}. Back to the van!`, speaker: grabber, cooldown: 0 });
       } else if (p.type === 'gear') {
         (m.collected.gear || (m.collected.gear = [])).push(p.item);
         m.soundQ.push({ t: 'pickup', x: p.x });
@@ -2715,10 +2720,10 @@ export function dMissionWorld(ctx, m, now) {
       ctx.beginPath(); ctx.arc(0, 0, 18, 0, Math.PI * 2); ctx.fill();
     }
     ctx.fillStyle = 'rgba(20,30,15,0.85)'; ctx.fillRect(-12, -12, 24, 24);
-    ctx.strokeStyle = p.type === 'vaccine' ? '#88ff88' : p.type === 'gear' ? '#ffd54a' : p.type === 'civilian' ? '#88ddff' : C.acc; ctx.lineWidth = 1.5;
+    ctx.strokeStyle = p.type === 'vaccine' ? '#88ff88' : p.type === 'gear' || p.type === 'quest' ? '#ffd54a' : p.type === 'civilian' ? '#88ddff' : C.acc; ctx.lineWidth = 1.5;
     ctx.strokeRect(-12, -12, 24, 24);
     ctx.font = '14px monospace'; ctx.textAlign = 'center'; ctx.fillStyle = '#fff';
-    ctx.fillText(p.type === 'gear' ? gearIcon(p.item) : (objIcons[p.type] || '?'), 0, 5);
+    ctx.fillText(p.type === 'gear' ? gearIcon(p.item) : p.type === 'quest' ? '📋' : (objIcons[p.type] || '?'), 0, 5);
     ctx.textAlign = 'left'; ctx.restore();
   });
 
@@ -2744,9 +2749,14 @@ export function dMissionWorld(ctx, m, now) {
       state: r.state === 'following' ? 'walk' : 'idle',
       facing: r.facing,
       walkPhase: r.walkPhase, hurtTimer: r.hurtTimer,
-      civilian: true, onRoof: false, onExpedition: false, unarmed: true, npc: true,
+      // Job targets (a named soldier) wear fatigues, not civvies.
+      civilian: !r.questId, veteran: !!r.questId, onRoof: false, onExpedition: false, unarmed: true, npc: true,
     };
     dSoldier(ctx, rc, now);
+    if (r.questId && r.state !== 'dead') {
+      ctx.fillStyle = '#ffd54a'; ctx.font = 'bold 9px monospace'; ctx.textAlign = 'center';
+      ctx.fillText(`📋 ${r.name}`, r.x, MGY - 92); ctx.textAlign = 'left';
+    }
     // Floating "?" / "!" marker over their head so the player notices them
     if (r.state === 'idle') {
       ctx.fillStyle = '#88ddff'; ctx.font = 'bold 14px monospace'; ctx.textAlign = 'center';

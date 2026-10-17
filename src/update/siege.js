@@ -14,6 +14,7 @@ import { WAVE_MODS, rollWaveMod } from '../data/waveMods.js';
 import { ZTP } from '../data/zombies.js';
 import { tickSiegeEvent, settleSiegeEvent } from './siegeEvents.js';
 import { cityDayTick } from '../data/city.js';
+import { hasUnlock } from './quests.js';
 
 // Visibility conditions (fog / night) shrink every friendly weapon range.
 const modRange = gs => (gs.waveMod && WAVE_MODS[gs.waveMod] && WAVE_MODS[gs.waveMod].rangeMul) || 1;
@@ -554,7 +555,7 @@ export function update(gs, now, dt) {
     // On completion, apply persistent effects (Reinforced Walls bumps
     // baseMaxHp + heals up to the new cap immediately).
     if (gs.research && gs.research.activeId) {
-      gs.research.progress = (gs.research.progress || 0) + 1;
+      gs.research.progress = (gs.research.progress || 0) + (hasUnlock(gs, 'lab') ? 2 : 1);
       const node = RESEARCHES.find(r => r.id === gs.research.activeId);
       if (node && gs.research.progress >= node.waves) {
         const completed = Array.isArray(gs.research.completed) ? gs.research.completed : [];

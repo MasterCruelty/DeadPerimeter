@@ -141,10 +141,20 @@ export function setupCityMission(m, dest) {
     m.pickups.push({ id: uid(), x, type: 'gear', item, value: 1, collected: false, lane: 0 });
   });
 
+  // Job targets (update/quests.js): the item / person sits in the last
+  // building (the locked one if there is one), on the upper floor.
+  (dest.quests || []).forEach((q, i) => {
+    const s = lockedSeg || segs[segs.length - 1 - (i % segs.length)];
+    const x = Math.round(s.x0 + (s.x1 - s.x0) * (0.45 + 0.1 * i));
+    if (q.kind === 'fetch') m.pickups.push({ id: uid(), x, type: 'quest', questId: q.id, label: q.item, value: 1, collected: false, lane: 0, _questUpper: true });
+    else if (q.kind === 'rescue') m.rescuables.push({ id: uid(), name: q.person, x, hp: 60, maxHp: 60, facing: -1, state: 'idle', hurtTimer: 0, walkPhase: 0, questId: q.id });
+  });
+
   // Loot on the upper floors pays a bit more; some dead wait up there.
   m.pickups.forEach(p => {
     p.standingY = undefined;
     const s = segAt({ segs }, p.x);
+    if (p._questUpper) { p.standingY = FLOOR_Y - MGY; return; }
     if (s && !p.fork && p.type !== 'vaccine' && Math.random() < 0.38 && p.x > s.x0 + 80 && p.x < s.x1 - 80) {
       p.standingY = FLOOR_Y - MGY; p.value = Math.round((p.value || 1) * 1.4);
     }
@@ -240,7 +250,7 @@ export function tickCity(m, now, dt, party) {
     if (!m._leaveAt) m._leaveAt = now;
     if (now - m._leaveAt >= LEAVE_MS) {
       // Only civilians who actually made it to the van count.
-      m.collected.rescuedCivs = (m.rescuables || []).filter(r => r.state === 'following' && r.hp > 0 && r.x < VAN_X + 320).length;
+      m.collected.rescuedCivs = (m.rescuables || []).filter(r => r.state === 'following' && r.hp > 0 && r.x < VAN_X + 320 && !r.questId).length;
       m.state = 'won'; m.endedAt = now;
     }
   } else m._leaveAt = 0;
