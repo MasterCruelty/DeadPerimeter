@@ -142,6 +142,9 @@ export function missionLights(m, now) {
     else if (p.type === 'exit-sign') push(lights, p.x, MGY - 173, 90, 0.6, [1.0, 0.25, 0.18], cam);
   });
 
+  // Interior doors: the caged lamp over each frame.
+  (m.idoors || []).forEach(d => push(lights, d.x, MGY - 66, d.open ? 60 : 80, d.open ? 0.3 : 0.5, [1.0, 0.85, 0.6], cam));
+
   // Party: muzzle flashes + a flashlight cone on the lead indoors.
   const party = [m.soldier, ...(m.followers || [])].filter(p => p && p.hp > 0 && p.state !== 'dead');
   party.forEach(p => {

@@ -74,6 +74,12 @@ const FETCH_ITEMS = {
   hale:  ['Ammo crate', 'Field rations', 'Night-vision goggles', 'Body armor'],
   jun:   ['Car battery', 'Welding torch', 'Spare parts', 'Fuel can'],
 };
+// "a surgical kit", "an oxygen tank", "antibiotics", "body armor".
+const withArticle = item => {
+  const l = item.toLowerCase();
+  if (/s$/.test(l) || l === 'body armor') return l;
+  return (/^[aeiou]/.test(l) ? 'an ' : 'a ') + l;
+};
 const FETCH_LOCS = {
   reyes: ['pharm', 'clinic', 'school', 'hospital'],
   hale:  ['police', 'precinct', 'gunshop', 'super'],
@@ -105,7 +111,7 @@ export function sideJob(npc, gs, discoveredIds, rnd = Math.random) {
     const locs = FETCH_LOCS[npc];
     const loc = locs[Math.floor(rnd() * locs.length)];
     const item = FETCH_ITEMS[npc][Math.floor(rnd() * FETCH_ITEMS[npc].length)];
-    return { kind: 'fetch', loc, item, title: `${item} run`, offer: `I need a ${item.toLowerCase()} — try the ${'{loc}'}.`, reward: reward(res), xp: 30 };
+    return { kind: 'fetch', loc, item, title: `${item} run`, offer: `I need ${withArticle(item)} — try the ${'{loc}'}.`, reward: reward(res), xp: 30 };
   }
   if (r < 0.75) {
     const hot = discoveredIds.filter(id => id !== 'compound' && (gs.city.locs[id].infest || 0) > 0.5);

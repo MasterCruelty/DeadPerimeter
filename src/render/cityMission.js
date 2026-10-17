@@ -55,37 +55,50 @@ function dLockedDoor(ctx, s, now) {
   ctx.textAlign = 'left';
 }
 
-// Interior partition (ground floor) with a door, closed or open.
-function dInteriorDoor(ctx, d) {
+// Interior partition (ground floor) with a door, closed or open. A caged
+// lamp over the frame (also a light source in HD, see missionLights) and
+// light leaking under a closed door keep it readable at night.
+function dInteriorDoor(ctx, d, now) {
   const x = d.x, top = MGY - 80, y = MGY;
   const g = ctx.createLinearGradient(x - 6, 0, x + 6, 0);
-  g.addColorStop(0, '#24201c'); g.addColorStop(0.5, '#3a342c'); g.addColorStop(1, '#1c1916');
+  g.addColorStop(0, '#2c2722'); g.addColorStop(0.5, '#4a4238'); g.addColorStop(1, '#24201c');
   ctx.fillStyle = g; ctx.fillRect(x - 6, top, 12, y - top - 58);
   ctx.fillStyle = '#141210'; ctx.fillRect(x - 13, y - 60, 26, 3);           // lintel
+  // Caged lamp
+  const on = 0.85 + 0.15 * Math.sin(now / 900 + x);
+  ctx.fillStyle = `rgba(255,214,140,${0.18 * on})`;
+  ctx.beginPath(); ctx.arc(x, y - 66, 13, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#1a1714'; ctx.fillRect(x - 4, y - 70, 8, 2);
+  ctx.fillStyle = `rgba(255,226,160,${on})`; ctx.fillRect(x - 3, y - 68, 6, 4);
+  ctx.strokeStyle = '#2a2520'; ctx.lineWidth = 1; ctx.strokeRect(x - 3.5, y - 68.5, 7, 5);
+  // Frame
+  ctx.strokeStyle = 'rgba(200,180,140,0.55)'; ctx.lineWidth = 1.5;
+  ctx.strokeRect(x - 12, y - 58, 24, 58);
   if (d.open) {
     ctx.fillStyle = 'rgba(8,8,6,0.85)'; ctx.fillRect(x - 11, y - 57, 22, 57);
-    ctx.fillStyle = '#5a4026'; ctx.beginPath();
+    ctx.fillStyle = '#7a5a36'; ctx.beginPath();
     ctx.moveTo(x + 11, y - 57); ctx.lineTo(x + 19, y - 53); ctx.lineTo(x + 19, y - 3); ctx.lineTo(x + 11, y); ctx.closePath(); ctx.fill();
     return;
   }
   const dg = ctx.createLinearGradient(0, y - 57, 0, y);
-  dg.addColorStop(0, '#6a4c2c'); dg.addColorStop(1, '#3e2a16');
+  dg.addColorStop(0, '#8a6638'); dg.addColorStop(1, '#5a3e20');
   ctx.fillStyle = dg; ctx.fillRect(x - 11, y - 57, 22, 57);
   ctx.strokeStyle = 'rgba(0,0,0,0.45)'; ctx.lineWidth = 1;
   ctx.strokeRect(x - 8.5, y - 53.5, 17, 22); ctx.strokeRect(x - 8.5, y - 27.5, 17, 22);
-  ctx.fillStyle = '#c8a040'; ctx.beginPath(); ctx.arc(x + 7, y - 30, 1.6, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#e8c050'; ctx.beginPath(); ctx.arc(x + 7, y - 30, 1.8, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = 'rgba(255,210,130,0.75)'; ctx.fillRect(x - 11, y - 2, 22, 2);   // light under the door
   if (d.prog > 0) {
     ctx.strokeStyle = 'rgba(0,0,0,0.6)'; ctx.lineWidth = 3;
-    ctx.beginPath(); ctx.arc(x, y - 72, 8, 0, Math.PI * 2); ctx.stroke();
+    ctx.beginPath(); ctx.arc(x, y - 86, 8, 0, Math.PI * 2); ctx.stroke();
     ctx.strokeStyle = '#c8b890'; ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.arc(x, y - 72, 8, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.min(1, d.prog)); ctx.stroke();
+    ctx.beginPath(); ctx.arc(x, y - 86, 8, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.min(1, d.prog)); ctx.stroke();
   }
 }
 
 // World pass (camera space).
 export function dCityWorld(ctx, m, now) {
   if (m.objective !== 'explore') return;
-  (m.idoors || []).forEach(d => dInteriorDoor(ctx, d));
+  (m.idoors || []).forEach(d => dInteriorDoor(ctx, d, now));
   dVan(ctx, VAN_X, now, true);
   (m.segs || []).forEach(s => { if (s.locked) dLockedDoor(ctx, s, now); });
   const p = leaveProgress(m, now);
