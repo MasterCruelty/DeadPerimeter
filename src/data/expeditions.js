@@ -1,3 +1,4 @@
+import { rollMissionExtras } from './missionExtras.js';
 import { C, CW, GY, WORLD_W } from '../constants.js';
 
 // Mission location pools, one per risk tier. Each entry describes a
@@ -70,6 +71,7 @@ export function rollDestinations() {
     out.push({
       ...pick, ...base, risk,
       rewards: lootSummary(pick.loot),
+      ...rollMissionExtras(risk),
     });
   }
   return out;

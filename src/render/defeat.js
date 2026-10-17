@@ -6,7 +6,7 @@ import { dZombie } from './zombie.js';
 import { ZTP } from '../data/zombies.js';
 import { pushRadio } from '../audio/radio.js';
 import { dRadioSubtitle } from './hud.js';
-import { speakRadio } from '../audio/radioVoice.js';
+import { speakOrChatter } from '../audio/radioVoice.js';
 
 // Sprite scaling + reuse helpers (mirrors the intro module's versions
 // so dSoldier / dZombie can be rendered at arbitrary scale + foot Y).
@@ -678,7 +678,7 @@ function scheduleCommandVoices(defeat, ph) {
     if (defeat._cvfired.has(i)) return;
     if (local < l.at) return;
     defeat._cvfired.add(i);
-    speakRadio(l.text, { pitch: l.pitch });
+    speakOrChatter(l.text, { pitch: l.pitch }, defeat.soundQ);
   });
 }
 

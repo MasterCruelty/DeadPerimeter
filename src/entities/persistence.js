@@ -52,6 +52,8 @@ export function saveGame(gs) {
       lastFoodReport: gs.lastFoodReport || null,
       transmissionsDone: Array.isArray(gs.transmissionsDone) ? [...gs.transmissionsDone] : [],
       lastSupplyDrop: gs.lastSupplyDrop || null,
+      // Omitted while not rolled yet, so the load rolls it fresh.
+      ...(gs.nextWaveMod !== undefined ? { nextWaveMod: gs.nextWaveMod } : {}),
       usedNames: Array.from(gs.usedNames || []),
       workbench: { built: !!(gs.workbench && gs.workbench.built) },
       researchLab: { built: !!(gs.researchLab && gs.researchLab.built) },
@@ -112,6 +114,8 @@ export function loadGame(mkGS) {
     gs.lastFoodReport = data.lastFoodReport || null;
     gs.transmissionsDone = Array.isArray(data.transmissionsDone) ? [...data.transmissionsDone] : [];
     gs.lastSupplyDrop = data.lastSupplyDrop || null;
+    // undefined (old saves) → rolled when the intel is first shown.
+    gs.nextWaveMod = 'nextWaveMod' in data ? data.nextWaveMod : undefined;
     gs.usedNames = new Set(data.usedNames || []);
     gs.workbench = { built: !!(data.workbench && data.workbench.built) };
     gs.researchLab = { built: !!(data.researchLab && data.researchLab.built) };
