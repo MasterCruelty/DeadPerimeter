@@ -2,6 +2,7 @@ import { C, GY, laneY, laneSc } from '../constants.js';
 import { dContactShadow } from './background.js';
 import { drawSoldierBody } from './actors/people.js';
 import { wpt } from './weapons.js';
+import { wbase } from '../data/weapons.js';
 
 // Rooftop sniper: kneeling behind sandbags on the parapet. Uses the
 // shared actor rig; sandbags are drawn in front of the legs.
@@ -74,7 +75,7 @@ export function dSoldier(ctx, s, now, isSelected) {
     const fa = 1 - (now - s.shootAt) / 90;
     const [mx0, my] = wpt(s.weapon, 'muzzle');
     const mx = mx0 - R.rcl;
-    const fr = s.weapon === 'pistol' ? 10 : 15;
+    const fr = wbase(s.weapon) === 'pistol' ? 10 : 15;
     ctx.save(); ctx.translate(R.anchor[0], R.anchor[1]); ctx.rotate(R.tilt); ctx.globalAlpha = fa;
     // Forward-biased cone of flame rather than a round blob.
     const fl = ctx.createRadialGradient(mx, my, 0, mx, my, fr);

@@ -11,6 +11,8 @@ import { uid } from '../constants.js';
 import { ZTP } from '../data/zombies.js';
 import { BIOMES, SEARCHABLE_TYPES } from '../data/biomes.js';
 import { LOCKED_MUL } from '../data/rewards.js';
+import { rollGear, FOUND_GUNS, MELEE_FINDS } from '../data/weapons.js';
+import { gearIcon, gearName } from '../entities/gear.js';
 import { MISSION_W, MGY } from '../data/expeditions.js';
 import { pushRadio } from '../audio/radio.js';
 
@@ -131,6 +133,14 @@ export function setupCityMission(m, dest) {
     const s = segAt({ segs }, p.x);
     if (s && s.locked && typeof p.value === 'number' && p.type !== 'civilian' && p.type !== 'lostSoldier') p.value = Math.round(p.value * LOCKED_MUL);
   });
+  // Found weapons: deep in the street, inside a building (the locked
+  // one first — that's where the good stuff is).
+  rollGear(dest.locId, loot).forEach((item, i) => {
+    const s = (lockedSeg && i === 0) ? lockedSeg : segs[segs.length - 1 - (i % segs.length)];
+    const x = Math.round(s.x0 + 90 + Math.random() * Math.max(20, s.x1 - s.x0 - 180));
+    m.pickups.push({ id: uid(), x, type: 'gear', item, value: 1, collected: false, lane: 0 });
+  });
+
   // Loot on the upper floors pays a bit more; some dead wait up there.
   m.pickups.forEach(p => {
     p.standingY = undefined;
@@ -179,6 +189,14 @@ function packAt(m, xs, standingY = 0) {
 
 // Container searched (called from the mission's search loop).
 export function onContainerSearched(m, o, now) {
+  // Gun racks / glass cases sometimes still hold a gun; lockers and
+  // workbenches a melee weapon.
+  const gunBox = o.type === 'gun-rack' || o.type === 'glass-case', meleeBox = o.type === 'workbench' || o.type === 'locker';
+  if ((gunBox && Math.random() < 0.12) || (meleeBox && Math.random() < 0.1)) {
+    const item = gunBox ? { kind: 'gun', w: FOUND_GUNS[Math.floor(Math.random() * FOUND_GUNS.length)] } : { kind: 'melee', type: MELEE_FINDS[Math.floor(Math.random() * MELEE_FINDS.length)] };
+    (m.collected.gear || (m.collected.gear = [])).push(item);
+    m.effects.push({ type: 'txt', x: o.x, y: MGY - 100, v: `${gearIcon(item)} ${gearName(item).toUpperCase()}!`, col: '#ffd54a', at: now, dur: 2000 });
+  }
   if (!o.hasKey) return;
   o.hasKey = false; m.keys = (m.keys || 0) + 1;
   m.soundQ.push({ t: 'pickup', x: o.x });

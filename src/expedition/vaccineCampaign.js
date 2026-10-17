@@ -1,3 +1,4 @@
+import { ammoPool } from '../data/weapons.js';
 import { mkMission } from '../update/mission.js';
 import { VACCINE_SCENARIOS } from '../data/vaccineMission.js';
 import { mkSoldier } from '../entities/soldier.js';
@@ -37,7 +38,7 @@ export function mkVaccineCampaign(gs, mags = 3) {
   if (party.length === 0) return null;
   // Issue a generous ammo loadout — there's no resupply between scenarios.
   party.forEach(soldier => {
-    const poolKey = soldier.weapon === 'sniper' ? 'sniperAmmo' : 'ammo';
+    const poolKey = ammoPool(soldier.weapon);
     const wantLoaded = Math.max(0, soldier.maxAmmo - (soldier.ammo || 0));
     const giveLoaded = Math.min(wantLoaded, gs.resources[poolKey] || 0);
     gs.resources[poolKey] = (gs.resources[poolKey] || 0) - giveLoaded;

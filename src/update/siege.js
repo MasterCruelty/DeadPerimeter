@@ -1,7 +1,9 @@
 import { C, WORLD_W, GY, WX, uid, rng, laneY, laneSc } from '../constants.js';
-import { WPN } from '../data/weapons.js';
+import { WPN, wbase, MELEE } from '../data/weapons.js';
+import { meleeStats, wearMelee } from '../entities/gear.js';
+import { addXp, KILL_XP, BOSS_XP, WAVE_XP } from '../data/progression.js';
 import { HUMAN_AMMO_DROP, isHumanWaveNumber } from '../data/humans.js';
-import { BALANCE, RESEARCHES, PERKS, waveClearAmmoFor } from '../data/difficulty.js';
+import { BALANCE, RESEARCHES, waveClearAmmoFor, getSoldierPerkEffect } from '../data/difficulty.js';
 import { TRANSMISSION_WAVES } from '../data/transmissions.js';
 import { mkZombie } from '../entities/zombie.js';
 import { mkHuman } from '../entities/human.js';
@@ -29,19 +31,9 @@ function researchMul(gs, key) {
   return m;
 }
 
-// Multiplier / bonus aggregated from a soldier's owned perks.
-function perkMul(sol, key) {
-  const owned = (sol && sol.upgrades) || null; if (!owned) return 1;
-  let m = 1;
-  for (const p of PERKS) { if (owned[p.id] && key in p) m *= p[key]; }
-  return m;
-}
-function perkBonus(sol, key) {
-  const owned = (sol && sol.upgrades) || null; if (!owned) return 0;
-  let b = 0;
-  for (const p of PERKS) { if (owned[p.id] && key in p) b += p[key]; }
-  return b;
-}
+// Multiplier / bonus aggregated from a soldier's perks + skill ranks.
+const perkMul = (sol, key) => getSoldierPerkEffect(sol, key, 1);
+const perkBonus = (sol, key) => getSoldierPerkEffect(sol, key, 0);
 
 // Effective reload time + weapon range. Folds in research effects
 // AND per-soldier perks. `sol` may be null for non-soldier callers.
@@ -50,7 +42,7 @@ function effRl(gs, sol, w) {
 }
 function effRange(gs, sol, weaponKey, w) {
   let bonus = 0;
-  if (weaponKey === 'sniper') {
+  if (wbase(weaponKey) === 'sniper') {
     const ids = (gs && gs.research && gs.research.completed) || [];
     for (const id of ids) {
       const r = RESEARCHES.find(r => r.id === id);
@@ -416,12 +408,15 @@ export function update(gs, now, dt) {
       if (meleeTgt) {
         s.facing = meleeTgt.x > s.x ? 1 : -1;
         s.knifeTimer = (s.knifeTimer || 0) + dt;
-        if (s.knifeTimer >= 650) {
+        const ms = meleeStats(s);
+        if (s.knifeTimer >= ms.rate) {
           s.knifeTimer = 0; s.state = 'knife'; s.shootAt = now;
-          meleeTgt.hp -= 15; meleeTgt.hurtTimer = 220;
-          gs.soundQ.push({ t: 'slash', x: s.x });
+          meleeTgt.hp -= ms.dmg; meleeTgt.hurtTimer = 220;
+          gs.soundQ.push({ t: ms.type === 'knife' || ms.type === 'machete' ? 'slash' : 'hit', now, x: s.x });
           gs.effects.push({ type: 'slash', x: meleeTgt.x + s.facing * 10, y: laneY(meleeTgt.lane) - 28, at: now, dur: 230 });
-          gs.effects.push({ type: 'txt', x: meleeTgt.x, y: laneY(meleeTgt.lane) - 58, v: '-15', col: '#ffcc44', at: now, dur: 600 });
+          gs.effects.push({ type: 'txt', x: meleeTgt.x, y: laneY(meleeTgt.lane) - 58, v: `-${ms.dmg}`, col: '#ffcc44', at: now, dur: 600 });
+          const broke = wearMelee(s);
+          if (broke) gs.effects.push({ type: 'txt', x: s.x, y: laneY(s.lane) - 84, v: `${MELEE[broke].name.toUpperCase()} BROKE`, col: C.dng, at: now, dur: 1200 });
           if (meleeTgt.hp <= 0) killTarget(gs, meleeTgt, now, s);
         }
       } else { s.knifeTimer = 0; }
@@ -508,7 +503,7 @@ export function update(gs, now, dt) {
       // Apply Combat Drills (all soldiers) and AP Rounds (rifle vs tank).
       const shooter = b.shooterId ? gs.soldiers.find(x => x.id === b.shooterId) : null;
       let dmg = b.dmg * researchMul(gs, 'soldierDamageMul') * perkMul(shooter, 'damageMul');
-      if (shooter && shooter.weapon === 'rifle' && !gs.isHumanWave && hit.type === 'tank') {
+      if (shooter && wbase(shooter.weapon) === 'rifle' && !gs.isHumanWave && hit.type === 'tank') {
         dmg *= researchMul(gs, 'rifleVsTankMul');
       }
       hit.hp -= dmg; hit.hurtTimer = 210;
@@ -553,6 +548,7 @@ export function update(gs, now, dt) {
   }
   if (gs.waveComplete && now - gs.waveClearAt > 3000) {
     gs.waveComplete = false; gs.waveClearAt = null; gs.wave++; gs.day++;
+    gs.soldiers.forEach(s => { if (s.state !== 'dead' && !s.onExpedition) addXp(s, WAVE_XP); });
     cityDayTick(gs);
     // Research tick: 1 wave-clear = 1 progress on the active node.
     // On completion, apply persistent effects (Reinforced Walls bumps
@@ -679,6 +675,13 @@ export function update(gs, now, dt) {
 // Only gunmen drop ammo (knifemen have no firearm to scavenge).
 function killTarget(gs, target, now, shooter) {
   target.hp = 0; target.state = 'dead'; target.deadAt = now;
+  if (shooter) {
+    const ups = addXp(shooter, target.boss ? BOSS_XP : (KILL_XP[target.type] || 4));
+    if (ups) {
+      gs.effects.push({ type: 'txt', x: shooter.x, y: (shooter.onRoof ? GY - 200 : laneY(shooter.lane) - 92), v: `★ ${shooter.name.toUpperCase()} LV ${shooter.level}`, col: '#ffd54a', at: now, dur: 1800 });
+      gs.soundQ.push({ t: 'pickup' });
+    }
+  }
   // Random kill chatter (8% chance, throttled by pushRadio cooldown).
   if (shooter) maybeKillChatter(gs, shooter);
   if (ZTP[target.type]) {

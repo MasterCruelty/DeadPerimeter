@@ -1,3 +1,4 @@
+import { skillEffect } from './progression.js';
 // Configurable wave-difficulty curve. Tweak these to make the game
 // easier / harder without touching update or wave logic.
 //
@@ -114,6 +115,10 @@ export const CRAFT_RECIPES = [
   { id: 'sniperBox',  icon: '🎯', name: 'Sniper rounds', cost: { materials: 8 }, output: { sniperAmmo:  5 } },
   { id: 'turretBelt', icon: '🟠', name: 'Turret belt',  cost: { materials: 3 }, output: { turretAmmo: 15 } },
   { id: 'firstAid',   icon: '💊', name: 'First aid',    cost: { materials: 6 }, output: { medicine:    3 } },
+  // Melee weapons go to the armory (entities/gear.js).
+  { id: 'bat',        icon: '🏏', name: 'Nail bat',     cost: { materials: 6 },  melee: 'bat' },
+  { id: 'machete',    icon: '🗡', name: 'Machete',      cost: { materials: 10 }, melee: 'machete' },
+  { id: 'axe',        icon: '🪓', name: 'Fire axe',     cost: { materials: 14 }, melee: 'axe' },
 ];
 
 // Research nodes — each is one-shot, takes `waves` wave clears to
@@ -197,8 +202,9 @@ export const PERKS = [
 // Aggregate a per-soldier perk effect. Multipliers (keys ending in
 // 'Mul') compound; bonuses add. Used by siege.js at fire / reload time.
 export function getSoldierPerkEffect(sol, key, defaultValue) {
+  // Skill ranks (data/progression.js) stack on top of the perks.
   const owned = (sol && sol.upgrades) || null;
-  if (!owned) return defaultValue;
+  if (!owned) return skillEffect(sol, key, defaultValue);
   let v = defaultValue;
   for (const p of PERKS) {
     if (!owned[p.id]) continue;
@@ -206,7 +212,7 @@ export function getSoldierPerkEffect(sol, key, defaultValue) {
     if (key.endsWith('Mul')) v *= p[key];
     else v += p[key];
   }
-  return v;
+  return skillEffect(sol, key, v);
 }
 
 // Helper: read the active research-effect value for a given key,

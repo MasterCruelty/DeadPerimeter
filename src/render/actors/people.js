@@ -5,6 +5,7 @@
 // that recoils, tilts for a reload or thrusts a knife.
 // ────────────────────────────────────────────────────────────────
 import { dWpn, wpt, WSCALE } from '../weapons.js';
+import { WPN, wbase, meleeOf } from '../../data/weapons.js';
 import { sprite, blit, live, detail } from './paint.js';
 import {
   BODY, rigGeom, ik, fkArm, paintLeg, paintTorso, paintHead, paintArm,
@@ -91,6 +92,30 @@ function animOf(a, now, moving) {
   return { anim: 'idle', frame: f, pose: standPose(f / IDLE_FRAMES) };
 }
 
+// Melee weapon in hand, pointing along `ang` (bat / machete / axe;
+// anything else falls back to the knife).
+function paintMelee(T, hand, ang, type) {
+  if (type === 'knife' || !type) { paintKnife(T, hand, ang); return; }
+  detail(T, g => {
+    g.translate(hand[0], hand[1]); g.rotate(ang);
+    if (type === 'bat') {
+      const wd = g.createLinearGradient(0, -2.5, 0, 2.5);
+      wd.addColorStop(0, '#c8a070'); wd.addColorStop(1, '#7a5530');
+      g.fillStyle = '#1a1208'; g.fillRect(-4, -1.6, 5, 3.2);
+      g.fillStyle = wd; g.beginPath(); g.moveTo(0, -1.4); g.lineTo(22, -2.8); g.quadraticCurveTo(25, 0, 22, 2.8); g.lineTo(0, 1.4); g.fill();
+    } else if (type === 'machete') {
+      g.fillStyle = '#2a1a0c'; g.fillRect(-5, -1.6, 6, 3.2);
+      const bl = g.createLinearGradient(0, -2.4, 0, 2);
+      bl.addColorStop(0, '#e8eaf0'); bl.addColorStop(1, '#7a7c86');
+      g.fillStyle = bl; g.beginPath(); g.moveTo(1, -1.6); g.lineTo(19, -2.6); g.quadraticCurveTo(23, -1, 21, 1.6); g.lineTo(1, 1.4); g.fill();
+    } else if (type === 'axe') {
+      g.fillStyle = '#6a4424'; g.fillRect(-4, -1.3, 24, 2.6);
+      g.fillStyle = '#b02a20'; g.beginPath(); g.moveTo(15, -1.3); g.lineTo(22, -6.5); g.quadraticCurveTo(25, -1, 22, 4.5); g.lineTo(15, 1.3); g.fill();
+      g.fillStyle = '#d8dce4'; g.beginPath(); g.moveTo(22, -6.5); g.quadraticCurveTo(25, -1, 22, 4.5); g.lineTo(21, 4); g.quadraticCurveTo(23.5, -1, 21, -6); g.fill();
+    }
+  });
+}
+
 // Knife held in a hand, pointing along `ang`.
 function paintKnife(T, hand, ang) {
   detail(T, g => {
@@ -144,11 +169,11 @@ export function drawSoldierBody(ctx, s, now) {
 
   const w = s.weapon || 'rifle';
   const D = BODY;
-  const isPistol = w === 'pistol';
+  const isPistol = wbase(w) === 'pistol';
   const rcl = isShoot ? Math.max(0, 1 - (now - (s.shootAt || 0)) / 185) * 3 : 0;
 
   // Reload timeline (support hand fetches a fresh magazine).
-  const WPN_RL = { rifle: 1900, pistol: 1050, shotgun: 2200, sniper: 2400 }[w] || 1900;
+  const WPN_RL = (WPN[w] && WPN[w].rl) || 1900;
   const rlp = isRl ? Math.min(1, (now - (s.reloadStart || 0)) / WPN_RL) : 0;
   const rlTilt = isRl ? (rlp < 0.2 ? rlp / 0.2 : rlp > 0.85 ? (1 - rlp) / 0.15 : 1) : 0;
 
@@ -183,7 +208,9 @@ export function drawSoldierBody(ctx, s, now) {
     const kf = s.state === 'knife' ? Math.max(0, 1 - (now - (s.shootAt || 0)) / 300) : 0;
     nearT = [G.shoulder[0] + 9 + kf * 9, G.shoulder[1] + 9 - kf * 5];
     farT = [G.shoulder[0] + 6, G.shoulder[1] + 13];
-    knifeAng = -0.5 + kf * 0.5;
+    // Heavier melee weapons wind up higher and swing through further.
+    const heavy = meleeOf(s) !== 'knife';
+    knifeAng = heavy ? -1.25 + kf * 1.6 : -0.5 + kf * 0.5;
   } else {
     farT = toWorld(wpt(w, 'grip'));
     let fore = wpt(w, 'fore');
@@ -224,7 +251,7 @@ export function drawSoldierBody(ctx, s, now) {
   }
   live(ctx, T => {
     paintArm(T, G, nearArm, look, false);
-    if (isKnife) paintKnife(T, nearArm.hand, knifeAng);
+    if (isKnife) paintMelee(T, nearArm.hand, knifeAng, meleeOf(s));
   });
   return { anchor, tilt, rcl, G };
 }

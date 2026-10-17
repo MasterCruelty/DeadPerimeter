@@ -21,6 +21,7 @@ import { ZTP } from '../data/zombies.js';
 import { MISSION_W, MGY } from '../data/expeditions.js';
 import { pushRadio } from '../audio/radio.js';
 import { waveMul } from '../data/rewards.js';
+import { gearName } from '../entities/gear.js';
 import { streetSpot, segAt } from './cityMission.js';
 export { MISSION_CONDS, SIDE_OBJ } from '../data/missionExtras.js';
 
@@ -160,6 +161,12 @@ export function tickMissionExtras(m, now, dt, party) {
         const k = waveMul(m.wave || 1) * (m.valueMul || 1);
         const got = { ammo: Math.round(36 * k), sniperAmmo: Math.round(4 * k), turretAmmo: Math.round(24 * k), medicine: Math.round(5 * k) };
         Object.entries(got).forEach(([t, v]) => { c[t] += v; });
+        // A military cache sometimes holds a rifle.
+        if (Math.random() < 0.35) {
+          const item = { kind: 'gun', w: Math.random() < 0.5 ? 'ak' : 'hunting' };
+          (c.gear || (c.gear = [])).push(item);
+          m.effects.push({ type: 'txt', x: sd.x, y: MGY - 124, v: `🔫 ${gearName(item).toUpperCase()}!`, col: '#ffd54a', at: now, dur: 2600 });
+        }
         m.soundQ.push({ t: 'pickup', x: sd.x });
         m.effects.push({ type: 'txt', x: sd.x, y: MGY - 100, v: `CACHE OPEN  +${got.ammo} 🔫 +${got.sniperAmmo} 🎯 +${got.turretAmmo} 🟠 +${got.medicine} 💊`, col: '#ffd54a', at: now, dur: 2600 });
       }
