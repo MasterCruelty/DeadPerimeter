@@ -76,9 +76,15 @@ export function setupMissionExtras(m, dest, wave) {
     m.side = { type: 'sos', x, rid: r.id, timeLimit: dest.risk === 'HIGH' ? 80000 : 70000, state: 'active' };
   }
 
-  if (m.objective === 'reach' && dest.risk !== 'LOW' && Math.random() < 0.38) {
+  if (m.objective !== 'defend' && dest.risk !== 'LOW' && Math.random() < 0.38) {
     let x = Math.round(MISSION_W * (0.36 + Math.random() * 0.22));
     if (m.encounter && Math.abs(m.encounter.x - x) < 260) x = Math.min(MISSION_W - 400, m.encounter.x + 320);
+    // Explore streets: the car stays outside, in a gap between buildings.
+    const sg = (m.segs || []).find(q => x > q.x0 - 70 && x < q.x1 + 70);
+    if (sg) {
+      x = sg.x1 + 140;
+      if ((m.segs || []).some(q => x > q.x0 - 70 && x < q.x1 + 70)) x = Math.max(300, sg.x0 - 140);
+    }
     m.alarm = { x, triggered: false };
   }
 }

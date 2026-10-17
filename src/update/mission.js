@@ -1,7 +1,9 @@
 import { C, CH, uid, rng } from '../constants.js';
 import { WPN } from '../data/weapons.js';
 import { ZTP } from '../data/zombies.js';
-import { MISSION_W, MISSION_VIEW, MGY, objIcons, rollEncounter } from '../data/expeditions.js';
+import { MISSION_W, MISSION_VIEW, MGY, objIcons, rollEncounter, setMissionWidth } from '../data/expeditions.js';
+import { setupCityMission, tickCity, clampCity, onContainerSearched } from './cityMission.js';
+import { dCityWorld, dCityHUD } from '../render/cityMission.js';
 import { BIOMES, DEFAULT_BIOME } from '../data/biomes.js';
 import { BALANCE, RESEARCHES, getSoldierPerkEffect } from '../data/difficulty.js';
 import { dZombie } from '../render/zombie.js';
@@ -85,6 +87,10 @@ const effRange = (who, w) => w.range + (who.rangeBonus || 0);
 // auto-reload — so the player has to weigh stash spend vs mission risk.
 export function mkMission(soldier, dest, wave = 1, magsPerSoldier = 2, researchCompleted = []) {
   const zombies = [], pickups = [], obstacles = [];
+  // City-map locations are longer EXPLORE missions (update/cityMission.js).
+  const explore = !!dest.locId;
+  setMissionWidth(explore ? dest.W : 0);
+  const widthMul = MISSION_W / 1900;
 
   // Spitters are the most punishing zombie kind (ranged + chip damage).
   // Gate them behind wave 5 so the early sorties aren't meatgrinders,
@@ -102,7 +108,7 @@ export function mkMission(soldier, dest, wave = 1, magsPerSoldier = 2, researchC
   // 6-9 / 10-13). The playable mission already supports up to 3
   // party members shooting + auto-reload, so smaller crowds keep
   // sorties feeling like raids, not survival ordeals.
-  const totalZ = Math.floor(4 * dest.zSpawn + rng(0, 3));
+  const totalZ = Math.floor((4 * dest.zSpawn + rng(0, 3)) * (explore ? widthMul : 1));
   for (let i = 0; i < totalZ; i++) {
     const x = 400 + Math.random() * (MISSION_W - 700);
     let types;
@@ -148,7 +154,8 @@ export function mkMission(soldier, dest, wave = 1, magsPerSoldier = 2, researchC
   // Pickup count: keep the previous bump (sorties have to pay back)
   // but trim food / materials values so the stash doesn't snowball.
   // After 15+ days the user was sitting on 500 food / 300 materials.
-  const pkCount = dest.risk === 'LOW' ? 6 : dest.risk === 'MED' ? 7 : 9;
+  const pkCount = Math.round((dest.risk === 'LOW' ? 6 : dest.risk === 'MED' ? 7 : 9)
+    * (explore ? widthMul * (0.25 + 0.75 * (dest.lootLeft ?? 1)) : 1));
   // Wave-bonus curve flattened from /2 to /3 so late-game pickups
   // don't drift into "every crate is +10 of everything" territory.
   const waveBonus = Math.floor(Math.max(0, wave - 1) / 3);
@@ -211,6 +218,7 @@ export function mkMission(soldier, dest, wave = 1, magsPerSoldier = 2, researchC
   let objective;
   if (vacSeg === 'rooftop') objective = 'defend';
   else if (vacSeg) objective = 'reach';
+  else if (explore) objective = 'explore';
   else objective = (dest.risk !== 'LOW' && Math.random() < 0.30) ? 'defend' : 'reach';
   const defendAnchor = MISSION_W * 0.45;
   // Rooftop hold is 75 s — long enough for the boss horde, short
@@ -224,7 +232,7 @@ export function mkMission(soldier, dest, wave = 1, magsPerSoldier = 2, researchC
   //
   // Vaccine campaign segments disable the fork: the player is moving
   // a sample through a scripted route, not picking between loot lanes.
-  const fork = (objective !== 'defend' && dest.risk !== 'LOW' && !vacSeg && Math.random() < 0.50)
+  const fork = (objective === 'reach' && dest.risk !== 'LOW' && !vacSeg && Math.random() < 0.50)
     ? { startX: MISSION_W * 0.40, endX: MISSION_W * 0.62 }
     : null;
 
@@ -295,7 +303,7 @@ export function mkMission(soldier, dest, wave = 1, magsPerSoldier = 2, researchC
   const INDOOR_POOL = ['police_interior', 'armory_interior', 'office_interior'];
   let indoorBiomeKey = null;
   let entranceX = 0;
-  if (!biome.indoor && dest.risk !== 'LOW' && Math.random() < 0.55) {
+  if (!explore && !biome.indoor && dest.risk !== 'LOW' && Math.random() < 0.55) {
     indoorBiomeKey = INDOOR_POOL[Math.floor(Math.random() * INDOOR_POOL.length)];
     entranceX = Math.floor(MISSION_W * (0.38 + Math.random() * 0.08));
   }
@@ -612,6 +620,7 @@ export function mkMission(soldier, dest, wave = 1, magsPerSoldier = 2, researchC
     collected: { ammo: 0, medicine: 0, food: 0, materials: 0, sniperAmmo: 0, turretAmmo: 0, civilian: null, rescuedCivs: 0, lostSoldier: null },
     startedAt: 0, endedAt: 0,
   };
+  if (explore) setupCityMission(mission, dest);
   setupMissionExtras(mission, dest, wave);
   return mission;
 }
@@ -984,6 +993,8 @@ export function updateMission(m, now, dt) {
   });
 
   tickMissionExtras(m, now, dt, aliveParty(m));
+  tickCity(m, now, dt, aliveParty(m));
+  if (m.state !== 'active') return;
 
   // Activation now considers any party member or rescuable as the "trigger"
   const triggers = aliveTargets(m);
@@ -1614,6 +1625,8 @@ export function updateMission(m, now, dt) {
     return true;
   });
 
+  clampCity(m);
+
   // Pickups can be grabbed by any party member. Pickups with a fork
   // Searchable obstacles (TLS Union City style looting). When a
   // party member stays within ~30 px of an un-searched container
@@ -1633,6 +1646,7 @@ export function updateMission(m, now, dt) {
     if (!o._searchAt) o._searchAt = now;
     if (now - o._searchAt >= 700) {
       o.searched = true;
+      onContainerSearched(m, o, now);
       o._searchAt = 0;
       // Drop a small loot pickup. The type pool depends on the
       // container — guns yield ammo, desks yield medicine/food,
@@ -1720,7 +1734,7 @@ export function updateMission(m, now, dt) {
   // woke up. Prevents "sprint past everything for free".
   // Goal-gate only applies to "reach the goal" missions. Defend missions
   // win when the survive timer expires (handled above).
-  if (m.objective !== 'defend' && s.x >= MISSION_W - 50) {
+  if (m.objective === 'reach' && s.x >= MISSION_W - 50) {
     const need = Math.ceil(m.activatedCount * BALANCE.missionGoalKillRatio);
     // The HIGH-risk Brute guards the exit: it has to go down before
     // the party can extract (it used to be skippable by walking past).
@@ -2556,7 +2570,20 @@ export function dMissionWorld(ctx, m, now) {
 
   const biome = BIOMES[m.biomeKey] || BIOMES[DEFAULT_BIOME];
 
-  if (biome.indoor) {
+  if (m.segs) {
+    // City explore mission: open street with several enterable
+    // buildings, each clipped to its own interior backdrop.
+    dOutdoorBackdrop(ctx, m, biome);
+    m.segs.forEach(sg => {
+      const ib = BIOMES[sg.biomeKey] || BIOMES[DEFAULT_BIOME];
+      ctx.save();
+      ctx.beginPath(); ctx.rect(sg.x0, 0, sg.x1 - sg.x0, CH); ctx.clip();
+      dIndoorBackdrop(ctx, m, ib, now);
+      ctx.restore();
+      dDoorway(ctx, sg.x0, ib);
+      dDoorway(ctx, sg.x1, ib);
+    });
+  } else if (biome.indoor) {
     // Single-biome indoor destination (police_interior, etc.)
     dIndoorBackdrop(ctx, m, biome, now);
   } else if (m.indoorBiomeKey && m.entranceX > 0) {
@@ -2663,6 +2690,7 @@ export function dMissionWorld(ctx, m, now) {
   }
 
   dMissionExtras(ctx, m, now);
+  dCityWorld(ctx, m, now);
 
   m.pickups.forEach(p => {
     if (p.collected) return;
@@ -2863,6 +2891,7 @@ export function dMissionHUD(ctx, m, now) {
   ctx.strokeStyle = C.uib; ctx.lineWidth = 1;
   ctx.beginPath(); ctx.moveTo(0, 40.5); ctx.lineTo(CW_, 40.5); ctx.stroke();
   dMissionExtrasHUD(ctx, m, now);
+  dCityHUD(ctx, m);
 
   // ── Destination + objective (truncated so it never runs into the bar)
   const riskCol = m.dest.risk === 'HIGH' ? '#dd4444' : m.dest.risk === 'MED' ? C.wrn : C.acc;
@@ -2873,7 +2902,7 @@ export function dMissionHUD(ctx, m, now) {
   ctx.font = '9px monospace';
   ctx.fillStyle = riskCol; ctx.fillText(`${m.dest.risk || ''}`, 12, 32);
   ctx.fillStyle = C.txt;
-  ctx.fillText(m.objective === 'defend' ? '· HOLD THE FLAG' : '· REACH THE EXIT', 48, 32);
+  ctx.fillText(m.objective === 'defend' ? '· HOLD THE FLAG' : m.objective === 'explore' ? '· EXPLORE · BACK TO VAN TO LEAVE' : '· REACH THE EXIT', 48, 32);
 
   // ── Route bar with markers (entrance, fork, defend flag, exit, party, boss)
   const px = 226, pw = 340, ph = 8, py = 11;
@@ -2890,7 +2919,12 @@ export function dMissionHUD(ctx, m, now) {
   ctx.strokeStyle = C.uib; ctx.strokeRect(px + 0.5, py + 0.5, pw - 1, ph - 1);
   if (m.entranceX > 0) { ctx.fillStyle = '#aa8844'; ctx.fillRect(mx(m.entranceX) - 1, py - 2, 2, ph + 4); }
   if (m.fork) { ctx.fillStyle = 'rgba(204,136,0,0.45)'; ctx.fillRect(mx(m.fork.startX), py + ph - 2, mx(m.fork.endX) - mx(m.fork.startX), 2); }
+  (m.segs || []).forEach(sg => {
+    ctx.fillStyle = sg.locked ? 'rgba(200,70,50,0.55)' : 'rgba(170,140,90,0.45)';
+    ctx.fillRect(mx(sg.x0), py + 1, mx(sg.x1) - mx(sg.x0), ph - 2);
+  });
   if (m.objective === 'defend') { ctx.fillStyle = '#ff8800'; ctx.font = '9px monospace'; ctx.textAlign = 'center'; ctx.fillText('⚑', mx(m.defendAnchor), py + 7); }
+  else if (m.objective === 'explore') { ctx.font = '10px monospace'; ctx.textAlign = 'center'; ctx.fillText('🚐', px - 9, py + 8); }
   else { ctx.fillStyle = C.acc; ctx.font = '10px monospace'; ctx.textAlign = 'center'; ctx.fillText('★', px + pw + 7, py + 8); }
   m.zombies.forEach(z => {
     if (z.state === 'dead' || !z.activated) return;

@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 
 import { C, CW, CH, GY, WX, WORLD_W, DPR, laneY, clickToLane } from './constants.js';
 import { WPN } from './data/weapons.js';
-import { rollDestinations, RECRUIT_NAMES, RECRUIT_WEAPONS } from './data/expeditions.js';
+import { RECRUIT_NAMES, RECRUIT_WEAPONS } from './data/expeditions.js';
 import { isHumanWaveNumber } from './data/humans.js';
 
 import { getAM, processSounds } from './audio/AudioEngine.js';
@@ -12,7 +12,8 @@ import { mkBarricade } from './entities/barricade.js';
 import { mkTurret } from './entities/turret.js';
 import { mkWave, mkHumanWave } from './entities/wave.js';
 import { dWaveCondition } from './render/weather.js';
-import { MISSION_CONDS, SIDE_OBJ } from './data/missionExtras.js';
+import CityMap from './ui/CityMap.jsx';
+import { cityDests, ensureCity, applyCityVisit } from './data/city.js';
 import { rollSiegeEvent } from './update/siegeEvents.js';
 import { dSiegeEvent } from './render/siegeEvents.js';
 import { WAVE_MODS, rollWaveMod, isBossWave, bossName } from './data/waveMods.js';
@@ -36,7 +37,6 @@ import { createPostFX } from './render/postfx.js';
 import { setNormalTarget } from './render/actors/paint.js';
 import { zombiePrewarm, registerZombieTypes } from './render/actors/zombies.js';
 import { ZTP } from './data/zombies.js';
-import { BIOMES } from './data/biomes.js';
 import { siegeLights, missionLights } from './render/lighting.js';
 import { dExtractionScene, EXTRACTION_DURATION, EXTRACTION_SCRIPT, mkExtraction } from './render/extraction.js';
 import { TRANSMISSIONS } from './data/transmissions.js';
@@ -45,6 +45,7 @@ import { initRadioVoice, isRadioVoiceEnabled, isRadioVoiceAvailable, setRadioVoi
 
 import { update } from './update/siege.js';
 import { mkMission, updateMission, dMissionWorld, dMissionHUD } from './update/mission.js';
+import { isIndoorAt } from './update/cityMission.js';
 
 import { finishMission } from './expedition/missionFinish.js';
 import {
@@ -181,7 +182,7 @@ export default function DeadPerimeter() {
   // The three destinations currently shown on the expedition screen.
   // Re-rolled by resetExp() so consecutive sortie sessions never see
   // the same trio of locations.
-  const expDestsRef = useRef(rollDestinations());
+  const expDestsRef = useRef([]);
   const [expDests, setExpDests] = useState(expDestsRef.current);
   const toggleSoldier = useCallback(i => {
     const cur = expSolsRef.current;
@@ -434,6 +435,9 @@ export default function DeadPerimeter() {
     const party = idxs.map(i => gs.soldiers[i]).filter(s => s && s.state !== 'dead');
     if (party.length === 0) return;
     const dest = expDestsRef.current[di];
+    if (!dest) return;
+    // Travel rations for the round trip across the city.
+    if (dest.travel) gs.resources.food = Math.max(0, (gs.resources.food || 0) - dest.travel * party.length);
 
     // Issue ammo from Fort Omega's pool for every party member.
     // Each soldier carries `mags` magazines total: 1 loaded + (mags-1)
@@ -472,6 +476,9 @@ export default function DeadPerimeter() {
     // finishMission writes back every party member's hp/state/onExpedition.
     const am0 = getAM(); if (am0) { am0.windStop(); am0.cityHumStop(); }
     const result = finishMission(m, gs);
+    if (result) result.discovered = applyCityVisit(gs, m);
+    // Persist loot, losses and the city state right away.
+    try { saveGame(gs); setHasSave(true); } catch (e) { /* non-fatal */ }
     missionRef.current = null;
     pausedRef.current = false; setPaused(false); getAM()?.duck(false);
     setExpResult(result); setExpPhase('done'); setExpEvents([]); setExpVisible(0);
@@ -1329,7 +1336,7 @@ export default function DeadPerimeter() {
         {
           const am = getAM();
           if (am) {
-            const indoor = (BIOMES[m.biomeKey] || {}).indoor || (m.indoorBiomeKey && m.soldier.x >= m.entranceX);
+            const indoor = isIndoorAt(m, m.soldier.x);
             const want = m.state !== 'active' ? 'none' : indoor ? 'room' : 'wind';
             if (want !== m._amb) {
               if (m._amb === 'wind') am.windStop();
@@ -1583,9 +1590,8 @@ export default function DeadPerimeter() {
     setExpResult(null); setExpPhase(null); setExpEvents([]); setExpVisible(0);
     expSolsRef.current = []; expDstRef.current = null;
     setExpSoldierIdxs([]); setExpDestIdx(null);
-    // Re-roll the three destinations on every fresh expedition session
-    // so the player never sees the same trio twice in a row.
-    expDestsRef.current = rollDestinations();
+    // Destinations = every discovered location on the city map.
+    expDestsRef.current = gsRef.current ? cityDests(gsRef.current) : [];
     setExpDests(expDestsRef.current);
   };
 
@@ -1646,27 +1652,7 @@ export default function DeadPerimeter() {
               );
             })}</div>
             <div style={h2}>CHOOSE DESTINATION</div>
-            <div style={row}>{expDests.map((d, i) => (
-              <div key={i} onClick={() => pickDest(i)} style={{ ...card, cursor: 'pointer', flex: 1, borderColor: expDestIdx === i ? d.riskColor : C.uib, opacity: expDestIdx === i ? 1 : 0.72 }}>
-                <div style={{ fontSize: '17px', marginBottom: '2px' }}>{d.icon}</div>
-                <div style={{ color: C.acc, fontWeight: 'bold', fontSize: '10px' }}>{d.name}</div>
-                <div style={{ color: d.riskColor, fontSize: '8px', fontWeight: 'bold', marginTop: '1px' }}>RISK: {d.risk}</div>
-                <div style={{ color: C.txt, fontSize: '8px', marginTop: '2px', lineHeight: '1.4' }}>{d.desc}</div>
-                <div style={{ color: '#88ddff', fontSize: '8px', marginTop: '2px' }}>{d.rewards}</div>
-                {d.cond && MISSION_CONDS[d.cond] && (
-                  <div title={MISSION_CONDS[d.cond].desc} style={{ color: MISSION_CONDS[d.cond].color, fontSize: '8px', marginTop: '4px', fontWeight: 'bold' }}>
-                    {MISSION_CONDS[d.cond].icon} {MISSION_CONDS[d.cond].name}
-                    <div style={{ fontWeight: 'normal', opacity: 0.85 }}>{MISSION_CONDS[d.cond].desc}</div>
-                  </div>
-                )}
-                {d.side && SIDE_OBJ[d.side] && (
-                  <div style={{ color: '#ffd54a', fontSize: '8px', marginTop: '4px', borderTop: '1px dashed rgba(255,213,74,0.35)', paddingTop: '3px' }}>
-                    <b>★ SIDE: {SIDE_OBJ[d.side].icon} {SIDE_OBJ[d.side].name}</b> <span style={{ opacity: 0.85 }}>{SIDE_OBJ[d.side].reward}</span>
-                    <div style={{ color: C.txt, opacity: 0.85 }}>{SIDE_OBJ[d.side].desc}</div>
-                  </div>
-                )}
-              </div>
-            ))}</div>
+            {gs && <CityMap city={ensureCity(gs)} dests={expDests} selected={expDestIdx} onPick={pickDest} day={gs.day} />}
             {/* Loadout selector — how many magazines each soldier carries */}
             <div style={{ marginTop: '10px', background: 'rgba(8,16,8,0.7)', border: `1px solid ${C.uib}`, padding: '8px 12px' }}>
               <div style={{ fontSize: '11px', color: C.txt, marginBottom: '6px', letterSpacing: '.04em' }}>
@@ -1759,6 +1745,11 @@ export default function DeadPerimeter() {
                 </>
               );
             })()}
+            {expResult.discovered && expResult.discovered.length > 0 && (
+              <div style={{ fontSize: '11px', color: '#ffd54a', marginTop: '4px' }}>
+                📍 Scouted new locations: <b>{expResult.discovered.join(', ')}</b>
+              </div>
+            )}
             {expResult.recruit && (
               <div style={{ fontSize: '11px', color: '#88ddff', marginTop: '4px' }}>
                 👤 <b>{expResult.recruit.name}</b> rescued — reporting for duty ({expResult.recruit.weapon})
