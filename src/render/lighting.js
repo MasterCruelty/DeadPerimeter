@@ -10,7 +10,7 @@
 //   cone:  { x, y, dir (rad, 0 = right, y down), half (rad), r, i, c }
 // ────────────────────────────────────────────────────────────────
 import { CW, GY, WX, laneY, laneSc } from '../constants.js';
-import { MISSION_W, MGY } from '../data/expeditions.js';
+import { MISSION_W, MGY, setMissionWidth } from '../data/expeditions.js';
 import { BIOMES, DEFAULT_BIOME } from '../data/biomes.js';
 import { CITY_FIRES, CITY_FIRE_PARALLAX } from './background.js';
 import { isIndoorAt, VAN_X } from '../update/cityMission.js';
@@ -112,6 +112,7 @@ export function siegeLights(gs, now) {
 
 // ── Mission (sortie) ─────────────────────────────────────────────
 export function missionLights(m, now) {
+  setMissionWidth(m.W);
   const cam = m.cameraX || 0;
   const lights = [], cones = [];
   const biome = BIOMES[m.biomeKey] || BIOMES[DEFAULT_BIOME];
@@ -119,11 +120,11 @@ export function missionLights(m, now) {
   const fullyIndoor = !!biome.indoor;
 
   // Ceiling fixtures of indoor sections (same spacing as dIndoorBackdrop).
-  const ceiling = (b, fromX, toX = MISSION_W) => {
+  const ceiling = (b, fromX, toX = MISSION_W, origin = 0) => {
     const ls = b.lightSpacing || 220;
     const col = rgb(b.lightColor, WARM);
-    for (let lx = ls / 2; lx < MISSION_W; lx += ls) {
-      if (lx < fromX || lx > toX) continue;
+    for (let lx = origin + ls / 2; lx < toX; lx += ls) {
+      if (lx < fromX) continue;
       const sx = lx - cam;
       if (sx < -200 || sx > CW + 200) continue;
       cones.length < 4 && cones.push({ x: sx, y: 14, dir: Math.PI / 2, half: 0.62, r: 420, i: 0.55 * flick(now, lx), c: col });
@@ -132,7 +133,7 @@ export function missionLights(m, now) {
   };
   if (fullyIndoor) ceiling(biome, 0);
   else if (indoorBiome && m.entranceX > 0) ceiling(indoorBiome, m.entranceX);
-  (m.segs || []).forEach(sg => ceiling(BIOMES[sg.biomeKey] || biome, sg.x0, sg.x1));
+  (m.segs || []).forEach(sg => ceiling(BIOMES[sg.biomeKey] || biome, sg.x0, sg.x1, sg.x0));
 
   // Outdoor props that emit light.
   (m.props || []).forEach(p => {
@@ -148,7 +149,7 @@ export function missionLights(m, now) {
     if (now - (p.shootAt || -1e9) < 75) push(lights, p.x + (p.facing || 1) * 42, y - 11, 190, 1.25, MUZZLE, cam);
   });
   const lead = m.soldier;
-  const leadIndoor = isIndoorAt(m, lead.x);
+  const leadIndoor = lead ? isIndoorAt(m, lead.x) : false;
   if (lead && lead.hp > 0) {
     const y = MGY - 30 + (lead.standingY || 0) + (lead.jumpY || 0) + (lead._laneY || 0);
     const f = lead.facing || 1;

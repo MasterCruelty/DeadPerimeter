@@ -4,7 +4,7 @@ import { ZTP } from '../data/zombies.js';
 import { MISSION_W, MISSION_VIEW, MGY, objIcons, rollEncounter, setMissionWidth } from '../data/expeditions.js';
 import { setupCityMission, tickCity, clampCity, onContainerSearched } from './cityMission.js';
 import { dCityWorld, dCityHUD } from '../render/cityMission.js';
-import { BIOMES, DEFAULT_BIOME } from '../data/biomes.js';
+import { BIOMES, DEFAULT_BIOME, SEARCHABLE_TYPES } from '../data/biomes.js';
 import { BALANCE, RESEARCHES, getSoldierPerkEffect } from '../data/difficulty.js';
 import { dZombie } from '../render/zombie.js';
 import { dSoldier } from '../render/soldier.js';
@@ -322,13 +322,6 @@ export function mkMission(soldier, dest, wave = 1, magsPerSoldier = 2, researchC
     // one and the auto-search kicks in. Half the obstacles in
     // indoor sections are searchable; outdoor mission corpses /
     // wrecks have a lower rate.
-    const SEARCHABLE_TYPES = new Set([
-      // Indoor
-      'desk', 'locker', 'filing-cabinet', 'evidence-box', 'gun-rack',
-      'glass-case', 'workbench', 'cubicle', 'photocopier', 'water-cooler',
-      // Outdoor / shared
-      'crate', 'ammo-crate', 'container', 'trash-bin', 'medkit',
-    ]);
     const baseChance = useIndoor ? 0.55 : 0.30;
     const searchable = SEARCHABLE_TYPES.has(otype) && Math.random() < baseChance;
     obstacles.push({ x: ox, type: otype, searchable, searched: false });
@@ -598,6 +591,7 @@ export function mkMission(soldier, dest, wave = 1, magsPerSoldier = 2, researchC
   }
 
   const mission = {
+    W: MISSION_W,                        // world width (MISSION_W is synced to this)
     soldier: msol, followers,
     origSoldier: lead,                   // back-compat: legacy field points to lead
     origSoldiers: partySoldiers,         // full original-soldiers list (for finishMission)
@@ -730,6 +724,7 @@ function aiShoot(m, who, now, dt) {
 }
 
 export function updateMission(m, now, dt) {
+  setMissionWidth(m.W);
   if (m.state !== 'active') return;
   if (m.dialog) return; // Pause world simulation while a survivor dialog is open
   if (!m.startedAt) {
@@ -2565,6 +2560,7 @@ function dDoorway(ctx, x, indoor) {
 }
 
 export function dMissionWorld(ctx, m, now) {
+  setMissionWidth(m.W);
   ctx.save();
   ctx.translate(-m.cameraX, 0);
 
@@ -2576,9 +2572,14 @@ export function dMissionWorld(ctx, m, now) {
     dOutdoorBackdrop(ctx, m, biome);
     m.segs.forEach(sg => {
       const ib = BIOMES[sg.biomeKey] || BIOMES[DEFAULT_BIOME];
+      // Draw the interior in building-local space with the world width
+      // narrowed to the building, so its loops only cover the building.
       ctx.save();
       ctx.beginPath(); ctx.rect(sg.x0, 0, sg.x1 - sg.x0, CH); ctx.clip();
+      ctx.translate(sg.x0, 0);
+      setMissionWidth(sg.x1 - sg.x0);
       dIndoorBackdrop(ctx, m, ib, now);
+      setMissionWidth(m.W);
       ctx.restore();
       dDoorway(ctx, sg.x0, ib);
       dDoorway(ctx, sg.x1, ib);

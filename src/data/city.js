@@ -15,6 +15,7 @@
 // location), and you leave whenever you walk back to the van.
 import { C } from '../constants.js';
 import { rollMissionExtras } from './missionExtras.js';
+import { lootSummary } from './expeditions.js';
 
 export const MAP_W = 860, MAP_H = 420;
 export const FORT_POS = { x: 74, y: 352 };
@@ -107,7 +108,7 @@ export function cityDests(gs) {
       infest: st.infest, lootLeft: st.loot, seed: st.seed, visits: st.visits, lastDay: st.lastDay,
       travel: travelCost(l), district: l.district,
       cond: t.cond, side: t.side,
-      rewards: [...new Set(l.loot)].map(k => ({ medicine: '💊', ammo: '🔫', food: '🥫', materials: '🔧', sniperAmmo: '🎯', turretAmmo: '🟠', civilian: '👤', lostSoldier: '🪖' }[k] || '')).join('  '),
+      rewards: lootSummary(l.loot),
     };
   });
 }

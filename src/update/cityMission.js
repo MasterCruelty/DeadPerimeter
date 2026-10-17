@@ -9,7 +9,7 @@
 // walk back to the van you came in.
 import { uid } from '../constants.js';
 import { ZTP } from '../data/zombies.js';
-import { BIOMES } from '../data/biomes.js';
+import { BIOMES, SEARCHABLE_TYPES } from '../data/biomes.js';
 import { MISSION_W, MGY } from '../data/expeditions.js';
 import { pushRadio } from '../audio/radio.js';
 
@@ -27,12 +27,24 @@ function mulberry32(a) {
   };
 }
 
-const SEARCHABLE = new Set([
-  'desk', 'locker', 'filing-cabinet', 'evidence-box', 'gun-rack', 'glass-case', 'workbench', 'cubicle',
-  'photocopier', 'water-cooler', 'crate', 'ammo-crate', 'container', 'trash-bin', 'medkit',
-]);
 
 export const segAt = (m, x) => (m.segs || []).find(s => x >= s.x0 && x <= s.x1) || null;
+
+// Nearest open-street x to `x` (at least `margin` px from any building,
+// inside a gap at least 60 px wide). null when the street has no room.
+export function streetSpot(m, x, margin = 90) {
+  const segs = [...(m.segs || [])].sort((a, b) => a.x0 - b.x0);
+  const gaps = [];
+  let from = 260;
+  segs.forEach(s => { gaps.push([from, s.x0 - margin]); from = s.x1 + margin; });
+  gaps.push([from, MISSION_W - 140]);
+  let best = null;
+  gaps.filter(([a, b]) => b - a >= 60).forEach(([a, b]) => {
+    const c = Math.max(a, Math.min(b, x));
+    if (best === null || Math.abs(c - x) < Math.abs(best - x)) best = c;
+  });
+  return best === null ? null : Math.round(best);
+}
 
 // Indoor test shared by lighting / ambience (all mission kinds).
 export function isIndoorAt(m, x) {
@@ -88,13 +100,13 @@ export function setupCityMission(m, dest) {
   for (let x = 300 + r() * 80; x < W - 140; x += 200 + r() * 140) {
     if (inSeg(x)) continue;
     const t = street.obstacles[Math.floor(r() * street.obstacles.length)];
-    obstacles.push({ x: Math.round(x), type: t, searchable: SEARCHABLE.has(t) && r() < 0.32, searched: false });
+    obstacles.push({ x: Math.round(x), type: t, searchable: SEARCHABLE_TYPES.has(t) && r() < 0.32, searched: false });
   }
   segs.forEach(s => {
     const ib = BIOMES[s.biomeKey];
     for (let x = s.x0 + 70 + r() * 40; x < s.x1 - 60; x += 140 + r() * 110) {
       const t = ib.obstacles[Math.floor(r() * ib.obstacles.length)];
-      obstacles.push({ x: Math.round(x), type: t, searchable: SEARCHABLE.has(t) && r() < 0.6, searched: false });
+      obstacles.push({ x: Math.round(x), type: t, searchable: SEARCHABLE_TYPES.has(t) && r() < 0.6, searched: false });
     }
   });
   // What earlier visits took stays taken.
@@ -124,6 +136,18 @@ export function setupCityMission(m, dest) {
     const s = segAt({ segs }, z.x);
     if (s && z.type !== 'tank' && z.type !== 'brute' && Math.random() < 0.25) z.standingY = FLOOR_Y - MGY;
   });
+
+  // Survivor camps set up on the street, not inside a building.
+  const enc = m.encounter;
+  if (enc && segAt({ segs }, enc.x)) {
+    const nx = streetSpot({ segs }, enc.x, 140);
+    if (nx !== null) {
+      const dx = nx - enc.x;
+      enc.x = nx;
+      (m.humans || []).forEach(h => { h.x += dx; });
+      for (let i = m.zombies.length - 1; i >= 0; i--) if (Math.abs(m.zombies[i].x - enc.x) <= (enc.clearRadius || 220)) m.zombies.splice(i, 1);
+    }
+  }
 
   Object.assign(m, {
     objective: 'explore', fork: null, entranceX: 0, indoorBiomeKey: null,
@@ -189,18 +213,20 @@ export function tickCity(m, now, dt, party) {
   if (m._ventured && lead.x < VAN_X + 80 && Math.abs(lead.standingY || 0) < 4) {
     if (!m._leaveAt) m._leaveAt = now;
     if (now - m._leaveAt >= LEAVE_MS) {
-      m.collected.rescuedCivs = (m.rescuables || []).filter(r => r.state === 'following' && r.hp > 0).length;
+      // Only civilians who actually made it to the van count.
+      m.collected.rescuedCivs = (m.rescuables || []).filter(r => r.state === 'following' && r.hp > 0 && r.x < VAN_X + 320).length;
       m.state = 'won'; m.endedAt = now;
     }
   } else m._leaveAt = 0;
 }
 
-// Keep the dead on their side of a locked door (after AI movement).
+// Keep the dead, civilians and survivors on their side of a locked door
+// (after AI movement; the party is held back in tickCity).
 export function clampCity(m) {
   (m.segs || []).forEach(s => {
     if (!s.locked) return;
-    m.zombies.forEach(z => {
-      if (z.state === 'dead') return;
+    [...m.zombies, ...(m.rescuables || []), ...(m.humans || [])].forEach(z => {
+      if (z.state === 'dead' || z.hp <= 0) return;
       const k = '_in' + s.id;
       const inside = z[k] ?? (z[k] = z.x > s.x0 && z.x < s.x1);
       if (inside) z.x = Math.max(s.x0 + 14, Math.min(s.x1 - 14, z.x));

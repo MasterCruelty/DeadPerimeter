@@ -436,8 +436,11 @@ export default function DeadPerimeter() {
     if (party.length === 0) return;
     const dest = expDestsRef.current[di];
     if (!dest) return;
-    // Travel rations for the round trip across the city.
-    if (dest.travel) gs.resources.food = Math.max(0, (gs.resources.food || 0) - dest.travel * party.length);
+    // Travel rations for the round trip across the city (replaces the
+    // per-survivor sortie ration). No food, no trip.
+    const rations = (dest.travel || 0) * party.length;
+    if ((gs.resources.food || 0) < rations) return;
+    gs.resources.food -= rations;
 
     // Issue ammo from Fort Omega's pool for every party member.
     // Each soldier carries `mags` magazines total: 1 loaded + (mags-1)
@@ -1601,6 +1604,8 @@ export default function DeadPerimeter() {
   const expeditionsUnlocked = !gs || gs.wave >= 2;
   const canSortie = sortiesLeft > 0 && expeditionsUnlocked;
   const partyValid = expSoldierIdxs.length > 0 && expSoldierIdxs.length <= BALANCE.maxExpeditionParty;
+  const rationsNeed = expDestIdx !== null && expDests[expDestIdx] ? (expDests[expDestIdx].travel || 0) * expSoldierIdxs.length : 0;
+  const rationsOk = !gs || (gs.resources.food || 0) >= rationsNeed;
 
   // Total ammo this sortie would draw from the stash based on the
   // currently-selected party + mags loadout. Used by the loadout UI
@@ -1683,9 +1688,10 @@ export default function DeadPerimeter() {
             <div style={{ marginTop: '10px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
               <button
                 style={btn('#1a3a18')}
-                disabled={!partyValid || expDestIdx === null || !canSortie}
+                disabled={!partyValid || expDestIdx === null || !canSortie || !rationsOk}
                 onClick={playMission}
               >🎮 LAUNCH SORTIE</button>
+              {!rationsOk && <span style={{ alignSelf: 'center', fontSize: '10px', color: C.dng }}>Not enough food for the trip: need {rationsNeed} 🥫</span>}
             </div>
             <div style={{ fontSize: '9px', color: C.txt, opacity: 0.5, marginTop: '8px', lineHeight: '1.5' }}>
               You control the first picked soldier; the others follow as AI (auto-shoot in range, knife on dry mag). Lead death = mission failed — but a surviving follower takes point. When a soldier burns through every magazine they holster the firearm and switch to a knife.

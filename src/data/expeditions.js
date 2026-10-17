@@ -50,7 +50,7 @@ export const RISK_BASE = {
 };
 
 // Pretty list of icons summarising the loot pool for the card UI.
-function lootSummary(loot) {
+export function lootSummary(loot) {
   const seen = new Set(); const icons = [];
   for (const l of loot) {
     if (seen.has(l)) continue; seen.add(l);
@@ -79,9 +79,10 @@ export function rollDestinations() {
 
 // Playable side-scrolling mission constants
 // Width of the ACTIVE mission's world. City explore missions are longer
-// than the classic 1900 px sorties, so this is a live binding that
-// mkMission sets (setMissionWidth) before generating; only one mission
-// is ever active, and every importer sees the current value.
+// than the classic 1900 px sorties, so this is a live binding: mkMission
+// sets it before generating and stores it on the mission (m.W), and the
+// mission update / render / lighting entry points re-sync it from m.W
+// each frame, so geometry always follows the mission being processed.
 export let MISSION_W = 1900;
 export const BASE_MISSION_W = 1900;
 export function setMissionWidth(w) { MISSION_W = w || BASE_MISSION_W; }
