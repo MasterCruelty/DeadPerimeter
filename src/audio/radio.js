@@ -10,7 +10,7 @@
 // Lines are very short on purpose — they have to read at a glance
 // during siege / mission UI.
 
-import { isRadioVoiceEnabled, speakRadio } from './radioVoice.js';
+import { speakOrChatter } from './radioVoice.js';
 
 export const RADIO_LINES = {
   advance:   ['Moving up!',     'Pushing forward!', 'On the move!',  'Advancing!',         'Squad, forward!'],
@@ -75,17 +75,7 @@ export function pushRadio(state, category, opts = {}) {
   state.radioMsg = { text: subtitle, at: now, dur: opts.dur || 2200, category };
   if (!state.soundQ) state.soundQ = [];
 
-  // Prefer real TTS when the user has voice enabled + Speech API works.
-  // Speak the bare line (no "Bravo:" prefix) since the HUD shows the
-  // speaker name in the subtitle.
-  const spoke = isRadioVoiceEnabled() && speakRadio(text, { pitch, urgent: !!opts.urgent });
-
-  if (!spoke) {
-    state.soundQ.push({
-      t: 'chatter',
-      syllables: Math.max(2, Math.min(6, Math.round(text.length / 5))),
-      pitch,
-      urgent: !!opts.urgent,
-    });
-  }
+  // Prefer real TTS; procedural chatter when it's off or fails. Speak
+  // the bare line (no "Bravo:" prefix) since the HUD shows the speaker.
+  speakOrChatter(text, { pitch, urgent: !!opts.urgent }, state.soundQ);
 }
