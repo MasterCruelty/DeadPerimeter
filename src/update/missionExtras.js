@@ -20,6 +20,7 @@ import { uid, rng } from '../constants.js';
 import { ZTP } from '../data/zombies.js';
 import { MISSION_W, MGY } from '../data/expeditions.js';
 import { pushRadio } from '../audio/radio.js';
+import { waveMul } from '../data/rewards.js';
 import { streetSpot, segAt } from './cityMission.js';
 export { MISSION_CONDS, SIDE_OBJ } from '../data/missionExtras.js';
 
@@ -50,19 +51,25 @@ export function setupMissionExtras(m, dest, wave) {
   if (dest._vaccineSegment) return;
   const cond = dest.cond || null, side = dest.side || null;
   m.cond = cond;
-  if (cond === 'night') m.activationMul = 0.65;
+  // Conditions are fair trades, not free bonuses (value per unit of risk
+  // stays put): night = stealthier but the dead that do wake are runners;
+  // horde = more dead, proportionally more loot; picked over = the reverse.
+  if (cond === 'night') {
+    m.activationMul = 0.65;
+    m.zombies.forEach(z => { if (z.type === 'walker' && Math.random() < 0.3) { z.type = 'runner'; z.z = ZTP.runner; z.hp = z.maxHp = ZTP.runner.hp; z.spd = ZTP.runner.spd * (0.85 + Math.random() * 0.3); } });
+  }
   if (cond === 'horde') {
     const extra = Math.ceil(m.zombies.filter(z => z.type !== 'brute').length * 0.6);
     for (let i = 0; i < extra; i++) m.zombies.push(mz(Math.random() < 0.7 ? 'walker' : 'runner', 400 + Math.random() * (MISSION_W - 700), false));
   }
   if (cond === 'scavenged') {
-    const drop = Math.floor(m.zombies.filter(z => z.type !== 'brute').length * 0.3);
+    const drop = Math.floor(m.zombies.filter(z => z.type !== 'brute').length * 0.4);
     for (let i = 0; i < drop; i++) {
       const k = m.zombies.findIndex(z => z.type !== 'brute' && !z.activated);
       if (k >= 0) m.zombies.splice(k, 1);
     }
   }
-  const lootMul = cond === 'horde' ? 1.5 : cond === 'scavenged' ? 0.6 : 1;
+  const lootMul = cond === 'horde' ? 1.6 : cond === 'scavenged' ? 0.6 : 1;
   if (lootMul !== 1) m.pickups.forEach(p => { if (typeof p.value === 'number' && p.type !== 'civilian' && p.type !== 'lostSoldier' && p.type !== 'vaccine') p.value = Math.max(1, Math.round(p.value * lootMul)); });
 
   if (side === 'cache') {
@@ -110,9 +117,11 @@ export function bulletHitsSide(m, b, now) {
   m.soundQ.push({ t: 'hit', now, x: b.x });
   if (sd.hp <= 0) {
     sd.state = 'done'; sd.endedAt = now;
-    m.collected.materials += 12; m.collected.medicine += 4;
+    const k = waveMul(m.wave || 1) * (m.valueMul || 1);
+    const mats = Math.round(12 * k), meds = Math.round(5 * k);
+    m.collected.materials += mats; m.collected.medicine += meds;
     m.soundQ.push({ t: 'explosion', x: sd.x });
-    m.effects.push({ type: 'txt', x: sd.x, y: MGY - 110, v: 'NEST DESTROYED  +12 🔧 +4 💊', col: '#ffcc44', at: now, dur: 2400 });
+    m.effects.push({ type: 'txt', x: sd.x, y: MGY - 110, v: `NEST DESTROYED  +${mats} 🔧 +${meds} 💊`, col: '#ffcc44', at: now, dur: 2400 });
     pushRadio(m, 'kill', { line: 'Nest is burning!', speaker: m.soldier, cooldown: 0 });
   }
   return true;
@@ -148,9 +157,11 @@ export function tickMissionExtras(m, now, dt, party) {
       if (sd.progress >= 1) {
         sd.state = 'done'; sd.endedAt = now;
         const c = m.collected;
-        c.ammo += 30; c.sniperAmmo += 4; c.turretAmmo += 20; c.medicine += 6;
+        const k = waveMul(m.wave || 1) * (m.valueMul || 1);
+        const got = { ammo: Math.round(36 * k), sniperAmmo: Math.round(4 * k), turretAmmo: Math.round(24 * k), medicine: Math.round(5 * k) };
+        Object.entries(got).forEach(([t, v]) => { c[t] += v; });
         m.soundQ.push({ t: 'pickup', x: sd.x });
-        m.effects.push({ type: 'txt', x: sd.x, y: MGY - 100, v: 'CACHE OPEN  +30 🔫 +4 🎯 +20 🟠 +6 💊', col: '#ffd54a', at: now, dur: 2600 });
+        m.effects.push({ type: 'txt', x: sd.x, y: MGY - 100, v: `CACHE OPEN  +${got.ammo} 🔫 +${got.sniperAmmo} 🎯 +${got.turretAmmo} 🟠 +${got.medicine} 💊`, col: '#ffd54a', at: now, dur: 2600 });
       }
     }
   } else if (sd.type === 'nest') {

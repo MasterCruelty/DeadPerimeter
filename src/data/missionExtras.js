@@ -2,9 +2,9 @@
 // cards (rolled in rollDestinations); behaviour lives in
 // update/missionExtras.js.
 export const MISSION_CONDS = {
-  night:     { name: 'NIGHT RAID', icon: '🌙', color: '#8aa0e0', desc: 'Dark streets: the dead wake later, but you see less.' },
-  horde:     { name: 'HORDE',      icon: '☠',  color: '#e06a48', desc: '+60% dead, loot worth +50%.' },
-  scavenged: { name: 'PICKED OVER', icon: '🧺', color: '#b8a878', desc: '30% fewer dead, loot worth −40%.' },
+  night:     { name: 'NIGHT RAID', icon: '🌙', color: '#8aa0e0', desc: 'Dark streets: the dead wake later, but more of them are runners.' },
+  horde:     { name: 'HORDE',      icon: '☠',  color: '#e06a48', desc: '+60% dead, loot worth +60%.' },
+  scavenged: { name: 'PICKED OVER', icon: '🧺', color: '#b8a878', desc: '40% fewer dead, loot worth −40%.' },
 };
 export const SIDE_OBJ = {
   cache: { name: 'CRACK THE CACHE', icon: '🔒', desc: 'Locked military cache: stand by it to open it. Noise draws a pack.', reward: '🔫 🎯 🟠 💊' },
