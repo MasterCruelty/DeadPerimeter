@@ -11,6 +11,11 @@ import { mkSoldier } from './entities/soldier.js';
 import { mkBarricade } from './entities/barricade.js';
 import { mkTurret } from './entities/turret.js';
 import { mkWave, mkHumanWave } from './entities/wave.js';
+import { dWaveCondition } from './render/weather.js';
+import { MISSION_CONDS, SIDE_OBJ } from './data/missionExtras.js';
+import { rollSiegeEvent } from './update/siegeEvents.js';
+import { dSiegeEvent } from './render/siegeEvents.js';
+import { WAVE_MODS, rollWaveMod, isBossWave, bossName } from './data/waveMods.js';
 import { mkGS } from './entities/gameState.js';
 import { hasSavedGame, saveGame, loadGame, clearSave, peekSave } from './entities/persistence.js';
 import { BALANCE, CRAFT_RECIPES, RESEARCHES, PERKS, getResearchEffect } from './data/difficulty.js';
@@ -61,15 +66,22 @@ function fmtAgo(ts) {
 }
 
 // Composition of the upcoming wave for the command-center intel line.
-function waveIntel(n) {
+// The upcoming wave's condition, rolled once and kept until the wave starts.
+function ensureNextWaveMod(gs) {
+  if (gs.nextWaveMod === undefined) gs.nextWaveMod = rollWaveMod(gs.wave, isHumanWaveNumber(gs.wave), gs.waveMod, BALANCE.maxWaves);
+  return gs.nextWaveMod;
+}
+
+function waveIntel(n, mod = null) {
   if (isHumanWaveNumber(n)) {
     const q = mkHumanWave(n);
     const g = q.filter(x => x.type === 'gunman').length;
     return { human: true, parts: [[q.length - g, 'knifemen'], [g, 'gunmen']] };
   }
-  const q = mkWave(n);
+  const q = mkWave(n, mod).filter(x => !x.boss);
   const c = t => q.filter(x => x.type === t).length;
-  return { human: false, parts: [[c('walker'), 'walkers'], [c('runner'), 'runners'], [c('tank'), 'tanks']] };
+  return { human: false, boss: isBossWave(n, BALANCE.maxWaves) ? bossName(n) : null,
+    parts: [[c('walker'), 'walkers'], [c('runner'), 'runners'], [c('spitter'), 'spitters'], [c('tank'), 'tanks'], [c('brute'), 'brutes']] };
 }
 
 function fmtPlayTime(gs) {
@@ -393,7 +405,10 @@ export default function DeadPerimeter() {
     });
     // Decide whether this is a human wave
     gs.isHumanWave = isHumanWaveNumber(gs.wave);
-    gs.spawnQueue = gs.isHumanWave ? mkHumanWave(gs.wave) : mkWave(gs.wave);
+    // Wave condition: briefed in the intel panel, applied here.
+    gs.waveMod = ensureNextWaveMod(gs); gs.nextWaveMod = undefined;
+    gs.spawnQueue = gs.isHumanWave ? mkHumanWave(gs.wave) : mkWave(gs.wave, gs.waveMod);
+    gs.boss = null; gs.waveEvent = rollSiegeEvent(gs);
     gs.waveTotal = gs.spawnQueue.length;
     gs.phase = 'siege';
     gs.waveTime = 0;
@@ -402,6 +417,7 @@ export default function DeadPerimeter() {
     gs.humans = [];
     gs.bullets = []; gs.effects = []; gs.soundQ = [];
     gs.zombiesSpawned = 0;
+    if (gs.waveMod) pushRadio(gs, 'deploy', { line: WAVE_MODS[gs.waveMod].radio, cooldown: 0 });
     gs.squadTarget = null; gs.squadLane = null; gs.selectedSoldierId = null;
     const ground = gs.soldiers.filter(s => s.state !== 'dead' && !s.onExpedition && !s.onRoof);
     ground.forEach((s, i) => { s.x = WX + 20; s.state = 'walk'; s.facing = 1; s.destX = 224 + i * 24; s.reloadTriggered = false; });
@@ -882,7 +898,7 @@ export default function DeadPerimeter() {
       hdScale = k;
       [worldC, hudC, normC].forEach(c => { c.width = Math.round(CW * k); c.height = Math.round(CH * k); });
     };
-    if (import.meta.env.DEV) window.__dp = { worldC, hudC, gsRef, missionRef, extractionRef, mkExtraction };
+    if (import.meta.env.DEV) window.__dp = { worldC, hudC, gsRef, missionRef, extractionRef, mkExtraction, expDestsRef };
     const worldCtx = worldC.getContext('2d'), hudCtx = hudC.getContext('2d');
     let fx = null, fxTried = false;
     // Per-frame targets: in HD mode the world goes to worldCtx (lit by the
@@ -1435,6 +1451,8 @@ export default function DeadPerimeter() {
           (gs.turrets || []).forEach(t => dTurret(ctx, t, simNow));
           gs.effects.forEach(e => dFx(ctx, e, simNow));
           gs.bullets.forEach(b => dBlt(ctx, b));
+          dSiegeEvent(ctx, gs, simNow);
+          dWaveCondition(ctx, gs, simNow);
           dSquadMarker(ctx, gs.squadTarget, gs.squadLane, simNow);
           ctx.restore();
           scene = siegeLights(gs, simNow);
@@ -1635,6 +1653,18 @@ export default function DeadPerimeter() {
                 <div style={{ color: d.riskColor, fontSize: '8px', fontWeight: 'bold', marginTop: '1px' }}>RISK: {d.risk}</div>
                 <div style={{ color: C.txt, fontSize: '8px', marginTop: '2px', lineHeight: '1.4' }}>{d.desc}</div>
                 <div style={{ color: '#88ddff', fontSize: '8px', marginTop: '2px' }}>{d.rewards}</div>
+                {d.cond && MISSION_CONDS[d.cond] && (
+                  <div title={MISSION_CONDS[d.cond].desc} style={{ color: MISSION_CONDS[d.cond].color, fontSize: '8px', marginTop: '4px', fontWeight: 'bold' }}>
+                    {MISSION_CONDS[d.cond].icon} {MISSION_CONDS[d.cond].name}
+                    <div style={{ fontWeight: 'normal', opacity: 0.85 }}>{MISSION_CONDS[d.cond].desc}</div>
+                  </div>
+                )}
+                {d.side && SIDE_OBJ[d.side] && (
+                  <div style={{ color: '#ffd54a', fontSize: '8px', marginTop: '4px', borderTop: '1px dashed rgba(255,213,74,0.35)', paddingTop: '3px' }}>
+                    <b>★ SIDE: {SIDE_OBJ[d.side].icon} {SIDE_OBJ[d.side].name}</b> <span style={{ opacity: 0.85 }}>{SIDE_OBJ[d.side].reward}</span>
+                    <div style={{ color: C.txt, opacity: 0.85 }}>{SIDE_OBJ[d.side].desc}</div>
+                  </div>
+                )}
               </div>
             ))}</div>
             {/* Loadout selector — how many magazines each soldier carries */}
@@ -1924,17 +1954,25 @@ export default function DeadPerimeter() {
               </div>
             )}
             {(() => {
-              const intel = waveIntel(gs.wave);
+              const mod = ensureNextWaveMod(gs), md = mod && WAVE_MODS[mod];
+              const intel = waveIntel(gs.wave, mod);
               const parts = intel.parts.filter(([n]) => n > 0);
-              return (
+              return (<>
                 <div style={{ background: 'rgba(14,22,12,0.85)', border: `1px solid ${C.uib}`, padding: '6px 14px', marginTop: '8px', fontSize: '10px', color: C.txt, display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
                   <span style={{ color: C.acc, fontWeight: 'bold', letterSpacing: '.06em' }}>🛰 INTEL — WAVE {gs.wave}</span>
                   {parts.map(([n, lbl]) => (
                     <span key={lbl}><b style={{ color: lbl === 'tanks' || lbl === 'gunmen' ? C.wrn : C.acc }}>{n}</b> {lbl}</span>
                   ))}
                   {gs.wave === BALANCE.maxWaves && <span style={{ color: C.dng }}>· mega-wave ×{BALANCE.megaWaveMultiplier}</span>}
+                  {intel.boss && <span style={{ color: '#ff5533', fontWeight: 'bold' }}>☠ BOSS: {intel.boss}</span>}
                 </div>
-              );
+                {md && (
+                  <div style={{ background: 'rgba(24,22,14,0.9)', border: `1px solid ${md.color}`, padding: '6px 14px', marginTop: '4px', fontSize: '10px', color: C.txt }}>
+                    <b style={{ color: md.color, letterSpacing: '.06em' }}>{md.icon} CONDITION: {md.name}</b>
+                    <span style={{ marginLeft: '8px', opacity: 0.85 }}>{md.desc}</span>
+                  </div>
+                )}
+              </>);
             })()}
             {/* Supply drop received from Central Command (wave 10/20/25) */}
             {gs.lastSupplyDrop && gs.lastSupplyDrop.wave === gs.wave && (

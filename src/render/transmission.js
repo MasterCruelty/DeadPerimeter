@@ -49,7 +49,7 @@ function scheduleTxAudio(t, off) {
   fire('staticOff', off > t.data.durMs - 600, { t: 'staticStop' });
 }
 
-function dCrate(ctx, x, y, chute, now) {
+export function dCrate(ctx, x, y, chute, now) {
   if (chute > 0) {
     ctx.save(); ctx.globalAlpha = chute;
     const sway = Math.sin(now / 420) * 0.08;

@@ -8,6 +8,8 @@ import { dZombie } from '../render/zombie.js';
 import { dSoldier } from '../render/soldier.js';
 import { dFx, dBlt } from '../render/effects.js';
 import { dRadioSubtitle } from '../render/hud.js';
+import { setupMissionExtras, tickMissionExtras, bulletHitsSide } from './missionExtras.js';
+import { dMissionExtras, dMissionExtrasHUD } from '../render/missionExtras.js';
 import { pushRadio } from '../audio/radio.js';
 
 // Hurt-callout helper (same logic as siege): fires once when a party
@@ -587,7 +589,7 @@ export function mkMission(soldier, dest, wave = 1, magsPerSoldier = 2, researchC
     }
   }
 
-  return {
+  const mission = {
     soldier: msol, followers,
     origSoldier: lead,                   // back-compat: legacy field points to lead
     origSoldiers: partySoldiers,         // full original-soldiers list (for finishMission)
@@ -610,6 +612,8 @@ export function mkMission(soldier, dest, wave = 1, magsPerSoldier = 2, researchC
     collected: { ammo: 0, medicine: 0, food: 0, materials: 0, sniperAmmo: 0, turretAmmo: 0, civilian: null, rescuedCivs: 0, lostSoldier: null },
     startedAt: 0, endedAt: 0,
   };
+  setupMissionExtras(mission, dest, wave);
+  return mission;
 }
 
 // Returns every living party member (lead + alive followers).
@@ -979,12 +983,14 @@ export function updateMission(m, now, dt) {
     }
   });
 
+  tickMissionExtras(m, now, dt, aliveParty(m));
+
   // Activation now considers any party member or rescuable as the "trigger"
   const triggers = aliveTargets(m);
   m.zombies.forEach(z => {
     if (z.activated) return;
     const closest = triggers.reduce((d, p) => Math.min(d, Math.abs(z.x - p.x)), Infinity);
-    if (closest < BALANCE.missionActivationRange) {
+    if (closest < BALANCE.missionActivationRange * (m.activationMul || 1)) {
       z.activated = true; m.activatedCount++;
       m.soundQ.push({ t: z.type === 'brute' ? 'roar' : 'groan', now, zt: z.type, x: z.x });
     }
@@ -1573,6 +1579,8 @@ export function updateMission(m, now, dt) {
       }
       return false;
     }
+
+    if (bulletHitsSide(m, b, now)) return false;
 
     // Y-level check: a bullet fired from a platform must be on the
     // same level as the zombie to hit. Otherwise a soldier shooting
@@ -2654,6 +2662,8 @@ export function dMissionWorld(ctx, m, now) {
     ctx.fillStyle = 'rgba(80,80,60,0.3)'; ctx.fillRect(mx - 1, MGY + 2, 2, 8);
   }
 
+  dMissionExtras(ctx, m, now);
+
   m.pickups.forEach(p => {
     if (p.collected) return;
     const bob = Math.sin(now / 300 + p.x * 0.01) * 3;
@@ -2844,12 +2854,15 @@ export function dMissionWorld(ctx, m, now) {
 
 export function dMissionHUD(ctx, m, now) {
   const CW_ = 900;
+  // Night raid: a dark veil (the HD pass also lowers the ambient light).
+  if (m.cond === 'night') { ctx.fillStyle = 'rgba(2,4,14,0.22)'; ctx.fillRect(0, 0, CW_, 600); }
   dRadioSubtitle(ctx, m, now);
   const hg = ctx.createLinearGradient(0, 0, 0, 40);
   hg.addColorStop(0, 'rgba(6,10,6,0.94)'); hg.addColorStop(1, 'rgba(0,0,0,0.74)');
   ctx.fillStyle = hg; ctx.fillRect(0, 0, CW_, 40);
   ctx.strokeStyle = C.uib; ctx.lineWidth = 1;
   ctx.beginPath(); ctx.moveTo(0, 40.5); ctx.lineTo(CW_, 40.5); ctx.stroke();
+  dMissionExtrasHUD(ctx, m, now);
 
   // ── Destination + objective (truncated so it never runs into the bar)
   const riskCol = m.dest.risk === 'HIGH' ? '#dd4444' : m.dest.risk === 'MED' ? C.wrn : C.acc;
