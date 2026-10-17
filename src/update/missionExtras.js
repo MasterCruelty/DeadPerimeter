@@ -85,7 +85,7 @@ export function setupMissionExtras(m, dest, wave) {
     m.side = { type: 'sos', x, rid: r.id, timeLimit: dest.risk === 'HIGH' ? 80000 : 70000, state: 'active' };
   }
 
-  // Explore streets: no objective behind a locked door (the SOS timer
+  // Explore streets: no objective behind a barricade (the SOS timer
   // or the nest would be unreachable until the door is forced).
   if (m.side && m.segs) {
     const sg = segAt(m, m.side.x);

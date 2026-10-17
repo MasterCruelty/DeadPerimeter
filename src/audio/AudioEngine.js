@@ -100,28 +100,85 @@ export class AudioEngine {
     gn.connect(echo); echo.connect(elp); elp.connect(eg); eg.connect(out);
     if (wk === 'shotgun') setTimeout(() => this.pump(pan), 330);
   }
-  // Shotgun pump: two mechanical clacks (back, forward).
-  pump(pan) {
-    this._click(260, 0.35, 0.06, pan);
-    setTimeout(() => this._click(420, 0.42, 0.05, pan), 140);
+  // Shotgun pump: fore-end racked back, then slammed forward.
+  pump(pan, at = 0) {
+    const t = this.ctx.currentTime + at;
+    this._scrape(t, 0.09, 1600, 2800, 0.14, pan); this._metal(t + 0.09, [1900, 3000, 4400], 0.05, 0.36, pan); this._thunk(t + 0.09, 200, 0.06, 0.3, pan);
+    this._scrape(t + 0.16, 0.07, 2800, 1500, 0.12, pan); this._metal(t + 0.23, [2200, 3500, 5300], 0.05, 0.42, pan); this._thunk(t + 0.23, 260, 0.05, 0.26, pan);
   }
-  reload(w, dur) {
-    this._click(510, 0.44, 0.08);
-    setTimeout(() => this._click(330, 0.52, 0.07), dur * 0.46);
-    setTimeout(() => { this._click(970, 0.62, 0.04); setTimeout(() => this._click(710, 0.38, 0.035), 80); }, dur * 0.82);
+  // Reloads are built from mechanical layers — mag release click, mag
+  // sliding out, the new one seating (a thunk), the charging handle /
+  // slide / bolt — timed across the weapon's reload time.
+  reload(w, dur = 1600) {
+    const t = this.ctx.currentTime, d = dur / 1000;
+    const b = { ak: 'rifle', smg: 'rifle', hunting: 'bolt', sniper: 'bolt', revolver: 'revolver', dbarrel: 'break' }[w] || wbase(w) || w;
+    if (b === 'pistol') {
+      this._metal(t, [3400, 5100, 6900], 0.03, 0.22);                       // mag release
+      this._scrape(t + 0.04, 0.09, 2600, 1400, 0.10);                       // mag out
+      this._scrape(t + d * 0.45, 0.07, 1500, 2600, 0.10);
+      this._thunk(t + d * 0.45 + 0.07, 210, 0.07, 0.34); this._metal(t + d * 0.45 + 0.07, [2600, 4300], 0.03, 0.2);
+      this._metal(t + d * 0.8, [2100, 3300, 5600], 0.05, 0.36); this._thunk(t + d * 0.8, 260, 0.05, 0.2);   // slide release
+    } else if (b === 'revolver') {
+      this._metal(t, [2900, 4400], 0.04, 0.24);                              // cylinder out
+      for (let k = 0; k < 4; k++) this._metal(t + 0.12 + k * 0.05 + Math.random() * 0.03, [5200 + k * 300, 7400], 0.05, 0.08);  // brass drops
+      for (let k = 0; k < 6; k++) this._metal(t + d * 0.35 + k * d * 0.06, [3600, 5800], 0.025, 0.12);
+      this._metal(t + d * 0.86, [2200, 3500, 5000], 0.05, 0.38); this._thunk(t + d * 0.86, 240, 0.05, 0.2);   // swing shut
+    } else if (b === 'shotgun') {
+      const n = 4;
+      for (let k = 0; k < n; k++) {
+        const at = t + 0.08 + k * (d * 0.7 / n);
+        this._scrape(at, 0.06, 1200, 2200, 0.08); this._thunk(at + 0.06, 300, 0.05, 0.28); this._metal(at + 0.06, [2500, 3900], 0.03, 0.16);
+      }
+      this.pump(undefined, d * 0.78);
+    } else if (b === 'break') {
+      this._metal(t, [1800, 2900, 4100], 0.06, 0.34); this._thunk(t, 160, 0.08, 0.3);           // break open
+      this._scrape(t + 0.1, 0.12, 2400, 1200, 0.08);
+      [0.4, 0.55].forEach(f => { this._thunk(t + d * f, 320, 0.05, 0.26); this._metal(t + d * f, [2700], 0.03, 0.12); });
+      this._metal(t + d * 0.85, [1900, 3100, 4600], 0.06, 0.42); this._thunk(t + d * 0.85, 180, 0.07, 0.34);   // snap shut
+    } else if (b === 'bolt') {
+      this._metal(t, [2800, 4200], 0.03, 0.22);                                            // bolt up
+      this._scrape(t + 0.06, 0.14, 1800, 3200, 0.14); this._metal(t + 0.2, [2300, 3600], 0.04, 0.3);  // back
+      this._thunk(t + d * 0.5, 230, 0.06, 0.3); this._metal(t + d * 0.5, [3000, 4700], 0.03, 0.16);   // rounds in
+      this._scrape(t + d * 0.78, 0.12, 3200, 1700, 0.14); this._metal(t + d * 0.78 + 0.12, [2100, 3400, 5200], 0.05, 0.4);  // forward + down
+    } else {
+      // Rifle / AK / SMG: mag release, mag out, mag seated, charging handle back + forward.
+      this._metal(t, [3100, 4700, 6200], 0.03, 0.24);
+      this._scrape(t + 0.05, 0.13, 1900, 900, 0.12);
+      this._scrape(t + d * 0.42, 0.08, 900, 1900, 0.12);
+      this._thunk(t + d * 0.42 + 0.08, 180, 0.08, 0.4); this._metal(t + d * 0.42 + 0.08, [2400, 3900], 0.035, 0.22);
+      this._scrape(t + d * 0.74, 0.08, 2600, 1500, 0.14); this._metal(t + d * 0.74 + 0.08, [2700, 4100], 0.03, 0.2);
+      this._metal(t + d * 0.74 + 0.2, [2000, 3100, 5200], 0.05, 0.46); this._thunk(t + d * 0.74 + 0.2, 240, 0.05, 0.24);
+    }
   }
-  _click(freq, vol, dur, pan) {
-    const t = this.ctx.currentTime; const out = this._out(pan);
-    const o = this.ctx.createOscillator(); o.type = 'sine'; o.frequency.value = freq;
-    const og = this.ctx.createGain(); og.gain.setValueAtTime(vol, t); og.gain.exponentialRampToValueAtTime(0.001, t + dur);
-    o.connect(og); og.connect(out); o.start(t); o.stop(t + dur + 0.01);
-    const nl = Math.ceil(this.ctx.sampleRate * dur);
-    const nb = this.ctx.createBuffer(1, nl, this.ctx.sampleRate);
-    const nd = nb.getChannelData(0); for (let i = 0; i < nl; i++) nd[i] = (Math.random() * 2 - 1) * (1 - i / nl);
-    const ns = this.ctx.createBufferSource(); ns.buffer = nb;
-    const nf = this.ctx.createBiquadFilter(); nf.type = 'bandpass'; nf.frequency.value = freq * 2.1; nf.Q.value = 4;
-    const ng = this.ctx.createGain(); ng.gain.value = vol * 0.32;
-    ns.connect(nf); nf.connect(ng); ng.connect(out); ns.start(t);
+  // Metal impact: a noise burst rung through a few high-Q resonances.
+  _metal(at, freqs, dur, vol, pan) {
+    const out = this._out(pan);
+    const l = Math.ceil(this.ctx.sampleRate * 0.012);
+    const b = this.ctx.createBuffer(1, l, this.ctx.sampleRate); const d = b.getChannelData(0);
+    for (let i = 0; i < l; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / l);
+    freqs.forEach((f, k) => {
+      const s = this.ctx.createBufferSource(); s.buffer = b;
+      const bp = this.ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = f * (0.97 + Math.random() * 0.06); bp.Q.value = 18;
+      const g = this.ctx.createGain(); g.gain.setValueAtTime(vol * 1.5 / (k + 1), at); g.gain.exponentialRampToValueAtTime(0.001, at + dur * (1.4 - k * 0.2));
+      s.connect(bp); bp.connect(g); g.connect(out); s.start(at);
+    });
+  }
+  // Low knock of parts seating.
+  _thunk(at, f, dur, vol, pan) {
+    const out = this._out(pan);
+    const o = this.ctx.createOscillator(); o.type = 'sine';
+    o.frequency.setValueAtTime(f, at); o.frequency.exponentialRampToValueAtTime(f * 0.55, at + dur);
+    const g = this.ctx.createGain(); g.gain.setValueAtTime(vol * 0.5, at); g.gain.exponentialRampToValueAtTime(0.001, at + dur);
+    o.connect(g); g.connect(out); o.start(at); o.stop(at + dur + 0.02);
+  }
+  // Metal sliding on metal: band-passed noise sweeping between f0 and f1.
+  _scrape(at, dur, f0, f1, vol, pan) {
+    const out = this._out(pan);
+    const n = this._ns();
+    const bp = this.ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = 5;
+    bp.frequency.setValueAtTime(f0, at); bp.frequency.exponentialRampToValueAtTime(f1, at + dur);
+    const g = this.ctx.createGain(); g.gain.setValueAtTime(0, at); g.gain.linearRampToValueAtTime(vol, at + dur * 0.2); g.gain.linearRampToValueAtTime(0, at + dur);
+    n.connect(bp); bp.connect(g); g.connect(out); n.start(at, Math.random() * 3); n.stop(at + dur + 0.02);
   }
   shell() {
     const t = this.ctx.currentTime; const l = Math.ceil(this.ctx.sampleRate * 0.05);
@@ -143,35 +200,89 @@ export class AudioEngine {
     const g = this.ctx.createGain(); g.gain.setValueAtTime(0.26, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.13);
     s.connect(lp); lp.connect(g); g.connect(this._out(pan)); s.start(t);
   }
-  zombieDie(type, pan) {
-    const t = this.ctx.currentTime;
-    const f = type === 'brute' ? 38 : type === 'tank' ? 52 : type === 'runner' ? 108 : type === 'spitter' ? 120 : 78;
+  // ── Zombie voices ──────────────────────────────────────────────
+  // A small vocal tract: glottal source (sawtooth + breath noise) with
+  // a random pitch tremor, a waveshaper for the rasp, a fast "gurgle"
+  // in the throat, then three moving formant filters (the mouth shape)
+  // and an envelope. Throats are bigger than a living one: formants
+  // sit ~20% lower.
+  _curve(k) {
+    this._curves = this._curves || {};
+    if (this._curves[k]) return this._curves[k];
+    const n = 1024, c = new Float32Array(n), th = Math.tanh(k);
+    for (let i = 0; i < n; i++) { const x = i / (n - 1) * 2 - 1; c[i] = Math.tanh(k * x) / th; }
+    return (this._curves[k] = c);
+  }
+  _voice({ f = [90, 70, 80], dur = 1.2, v0 = 'U', v1 = 'O', rasp = 4, gurgle = 0, gRate = 22, breath = 0.3, vol = 0.3, sub = 0, at = 0, pan } = {}) {
+    const VOW = { A: [760, 1150, 2400], O: [470, 820, 2300], U: [330, 690, 2200], E: [480, 1650, 2400], AE: [640, 1500, 2350] };
+    const t = this.ctx.currentTime + at, out = this._out(pan);
     const o = this.ctx.createOscillator(); o.type = 'sawtooth';
-    o.frequency.setValueAtTime(f + Math.random() * 28, t); o.frequency.exponentialRampToValueAtTime(f * 0.33, t + 0.68);
-    const bp = this.ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 310; bp.Q.value = 2.4;
-    const g = this.ctx.createGain(); g.gain.setValueAtTime(0.40, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.74);
-    o.connect(bp); bp.connect(g); g.connect(this._out(pan)); o.start(t); o.stop(t + 0.78);
+    o.frequency.setValueAtTime(f[0], t); o.frequency.linearRampToValueAtTime(f[1], t + dur * 0.4); o.frequency.linearRampToValueAtTime(f[2], t + dur);
+    // Pitch tremor: slow noise into the frequency.
+    const jn = this._ns(), jl = this.ctx.createBiquadFilter(); jl.type = 'lowpass'; jl.frequency.value = 16;
+    const jg = this.ctx.createGain(); jg.gain.value = f[0] * 0.5; jn.connect(jl); jl.connect(jg); jg.connect(o.frequency);
+    const src = this.ctx.createGain(); src.gain.value = 1; o.connect(src);
+    let so = null;
+    if (sub) { so = this.ctx.createOscillator(); so.type = 'square'; so.frequency.setValueAtTime(f[0] / 2, t); so.frequency.linearRampToValueAtTime(f[2] / 2, t + dur);
+      const sg = this.ctx.createGain(); sg.gain.value = sub; so.connect(sg); sg.connect(src); }
+    const bn = this._ns(), bbp = this.ctx.createBiquadFilter(); bbp.type = 'bandpass'; bbp.frequency.value = 1400; bbp.Q.value = 0.6;
+    const bg = this.ctx.createGain(); bg.gain.value = breath; bn.connect(bbp); bbp.connect(bg); bg.connect(src);
+    const ws = this.ctx.createWaveShaper(); ws.curve = this._curve(rasp); ws.oversample = '2x';
+    src.connect(ws);
+    // Gurgle: amplitude wobble at gRate.
+    const gv = this.ctx.createGain(); gv.gain.value = 1 - gurgle * 0.5;
+    if (gurgle > 0) { const l = this.ctx.createOscillator(); l.frequency.value = gRate * (0.85 + Math.random() * 0.3); const lg = this.ctx.createGain(); lg.gain.value = gurgle * 0.5; l.connect(lg); lg.connect(gv.gain); l.start(t); l.stop(t + dur + 0.05); }
+    ws.connect(gv);
+    const env = this.ctx.createGain();
+    env.gain.setValueAtTime(0, t); env.gain.linearRampToValueAtTime(vol, t + Math.min(0.06, dur * 0.15));
+    env.gain.setValueAtTime(vol * 0.85, t + dur * 0.6); env.gain.linearRampToValueAtTime(0, t + dur);
+    [0, 1, 2].forEach(k => {
+      const bp = this.ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = [7, 9, 11][k];
+      bp.frequency.setValueAtTime(VOW[v0][k] * 0.8, t); bp.frequency.linearRampToValueAtTime(VOW[v1][k] * 0.8, t + dur);
+      const fg = this.ctx.createGain(); fg.gain.value = [1.4, 0.8, 0.35][k];
+      gv.connect(bp); bp.connect(fg); fg.connect(env);
+    });
+    // Some unfiltered rasp on top so it bites.
+    const raw = this.ctx.createBiquadFilter(); raw.type = 'highpass'; raw.frequency.value = 900;
+    const rg = this.ctx.createGain(); rg.gain.value = 0.07; gv.connect(raw); raw.connect(rg); rg.connect(env);
+    env.connect(out);
+    o.start(t); jn.start(t, Math.random() * 3); bn.start(t, Math.random() * 3); if (so) so.start(t);
+    const end = t + dur + 0.05; o.stop(end); jn.stop(end); bn.stop(end); if (so) so.stop(end);
+  }
+  zombieDie(type, pan) {
+    const k = type === 'brute' ? 0.55 : type === 'tank' ? 0.7 : type === 'runner' ? 1.3 : 1;
+    // Choked death rattle, then the body hitting the ground.
+    this._voice({ f: [120 * k, 90 * k, 55 * k], dur: 0.8, v0: 'A', v1: 'U', rasp: 6, gurgle: 0.9, gRate: 13, breath: 0.45, vol: 0.38, sub: type === 'brute' || type === 'tank' ? 0.5 : 0, pan });
+    this._thunk(this.ctx.currentTime + 0.55, 90, 0.18, 0.4, pan);
   }
   groan(_now, type, pan) {
     const now = this._t;
-    if (now - this.lastGroan < 2800) return; this.lastGroan = now;
-    const t = this.ctx.currentTime;
-    const f = type === 'tank' ? 50 + Math.random() * 16 : type === 'runner' ? 98 + Math.random() * 38 : 70 + Math.random() * 32;
-    const o = this.ctx.createOscillator(); o.type = 'sawtooth';
-    o.frequency.setValueAtTime(f, t); o.frequency.linearRampToValueAtTime(f * 0.70, t + 0.58); o.frequency.linearRampToValueAtTime(f * 0.84, t + 1.12);
-    const bp = this.ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 370; bp.Q.value = 3.0;
-    const g = this.ctx.createGain();
-    g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(0.28, t + 0.09);
-    g.gain.linearRampToValueAtTime(0.18, t + 0.58); g.gain.linearRampToValueAtTime(0, t + 1.08);
-    o.connect(bp); bp.connect(g); g.connect(this._out(pan)); o.start(t); o.stop(t + 1.12);
+    if (now - this.lastGroan < 650 + Math.random() * 500) return; this.lastGroan = now;
+    const r = Math.random();
+    if (type === 'runner') {                     // shrieking, enraged
+      this._voice({ f: [170 + r * 60, 260 + r * 50, 150], dur: 0.75, v0: 'AE', v1: 'A', rasp: 7, gurgle: 0.25, breath: 0.25, vol: 0.3, pan });
+    } else if (type === 'tank' || type === 'brute') {
+      this._voice({ f: [62 + r * 10, 50, 58], dur: 1.6, v0: 'O', v1: 'U', rasp: 5, gurgle: 0.4, gRate: 16, breath: 0.35, vol: 0.38, sub: 0.6, pan });
+    } else if (type === 'spitter') {
+      this._voice({ f: [120, 95, 110], dur: 0.9, v0: 'E', v1: 'U', rasp: 5, gurgle: 0.95, gRate: 31, breath: 0.5, vol: 0.28, pan });
+    } else {                                     // walker: hungry, angry growl
+      const angry = r < 0.45;
+      this._voice(angry
+        ? { f: [110 + r * 40, 150 + r * 30, 90], dur: 0.9, v0: 'A', v1: 'O', rasp: 7, gurgle: 0.4, gRate: 20, breath: 0.3, vol: 0.32, pan }
+        : { f: [85 + r * 25, 68, 78], dur: 1.3, v0: 'U', v1: 'O', rasp: 4.5, gurgle: 0.55, gRate: 18, breath: 0.4, vol: 0.3, sub: 0.25, pan });
+    }
   }
   zombieAtk(pan) {
-    const t = this.ctx.currentTime; const l = Math.ceil(this.ctx.sampleRate * 0.15);
+    const now = this._t;
+    if (now - (this._lastAtk ?? -1e9) < 140) return; this._lastAtk = now;
+    // Rabid snarl + the bite / blow landing.
+    this._voice({ f: [140, 230, 120], dur: 0.42, v0: 'A', v1: 'U', rasp: 9, gurgle: 0.45, gRate: 26, breath: 0.35, vol: 0.4, pan });
+    const t = this.ctx.currentTime + 0.12; const l = Math.ceil(this.ctx.sampleRate * 0.15);
     const b = this.ctx.createBuffer(1, l, this.ctx.sampleRate); const d = b.getChannelData(0);
     for (let i = 0; i < l; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / l, 0.75);
     const s = this.ctx.createBufferSource(); s.buffer = b;
-    const lp = this.ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 300;
-    const g = this.ctx.createGain(); g.gain.setValueAtTime(0.48, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.22);
+    const lp = this.ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 420;
+    const g = this.ctx.createGain(); g.gain.setValueAtTime(0.42, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.2);
     s.connect(lp); lp.connect(g); g.connect(this._out(pan)); s.start(t);
   }
   // Knife swing: quick airy swish + a dull wet impact.
@@ -201,16 +312,10 @@ export class AudioEngine {
     n.connect(lp); lp.connect(ng); ng.connect(out); n.start(t); n.stop(t + 1.35);
     setTimeout(() => this.crackle(), 250);
   }
-  // Brute: deep distorted bellow when it wakes up / enters.
+  // Brute / mini-boss: a deep, enraged bellow from a huge throat.
   roar(pan) {
-    const t = this.ctx.currentTime; const out = this._out(pan);
-    [42, 63, 85].forEach((f, i) => {
-      const o = this.ctx.createOscillator(); o.type = 'sawtooth';
-      o.frequency.setValueAtTime(f * 1.25, t); o.frequency.linearRampToValueAtTime(f, t + 0.5); o.frequency.linearRampToValueAtTime(f * 0.8, t + 1.6);
-      const bp = this.ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 260 + i * 120; bp.Q.value = 1.6;
-      const g = this.ctx.createGain(); g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(0.32, t + 0.15); g.gain.linearRampToValueAtTime(0, t + 1.7);
-      o.connect(bp); bp.connect(g); g.connect(out); o.start(t); o.stop(t + 1.75);
-    });
+    this._voice({ f: [78, 104, 60], dur: 1.9, v0: 'A', v1: 'O', rasp: 10, gurgle: 0.35, gRate: 14, breath: 0.45, vol: 0.46, sub: 0.8, pan });
+    this._voice({ f: [150, 205, 120], dur: 1.5, v0: 'AE', v1: 'A', rasp: 8, gurgle: 0.2, breath: 0.3, vol: 0.2, at: 0.08, pan });
   }
   // Spitter: wet gurgle + spit.
   spit(pan) {
@@ -420,39 +525,48 @@ export class AudioEngine {
   radioChatter({ syllables = 4, pitch = 'mid', urgent = false } = {}) {
     const t0 = this.ctx.currentTime;
     // pitch can be a preset string or an explicit Hz number (used for
-    // per-soldier voice differentiation).
+    // per-soldier voice differentiation). Adult male range.
     const baseF = typeof pitch === 'number'
-      ? pitch
-      : pitch === 'low' ? 130 : pitch === 'high' ? 220 : 175;
-    const vol   = urgent ? 0.32 : 0.26;
-    const pace  = urgent ? 0.85 : 1.0;
+      ? Math.max(95, Math.min(165, pitch * 0.8))
+      : pitch === 'low' ? 100 : pitch === 'high' ? 150 : 122;
+    const vol = urgent ? 0.3 : 0.24, pace = urgent ? 0.82 : 1.0;
+    const VOW = [[730, 1090, 2440], [530, 1840, 2480], [390, 2000, 2550], [570, 840, 2410], [440, 1020, 2240], [660, 1720, 2410]];
+    // Radio chain: band-limited, slightly overdriven.
+    const radio = this.ctx.createBiquadFilter(); radio.type = 'bandpass'; radio.frequency.value = 1300; radio.Q.value = 0.5;
+    const ws = this.ctx.createWaveShaper(); ws.curve = this._curve(2.2);
+    const bus = this.ctx.createGain(); bus.gain.value = 1;
+    bus.connect(ws); ws.connect(radio); radio.connect(this.fx);
     this._radioClick(t0, 0.05);
-    let cursor = t0 + 0.10;
-    const sylCount = Math.max(2, Math.min(6, syllables));
-    for (let i = 0; i < sylCount; i++) {
-      const syllLen = (0.08 + Math.random() * 0.07) * pace;
-      const f0 = baseF * (1 + (Math.random() - 0.5) * 0.22);
+    let cursor = t0 + 0.09;
+    const n = Math.max(2, Math.min(7, syllables + 1));
+    for (let i = 0; i < n; i++) {
+      // Consonant: a short noise burst (s / t / k / f).
+      if (Math.random() < 0.7) {
+        const cl = (0.025 + Math.random() * 0.04) * pace;
+        const cn = this._ns(), cf = this.ctx.createBiquadFilter(); cf.type = Math.random() < 0.5 ? 'highpass' : 'bandpass';
+        cf.frequency.value = 2500 + Math.random() * 3500; cf.Q.value = 1;
+        const cg = this.ctx.createGain(); cg.gain.setValueAtTime(vol * 0.35, cursor); cg.gain.exponentialRampToValueAtTime(0.001, cursor + cl);
+        cn.connect(cf); cf.connect(cg); cg.connect(bus); cn.start(cursor, Math.random() * 3); cn.stop(cursor + cl + 0.01);
+        cursor += cl * 0.8;
+      }
+      // Vowel: glottal pulse train through three formants, with the
+      // phrase's pitch falling gently (and rising at the end if urgent).
+      const vl = (0.09 + Math.random() * 0.09) * pace;
+      const decl = 1 - 0.18 * (i / n) + (urgent && i === n - 1 ? 0.15 : 0);
+      const f0 = baseF * decl * (1 + (Math.random() - 0.5) * 0.12);
       const o = this.ctx.createOscillator(); o.type = 'sawtooth';
-      o.frequency.setValueAtTime(f0, cursor);
-      o.frequency.linearRampToValueAtTime(f0 * (1 + (Math.random() - 0.5) * 0.18), cursor + syllLen);
-      // Two vowel-ish formants
-      const fm1 = this.ctx.createBiquadFilter(); fm1.type = 'bandpass';
-      fm1.frequency.value = 600 * (0.8 + Math.random() * 0.5); fm1.Q.value = 7;
-      const fm2 = this.ctx.createBiquadFilter(); fm2.type = 'bandpass';
-      fm2.frequency.value = 1750 * (0.8 + Math.random() * 0.4); fm2.Q.value = 6;
-      // Radio bandpass + light distortion via gain saturation
-      const radioBp = this.ctx.createBiquadFilter(); radioBp.type = 'bandpass';
-      radioBp.frequency.value = 1500; radioBp.Q.value = 0.55;
+      o.frequency.setValueAtTime(f0, cursor); o.frequency.linearRampToValueAtTime(f0 * (0.94 + Math.random() * 0.1), cursor + vl);
+      const v = VOW[Math.floor(Math.random() * VOW.length)];
       const g = this.ctx.createGain();
-      g.gain.setValueAtTime(0, cursor);
-      g.gain.linearRampToValueAtTime(vol, cursor + 0.012);
-      g.gain.setValueAtTime(vol, cursor + syllLen - 0.02);
-      g.gain.linearRampToValueAtTime(0, cursor + syllLen);
-      o.connect(fm1); o.connect(fm2);
-      fm1.connect(radioBp); fm2.connect(radioBp);
-      radioBp.connect(g); g.connect(this.fx);
-      o.start(cursor); o.stop(cursor + syllLen + 0.02);
-      cursor += syllLen + (0.025 + Math.random() * 0.035) * pace;
+      g.gain.setValueAtTime(0, cursor); g.gain.linearRampToValueAtTime(vol, cursor + 0.015);
+      g.gain.setValueAtTime(vol * 0.9, cursor + vl - 0.025); g.gain.linearRampToValueAtTime(0, cursor + vl);
+      v.forEach((ff, k) => {
+        const bp = this.ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = ff * (0.95 + Math.random() * 0.1); bp.Q.value = [6, 8, 10][k];
+        const fg = this.ctx.createGain(); fg.gain.value = [1.3, 0.7, 0.3][k];
+        o.connect(bp); bp.connect(fg); fg.connect(g);
+      });
+      g.connect(bus); o.start(cursor); o.stop(cursor + vl + 0.02);
+      cursor += vl + (Math.random() < 0.25 ? 0.07 : 0.015) * pace;
     }
     this._radioClick(cursor + 0.04, 0.04);
   }

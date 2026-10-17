@@ -3,8 +3,10 @@ import { WPN, wbase, MELEE } from '../data/weapons.js';
 import { meleeStats, wearMelee, gearIcon, gearName, tickStam, spendStam, JUMP_COST, maxStam, winded } from '../entities/gear.js';
 import { ZTP } from '../data/zombies.js';
 import { MISSION_W, MISSION_VIEW, MGY, objIcons, rollEncounter, setMissionWidth } from '../data/expeditions.js';
-import { setupCityMission, tickCity, clampCity, onContainerSearched } from './cityMission.js';
+import { setupCityMission, tickCity, clampCity, barricadeStops, onContainerSearched } from './cityMission.js';
 import { dCityWorld, dCityHUD } from '../render/cityMission.js';
+import { dRoomDecor, dRoomDoors } from '../render/rooms.js';
+import { roomKind } from './rooms.js';
 import { BIOMES, DEFAULT_BIOME, SEARCHABLE_TYPES } from '../data/biomes.js';
 import { pickupValue, boxValue, LOCKED_MUL } from '../data/rewards.js';
 import { BALANCE, RESEARCHES, getSoldierPerkEffect } from '../data/difficulty.js';
@@ -615,6 +617,16 @@ export function mkMission(soldier, dest, wave = 1, magsPerSoldier = 2, researchC
   return mission;
 }
 
+// Wake a hostile and the ones around it (a whole Compact squad hears it).
+function alertHumans(m, h) {
+  const r = h.compact ? 500 : 320;
+  (m.humans || []).forEach(o => {
+    if (o.activated || !o.hostile || o.state === 'dead' || Math.abs(o.x - h.x) > r) return;
+    o.activated = true; m.activatedCount++;
+  });
+  if (!h.activated) { h.activated = true; m.activatedCount++; }
+}
+
 // Returns every living party member (lead + alive followers).
 function aliveParty(m) {
   const out = m.soldier.hp > 0 ? [m.soldier] : [];
@@ -1008,6 +1020,11 @@ export function updateMission(m, now, dt) {
       m.soundQ.push({ t: z.type === 'brute' ? 'roar' : 'groan', now, zt: z.type, x: z.x });
     }
   });
+  // The dead closing in growl and snarl (the audio engine throttles).
+  if (Math.random() < 0.012 * (dt / 16)) {
+    const near = m.zombies.filter(z => z.activated && z.state !== 'dead' && Math.abs(z.x - m.soldier.x) < 650);
+    if (near.length) { const z = near[Math.floor(Math.random() * near.length)]; m.soundQ.push({ t: 'groan', now, zt: z.type, x: z.x }); }
+  }
 
   // Zombies AI: pick the closest target (party + rescuables)
   m.zombies.forEach(z => {
@@ -1056,7 +1073,7 @@ export function updateMission(m, now, dt) {
           if (!best || d < best.d) return { ladder: l, d };
           return best;
         }, null);
-        if (ladder && ladder.d < 400) {
+        if (ladder) {
           const ldx = ladder.ladder.x - z.x;
           z.facing = ldx > 0 ? 1 : -1;
           if (Math.abs(ldx) > 6) {
@@ -1364,7 +1381,9 @@ export function updateMission(m, now, dt) {
     if (h.state === 'reload') {
       if (now - h.reloadStart >= wMeta.rl) { h.state = 'idle'; h.ammo = h.maxAmmo; }
     } else if (dist > idealRange + 30) {
-      h.x += 0.9 * h.facing * (dt / 16);
+      // Under fire from beyond their reach: close the distance fast.
+      const pressed = now - (h._hitAt || -1e9) < 3000;
+      h.x += (pressed ? 1.5 : 0.9) * (h.compact ? 1.15 : 1) * h.facing * (dt / 16);
       h.state = 'walk';
     } else if (dist < idealRange - 60) {
       h.x -= 0.6 * h.facing * (dt / 16);
@@ -1399,13 +1418,14 @@ export function updateMission(m, now, dt) {
       }
     }
   });
-  // Trigger any non-yet-activated bandits when the lead gets close.
-  // Each newly-activated hostile counts toward the kill-ratio gate.
+  // Hostiles wake up when any of the party comes within their own
+  // weapon's reach (so they can't be picked off from just outside it),
+  // and when they're hit (see alertHumans in the bullet loop).
+  const party = aliveParty(m);
   (m.humans || []).forEach(h => {
-    if (!h.activated && h.hostile && h.state !== 'dead' && Math.abs(s.x - h.x) < 280) {
-      h.activated = true;
-      m.activatedCount++;
-    }
+    if (h.activated || !h.hostile || h.state === 'dead') return;
+    const reach = Math.max(360, (WPN[h.weapon] ? WPN[h.weapon].range : 220) + 80);
+    if (party.some(p => Math.abs(p.x - h.x) < reach)) alertHumans(m, h);
   });
 
   // Friendly survivors (non-bandit encounter humans) auto-wake when
@@ -1521,6 +1541,10 @@ export function updateMission(m, now, dt) {
   m.bullets = m.bullets.filter(b => {
     b.x += b.dx; b.y += b.dy; b.life--;
     if (b.life <= 0 || b.x < 0 || b.x > MISSION_W) return false;
+    if (barricadeStops(m, b)) {
+      m.effects.push({ type: 'hit', x: b.x, y: b.y, at: now, dur: 160 });
+      return false;
+    }
 
     if (b.spit) {
       // Acid spit hits any living party member or rescuable in its path.
@@ -1578,6 +1602,8 @@ export function updateMission(m, now, dt) {
     );
     if (humanHit) {
       humanHit.hp -= b.dmg; humanHit.hurtTimer = 210;
+      alertHumans(m, humanHit);
+      humanHit._hitAt = now;
       m.soundQ.push({ t: 'hit', now, x: b.x });
       m.effects.push({ type: 'blood', x: b.x, y: b.y, drops: Array.from({ length: 5 }, () => ({ x: 0, y: 0, vx: (Math.random() - 0.5) * 3, vy: -Math.random() * 2 - 0.5, r: 1.4 + Math.random() * 2.4 })), at: now, dur: 580 });
       m.effects.push({ type: 'hit', x: b.x, y: b.y, at: now, dur: 200 });
@@ -1610,6 +1636,12 @@ export function updateMission(m, now, dt) {
     });
     if (hit) {
       const dmg = b.dmg * (hit.type === 'tank' ? (b.tankMul || 1) : 1);
+      // Shot from afar: it wakes up, and so do the dead around it.
+      if (!hit.activated) {
+        m.zombies.forEach(z => {
+          if (!z.activated && z.state !== 'dead' && Math.abs(z.x - hit.x) < 260 && Math.abs((z.standingY || 0) - (hit.standingY || 0)) < 22) { z.activated = true; m.activatedCount++; }
+        });
+      }
       hit.hp -= dmg; hit.hurtTimer = 210; m.soundQ.push({ t: 'hit', now, x: b.x });
       m.effects.push({ type: 'blood', x: b.x, y: b.y, drops: Array.from({ length: 6 }, () => ({ x: 0, y: 0, vx: (Math.random() - 0.5) * 3.5, vy: -Math.random() * 2.5 - 0.5, r: 1.5 + Math.random() * 3 })), at: now, dur: 600 });
       m.effects.push({ type: 'hit', x: b.x, y: b.y, at: now, dur: 200 });
@@ -2619,6 +2651,7 @@ export function dMissionWorld(ctx, m, now) {
   } else {
     dOutdoorBackdrop(ctx, m, biome);
   }
+  dRoomDecor(ctx, m, now);
 
   // Branching path (high lane road)
   if (m.fork) {
@@ -2654,6 +2687,7 @@ export function dMissionWorld(ctx, m, now) {
   // Building architecture first (columns, back wall, far door) so
   // ladders and the upper-floor slab render in front of it.
   (m.buildings || []).forEach(b => dBuilding(ctx, b));
+  dRoomDoors(ctx, m, now);
   // Ladders / stairs next so the platform's solid top draws over
   // the ladder top rung — gives the impression of climbing INTO the
   // platform rather than past it.
@@ -2893,7 +2927,7 @@ export function dMissionWorld(ctx, m, now) {
     ctx.closePath(); ctx.fill();
     ctx.fillStyle = C.acc; ctx.font = 'bold 10px monospace'; ctx.textAlign = 'center';
     ctx.fillText('★ LAST STAND ★', ax, MGY - 80); ctx.textAlign = 'left';
-  } else {
+  } else if (m.objective !== 'explore') {   // explore: you leave by the van
     const goalX = MISSION_W - 30;
     const pulse = 0.6 + 0.4 * Math.sin(now / 300);
     ctx.fillStyle = `rgba(114,188,64,${pulse * 0.4})`;
@@ -2927,7 +2961,9 @@ export function dMissionHUD(ctx, m, now) {
   ctx.font = '9px monospace';
   ctx.fillStyle = riskCol; ctx.fillText(`${m.dest.risk || ''}`, 12, 32);
   ctx.fillStyle = C.txt;
-  ctx.fillText(m.objective === 'defend' ? '· HOLD THE FLAG' : m.objective === 'explore' ? '· EXPLORE · BACK TO VAN TO LEAVE' : '· REACH THE EXIT', 48, 32);
+  ctx.fillText(m.objective === 'defend' ? '· HOLD THE FLAG'
+    : m.room ? `· ${roomKind(m.room.door).name.toUpperCase()} · E AT THE EXIT`
+    : m.objective === 'explore' ? '· EXPLORE · BACK TO VAN TO LEAVE' : '· REACH THE EXIT', 48, 32);
 
   // ── Route bar with markers (entrance, fork, defend flag, exit, party, boss)
   const px = 226, pw = 340, ph = 8, py = 11;
@@ -2949,7 +2985,7 @@ export function dMissionHUD(ctx, m, now) {
     ctx.fillRect(mx(sg.x0), py + 1, mx(sg.x1) - mx(sg.x0), ph - 2);
   });
   if (m.objective === 'defend') { ctx.fillStyle = '#ff8800'; ctx.font = '9px monospace'; ctx.textAlign = 'center'; ctx.fillText('⚑', mx(m.defendAnchor), py + 7); }
-  else if (m.objective === 'explore') { ctx.font = '10px monospace'; ctx.textAlign = 'center'; ctx.fillText('🚐', px - 9, py + 8); }
+  else if (m.objective === 'explore') { ctx.font = '10px monospace'; ctx.textAlign = 'center'; ctx.fillText(m.room ? '🚪' : '🚐', px - 9, py + 8); }
   else { ctx.fillStyle = C.acc; ctx.font = '10px monospace'; ctx.textAlign = 'center'; ctx.fillText('★', px + pw + 7, py + 8); }
   m.zombies.forEach(z => {
     if (z.state === 'dead' || !z.activated) return;
@@ -2981,6 +3017,9 @@ export function dMissionHUD(ctx, m, now) {
     const voss = troops.some(h => h.colonel && h.state === 'dead');
     ctx.fillStyle = voss || down >= Math.ceil(troops.length * 0.8) ? C.acc : '#d8b060';
     ctx.fillText(`🏴 GARRISON ${down}/${troops.length}${voss ? ' · VOSS DOWN' : ''}`, px, 33);
+  } else if (m.objective === 'explore') {
+    ctx.fillStyle = C.txt;
+    ctx.fillText(`☠ KILLS ${m.killedCount || 0}`, px, 33);
   } else ctx.fillText(`HOSTILES ${cleared}/${need || 0}`, px, 33);
   const total = (m.rescuables || []).length;
   if (total > 0) {

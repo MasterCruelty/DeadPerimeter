@@ -52,6 +52,7 @@ export function saveGame(gs) {
       })),
       expeditionsToday: gs.expeditionsToday || 0,
       lastEvacWave: gs.lastEvacWave ?? -10,
+      lastRichCrate: gs.lastRichCrate ?? -9,
       lastFoodReport: gs.lastFoodReport || null,
       transmissionsDone: Array.isArray(gs.transmissionsDone) ? [...gs.transmissionsDone] : [],
       lastSupplyDrop: gs.lastSupplyDrop || null,
@@ -120,6 +121,7 @@ export function loadGame(mkGS) {
     gs.reserve = (data.reserve || []).map(r => ({ ...r }));
     gs.expeditionsToday = data.expeditionsToday || 0;
     gs.lastEvacWave = data.lastEvacWave ?? -10;
+    gs.lastRichCrate = data.lastRichCrate ?? -9;
     gs.lastFoodReport = data.lastFoodReport || null;
     gs.transmissionsDone = Array.isArray(data.transmissionsDone) ? [...data.transmissionsDone] : [];
     gs.lastSupplyDrop = data.lastSupplyDrop || null;

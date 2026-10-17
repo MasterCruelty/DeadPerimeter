@@ -12,8 +12,8 @@
 | --- | --- |
 | ![Siege](docs/screenshots/siege.jpg) | ![City map](docs/screenshots/city-map.jpg) |
 | **Siege** — three lanes, radar, wave conditions, radio events | **City map** — 17 places that remember infestation and loot |
-| ![Sortie](docs/screenshots/sortie.jpg) | ![Night sortie](docs/screenshots/sortie-night.jpg) |
-| **Sortie** — walk into buildings, climb, loot, get back to the van | **Night raid** — rooms behind interior doors, flashlight only |
+| ![Sortie](docs/screenshots/sortie.jpg) | ![Room](docs/screenshots/room.jpg) |
+| **Sortie** — walk into buildings, climb, loot, get back to the van | **Rooms** — press E at a door: apartments, clinics, storage, armories |
 | ![Compound assault](docs/screenshots/assault.jpg) | ![Command center](docs/screenshots/command-center.jpg) |
 | **Assault on the Northgate Compact** — soldiers, not zombies | **Command center** — survivors' jobs, main story, journal |
 
@@ -27,7 +27,8 @@ points before the next wave.
 
 ### The siege
 - Hold the wall across **three depth lanes** with up to 6 soldiers, a
-  rooftop sniper, machine-gun turrets and barricades.
+  rooftop sniper, machine-gun turrets and barricades. Zoom in on the
+  fight with the mouse wheel.
 - Waves come in surges with short lulls. **Wave conditions** change the
   night: fog, moonless night, runner stampede, heavy assault, spitter
   pack. A named **mini-boss** shows up every 5th wave.
@@ -36,7 +37,8 @@ points before the next wave.
 - From wave 4, every 5 waves, **armed survivor gangs** attack instead of
   the dead.
 - Ammo, food and wall HP carry over: the run is an economy as much as a
-  shooter. Starving or running dry is how runs usually end.
+  shooter. Holding the wall burns more ammo than Command sends after
+  each wave, so the stash only grows if you go out and get it.
 
 ### Sorties into the city
 - A **city map** of 17 places in five districts. Each keeps its
@@ -45,10 +47,16 @@ points before the next wave.
   cost more food and take the whole day (two sortie slots).
 - A sortie is a **side-scrolling mission** played live with up to 5
   soldiers (the others follow as AI). The street has 2–4 buildings with
-  upper floors, stairs, rooms behind interior doors, searchable
-  containers and **locked doors** (find the key, or force it and draw a
-  pack). There's no finish line: **walk back to the van** when you've
-  had enough. Deeper means richer loot — and a longer way home.
+  upper floors, stairs and searchable containers. Doors in their back
+  walls lead to **rooms** (press `E`): apartments, offices, clinics,
+  storage and arms lockers, each with its own dead and better loot.
+  Some streets are blocked by a **chained barricade**: find bolt cutters
+  or tear it down (loud — it draws a pack). There's no finish line:
+  **walk back to the van** when you've had enough. Deeper means richer
+  loot — and a longer way home.
+- Armed survivors and Compact soldiers react like soldiers: they wake
+  up when you come within their range, answer fire when shot from afar
+  and alert each other.
 - Daily twists: night raids, hordes, picked-over places, side objectives
   (crack a military cache, burn a nest, answer an SOS), car alarms,
   traders and bandits.
@@ -96,13 +104,17 @@ who drops the case on death and four endings depending on what (and
 who) makes it out.
 
 ### Presentation
-- **HD mode** (default, `G` to toggle): WebGL lighting over Canvas 2D —
-  muzzle flashes, flashlights, fires, bloom, grading. Scales itself down
-  on slow machines.
+- **HD graphics**: WebGL lighting over Canvas 2D — muzzle flashes,
+  flashlights, fires, bloom, grading — always at full quality.
 - Rigged, shaded characters and zombies drawn in code; no image assets.
+  Dozens of outfits for civilians, soldiers and the dead, and every
+  named mini-boss has its own look.
 - Opening, transmission, evacuation and game-over **cinematics**.
-- **Procedural audio** (no sound files) and radio chatter with a voice
-  per soldier; optional text-to-speech for transmissions.
+- **Procedural audio** (no sound files): zombies snarl, growl and shriek
+  through a synthesized vocal tract; reloads are built from real
+  mechanical steps (mag out, mag in, charging handle, bolt, pump).
+- **Radio voices**: every soldier speaks with their own voice
+  (text-to-speech, picking the best natural voices on the device).
 - Auto-save between waves, pause anywhere, touch controls on mobile.
 
 ---
@@ -147,7 +159,7 @@ The `Dockerfile` is multi-stage (`deps` → `build` → `prod` on
 | Move the soldier / the whole squad | Click a spot in a lane |
 | Pan the camera | `←` `→` / `A` `D`, or click the radar |
 | 2× speed | `F` |
-| HD / classic graphics | `G` |
+| Zoom | Mouse wheel, `+` / `−` or the 🔍 buttons |
 | Pause | `Esc` |
 | Place a barricade or turret | Build button, then click a valid spot |
 | Skip a cinematic | `Space`, `Esc` or `SKIP →` |
@@ -161,8 +173,9 @@ The `Dockerfile` is multi-stage (`deps` → `build` → `prod` on
 | Jump (costs stamina) | `W` `↑` away from stairs and ladders |
 | Fire | Hold `Space` or the left mouse button (keep holding to back off while shooting) |
 | Melee | Automatic when the gun is dry and an enemy is close |
-| Search a container, open an interior door | Stand next to it until the ring fills |
-| Force a locked door | Stand at it (loud) — or bring the key |
+| Search a container | Stand next to it until the ring fills |
+| Enter / leave a room | `E` at the door (or the 🚪 E button) |
+| Get past a barricade | Stand at it to tear it down (loud) — or bring bolt cutters |
 | Leave | Walk back to the van |
 | Trade dialog | `Y` / `N` |
 | Pause | `Esc` |

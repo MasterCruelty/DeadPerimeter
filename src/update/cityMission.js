@@ -3,10 +3,11 @@
 // The layout is generated from the location's own seed, so a place
 // looks the same every time you go back: same street, same buildings,
 // same containers. A street holds 2–4 buildings you walk into (indoor
-// biome, upper floor + stairs). Some buildings are locked: find the key
-// in a container somewhere before it, or force the door (slow and loud).
-// There is no goal at the end of the street: you leave whenever you
-// walk back to the van you came in.
+// biome, upper floor + stairs), some with rooms you can step into
+// (update/rooms.js). Some streets are blocked by a chained barricade:
+// find bolt cutters in a container somewhere before it, or tear it down
+// (slow and loud). There is no goal at the end of the street: you leave
+// whenever you walk back to the van you came in.
 import { uid } from '../constants.js';
 import { ZTP } from '../data/zombies.js';
 import { BIOMES, SEARCHABLE_TYPES } from '../data/biomes.js';
@@ -16,6 +17,7 @@ import { gearIcon, gearName } from '../entities/gear.js';
 import { setupAssault } from './faction.js';
 import { MISSION_W, MGY } from '../data/expeditions.js';
 import { pushRadio } from '../audio/radio.js';
+import { placeRoomDoors, tickRooms } from './rooms.js';
 
 export const VAN_X = 96;
 const LEAVE_MS = 1600;
@@ -85,19 +87,8 @@ export function setupCityMission(m, dest) {
   }
   const keyHidden = lockedSeg && !dest.faction && r() < 0.65;
 
-  // Rooms: most buildings split their ground floor with an interior
-  // wall and a closed door (stand at it to open). The upper floor stays
-  // one open corridor, so the stairs are the way around.
-  const idoors = [];
-  segs.forEach(s => {
-    const w = s.x1 - s.x0;
-    if (w < 470 || r() > 0.75) return;
-    const n = w >= 560 && r() < 0.4 ? 2 : 1;
-    for (let k = 0; k < n; k++) {
-      const f = n === 1 ? 0.42 + r() * 0.16 : (k === 0 ? 0.36 : 0.62) + r() * 0.04;
-      idoors.push({ id: idoors.length, x: Math.round(s.x0 + w * f), open: false, prog: 0, seg: s.id });
-    }
-  });
+  // Doors to rooms in the back walls (press E at one to go in).
+  const rdoors = placeRoomDoors(segs, r, dest.locId);
 
   const buildings = [], platforms = [], ladders = [];
   segs.forEach(s => {
@@ -146,7 +137,7 @@ export function setupCityMission(m, dest) {
     props.push({ x: px + Math.round((r() - 0.5) * 60), type: s ? BIOMES[s.biomeKey].propType : street.propType });
   }
 
-  // Behind a locked door the shelves are untouched: forcing it costs
+  // Behind a barricade the shelves are untouched: tearing it down costs
   // time and noise, so it pays more.
   obstacles.forEach(o => { const s = segAt({ segs }, o.x); if (s && s.locked) o.rich = true; });
   m.pickups.forEach(p => {
@@ -201,7 +192,7 @@ export function setupCityMission(m, dest) {
 
   Object.assign(m, {
     objective: 'explore', fork: null, entranceX: 0, indoorBiomeKey: null,
-    segs, idoors, buildings, platforms, ladders, obstacles, props, keys: 0,
+    segs, rdoors, buildings, platforms, ladders, obstacles, props, keys: 0, room: null,
   });
   // Start next to the van.
   [m.soldier, ...(m.followers || [])].forEach((p, i) => { p.x = 200 - i * 30; });
@@ -232,16 +223,19 @@ export function onContainerSearched(m, o, now) {
   if (!o.hasKey) return;
   o.hasKey = false; m.keys = (m.keys || 0) + 1;
   m.soundQ.push({ t: 'pickup', x: o.x });
-  m.effects.push({ type: 'txt', x: o.x, y: MGY - 90, v: '🔑 KEY FOUND', col: '#ffd54a', at: now, dur: 2200 });
-  pushRadio(m, 'kill', { line: 'Found a key. Must open something around here.', speaker: m.soldier, cooldown: 0 });
+  m.effects.push({ type: 'txt', x: o.x, y: MGY - 90, v: '✂ BOLT CUTTERS', col: '#ffd54a', at: now, dur: 2200 });
+  pushRadio(m, 'kill', { line: 'Bolt cutters. That chained barricade will not hold now.', speaker: m.soldier, cooldown: 0 });
 }
 
 export function tickCity(m, now, dt, party) {
   if (m.objective !== 'explore') return;
   const lead = m.soldier;
+  tickRooms(m, now, party);
+  if (m.room) return;                       // inside a room: the street is frozen
   if (lead.x > 520) m._ventured = true;
 
-  // Locked doors: the party can't walk through until unlocked.
+  // Barricades: the party can't get past until the chain is cut or the
+  // barricade is torn down.
   (m.segs || []).forEach(s => {
     if (!s.locked) return;
     party.forEach(p => { if (p.x > s.x0 - 18 && p.x < s.x1) p.x = s.x0 - 18; });
@@ -250,11 +244,11 @@ export function tickCity(m, now, dt, party) {
     if (m.keys > 0) {
       m.keys--; s.locked = false;
       m.soundQ.push({ t: 'reload', w: 'pistol', dur: 300 });
-      m.effects.push({ type: 'txt', x: s.x0, y: MGY - 100, v: '🔓 UNLOCKED', col: '#88ee99', at: now, dur: 1800 });
+      m.effects.push({ type: 'txt', x: s.x0, y: MGY - 100, v: '✂ CHAIN CUT', col: '#88ee99', at: now, dur: 1800 });
       return;
     }
     if (s.force === 0) {
-      pushRadio(m, 'deploy', { line: 'Locked. Forcing it, cover me!', speaker: lead, cooldown: 0 });
+      pushRadio(m, 'deploy', { line: 'Barricaded. Tearing it down, cover me!', speaker: lead, cooldown: 0 });
       packAt(m, [s.x0 + 120, s.x0 + 170, s.x0 + 230]);
       packAt(m, [Math.max(40, s.x0 - 520), Math.max(40, s.x0 - 470)]);
     }
@@ -263,23 +257,9 @@ export function tickCity(m, now, dt, party) {
     if (s.force >= 1) {
       s.locked = false;
       m.soundQ.push({ t: 'thud', x: s.x0 });
-      m.effects.push({ type: 'txt', x: s.x0, y: MGY - 100, v: 'DOOR FORCED', col: '#ffcc44', at: now, dur: 1800 });
+      m.effects.push({ type: 'txt', x: s.x0, y: MGY - 100, v: 'BARRICADE DOWN', col: '#ffcc44', at: now, dur: 1800 });
     }
   });
-
-  // Interior doors: a party member on the ground standing at one opens it.
-  (m.idoors || []).forEach(d => {
-    if (d.open) return;
-    const at = party.some(p => Math.abs(p.x - d.x) < 30 && Math.abs(p.standingY || 0) < 18);
-    if (!at) { d.prog = Math.max(0, d.prog - dt / 1200); return; }
-    d.prog += dt / 600;
-    if (d.prog >= 1) {
-      d.open = true;
-      m.soundQ.push({ t: 'thud', x: d.x });
-      m.effects.push({ type: 'txt', x: d.x, y: MGY - 70, v: 'DOOR OPEN', col: '#c8b890', at: now, dur: 900 });
-    }
-  });
-  holdDoors(m, party);
 
   // Leave: walk back to the van after heading out.
   if (m._ventured && lead.x < VAN_X + 80 && Math.abs(lead.standingY || 0) < 4) {
@@ -292,34 +272,32 @@ export function tickCity(m, now, dt, party) {
   } else m._leaveAt = 0;
 }
 
-// Closed interior doors block everyone on the ground floor; whoever is
-// upstairs walks over them. Each entity remembers which side it's on.
-function holdDoors(m, list) {
-  (m.idoors || []).forEach(d => {
-    const k = '_d' + d.id;
-    list.forEach(e => {
-      if (!e || e.state === 'dead' || e.hp <= 0) return;
-      if (d.open || Math.abs(e.standingY || 0) >= 18) { delete e[k]; return; }
-      if (e[k] === undefined) e[k] = e.x < d.x ? -1 : 1;
-      e.x = e[k] < 0 ? Math.min(e.x, d.x - 12) : Math.max(e.x, d.x + 12);
-    });
-  });
-}
-
-// Keep the dead, civilians and survivors on their side of a locked door
-// (after AI movement; the party is held back in tickCity).
+// Keep the dead, civilians and survivors on their side of a barricade
+// (after AI movement; the party is held back in tickCity). The dead
+// stuck behind it pound on it instead of walking into it, and the
+// barricade stops bullets both ways (see barricadeStops).
 export function clampCity(m) {
-  holdDoors(m, [...m.zombies, ...(m.rescuables || []), ...(m.humans || [])]);
   (m.segs || []).forEach(s => {
     if (!s.locked) return;
     [...m.zombies, ...(m.rescuables || []), ...(m.humans || [])].forEach(z => {
       if (z.state === 'dead' || z.hp <= 0) return;
       const k = '_in' + s.id;
       const inside = z[k] ?? (z[k] = z.x > s.x0 && z.x < s.x1);
-      if (inside) z.x = Math.max(s.x0 + 14, Math.min(s.x1 - 14, z.x));
-      else if (z.x > s.x0 - 14 && z.x < s.x1 + 14) z.x = z.x < (s.x0 + s.x1) / 2 ? s.x0 - 14 : s.x1 + 14;
+      if (inside) {
+        const nx = Math.max(s.x0 + 16, Math.min(s.x1 - 14, z.x));
+        if (z.type && nx > z.x && z.activated) {     // pressed against the barricade
+          z.state = 'attack'; z.facing = -1;
+          if (Math.random() < 0.004) m.soundQ.push({ t: 'bhit', x: s.x0 });
+        }
+        z.x = nx;
+      } else if (z.x > s.x0 - 14 && z.x < s.x1 + 14) z.x = z.x < (s.x0 + s.x1) / 2 ? s.x0 - 14 : s.x1 + 14;
     });
   });
+}
+
+// A bullet reaching a standing barricade stops in it.
+export function barricadeStops(m, b) {
+  return (m.segs || []).some(s => s.locked && Math.abs(b.x - s.x0) <= Math.abs(b.dx || 0) / 2 + 3);
 }
 
 export const leaveProgress = (m, now) => m._leaveAt ? Math.min(1, (now - m._leaveAt) / LEAVE_MS) : 0;
