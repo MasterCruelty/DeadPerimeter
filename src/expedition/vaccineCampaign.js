@@ -1,4 +1,5 @@
 import { ammoPool } from '../data/weapons.js';
+import { hasUnlock } from '../update/quests.js';
 import { mkMission } from '../update/mission.js';
 import { VACCINE_SCENARIOS } from '../data/vaccineMission.js';
 import { mkSoldier } from '../entities/soldier.js';
@@ -181,7 +182,9 @@ export function finishVaccineCampaign(campaign, gs) {
     && !m._vaccineDropped
   );
   let tier;
-  if (vaccineDelivered && survivors >= 4) tier = 'gold';
+  // The Hospital archive (story step 6) makes the gold ending reachable
+  // with a smaller surviving squad.
+  if (vaccineDelivered && survivors >= (hasUnlock(gs, 'vaccine') ? 3 : 4)) tier = 'gold';
   else if (vaccineDelivered && survivors >= 1) tier = 'silver';
   else if (cleared >= 2 && survivors >= 1) tier = 'bronze';
   else tier = 'failure';

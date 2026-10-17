@@ -132,6 +132,13 @@ export function dMissionExtrasHUD(ctx, m, now) {
     else st = `${sosLeft(m, now)}s`;
     tags.push([`★ ${o.icon} ${o.name} ${st}`, sd.state === 'done' ? C.acc : sd.state === 'failed' ? C.dng : '#ffd54a']);
   }
+  // Jobs from the fort that need something from this place.
+  ((m.dest && m.dest.quests) || []).forEach(q => {
+    const got = q.kind === 'fetch'
+      ? (m.collected.quests || []).includes(q.id)
+      : (m.rescuables || []).some(r => r.questId === q.id && r.state === 'following');
+    tags.push([`📋 ${q.kind === 'fetch' ? q.item : q.person}${got ? ' ✔ → VAN' : ''}`, got ? C.acc : '#ffd54a']);
+  });
   ctx.font = 'bold 9px monospace';
   let x = 888;
   tags.reverse().forEach(([text, col]) => {

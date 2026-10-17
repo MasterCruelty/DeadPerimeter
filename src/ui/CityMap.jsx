@@ -33,7 +33,7 @@ function Bar({ label, value, color }) {
   );
 }
 
-export default function CityMap({ city, dests, selected, onPick, day }) {
+export default function CityMap({ city, dests, selected, onPick, day, jobs = [] }) {
   const byId = Object.fromEntries(dests.map((d, i) => [d.locId, i]));
   const sel = selected !== null && selected !== undefined ? dests[selected] : null;
   return (
@@ -88,6 +88,12 @@ export default function CityMap({ city, dests, selected, onPick, day }) {
               <rect x={l.x - 13} y={l.y + 16} width={26 * st.loot} height="3" fill="#88ddff" />
               <text x={l.x} y={l.y + 30} textAnchor="middle" fill={isSel ? '#fff' : 'rgba(220,230,210,0.8)'} fontSize="9" fontFamily="monospace">{l.name}</text>
               {st.visits > 0 && <text x={l.x + 14} y={l.y - 9} fontSize="9" fill="#88ee99" fontFamily="monospace">✓</text>}
+              {jobs.some(j => j.loc === l.id) && (
+                <g>
+                  <circle cx={l.x - 14} cy={l.y - 12} r="7" fill="#ffd54a" stroke="#3a2a08" strokeWidth="1.5" />
+                  <text x={l.x - 14} y={l.y - 8.5} textAnchor="middle" fontSize="10" fontWeight="bold" fill="#2a1a00" fontFamily="monospace">!</text>
+                </g>
+              )}
             </g>
           );
         })}
@@ -122,6 +128,12 @@ export default function CityMap({ city, dests, selected, onPick, day }) {
                 <div style={{ color: C.txt, opacity: 0.85 }}>{SIDE_OBJ[sel.side].desc}</div>
               </div>
             )}
+            {jobs.filter(j => j.loc === sel.locId).map(j => (
+              <div key={j.id} style={{ color: '#ffd54a', marginTop: '5px' }}>
+                <b>📋 JOB: {j.title}</b>
+                <div style={{ color: C.txt, opacity: 0.85 }}>{j.kind === 'fetch' ? `Recover the ${j.item} (upper floor of a building).` : j.kind === 'rescue' ? `Find ${j.person} and walk them back to the van.` : `Clear it out: infestation below ${Math.round(j.below * 100)}%.`}</div>
+              </div>
+            ))}
             <div style={{ color: 'rgba(184,204,170,0.6)', marginTop: '6px', lineHeight: '1.4' }}>
               Explore the street and its buildings, loot what you can and walk back to the van to leave. What you take stays taken.
             </div>
