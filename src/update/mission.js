@@ -1,5 +1,6 @@
 import { C, CH, uid, rng } from '../constants.js';
-import { WPN } from '../data/weapons.js';
+import { WPN, wbase, MELEE } from '../data/weapons.js';
+import { meleeStats, wearMelee, gearIcon, gearName } from '../entities/gear.js';
 import { ZTP } from '../data/zombies.js';
 import { MISSION_W, MISSION_VIEW, MGY, objIcons, rollEncounter, setMissionWidth } from '../data/expeditions.js';
 import { setupCityMission, tickCity, clampCity, onContainerSearched } from './cityMission.js';
@@ -70,12 +71,12 @@ function missionModifiers(orig, researchCompleted) {
     if (!r || !r.effects || !(key in r.effects)) return v;
     return key.endsWith('Mul') ? v * r.effects[key] : v + r.effects[key];
   }, def);
-  const isSniper = orig.weapon === 'sniper';
+  const isSniper = wbase(orig.weapon) === 'sniper';
   return {
     dmgMul: getSoldierPerkEffect(orig, 'damageMul', 1) * res('soldierDamageMul', 1),
     rlMul: getSoldierPerkEffect(orig, 'reloadMul', 1) * res('reloadMul', 1),
     rangeBonus: getSoldierPerkEffect(orig, 'rangeBonus', 0) + (isSniper ? res('sniperRangeBonus', 0) : 0),
-    tankMul: orig.weapon === 'rifle' ? res('rifleVsTankMul', 1) : 1,
+    tankMul: wbase(orig.weapon) === 'rifle' ? res('rifleVsTankMul', 1) : 1,
   };
 }
 const effRl = (who, w) => w.rl * (who.rlMul || 1);
@@ -476,6 +477,9 @@ export function mkMission(soldier, dest, wave = 1, magsPerSoldier = 2, researchC
     // soldier that wasn't pre-loaded.
     magsLeft: Math.max(0, ((orig._sortieMags ?? magsPerSoldier) | 0) - 1),
     knifeReady: false,
+    // Melee weapon (with wear), skills and perks travel with the soldier.
+    melee: orig.melee ? { ...orig.melee } : null,
+    skills: orig.skills, upgrades: orig.upgrades, _kills: 0,
     // Jump physics: jumpY is the render-only y-offset (negative =
     // above ground), vy is vertical velocity. Followers don't jump,
     // only the lead reacts to inputUp.
@@ -603,7 +607,7 @@ export function mkMission(soldier, dest, wave = 1, magsPerSoldier = 2, researchC
     state: 'active',
     // Activation tracking for the goal kill-ratio gate
     activatedCount: 0, killedCount: 0, _lastGoalHint: 0,
-    collected: { ammo: 0, medicine: 0, food: 0, materials: 0, sniperAmmo: 0, turretAmmo: 0, civilian: null, rescuedCivs: 0, lostSoldier: null },
+    collected: { ammo: 0, medicine: 0, food: 0, materials: 0, sniperAmmo: 0, turretAmmo: 0, civilian: null, rescuedCivs: 0, lostSoldier: null, gear: [] },
     startedAt: 0, endedAt: 0,
   };
   if (explore) setupCityMission(mission, dest);
@@ -632,6 +636,22 @@ function aliveTargets(m) {
     if (h.hp > 0 && h.state !== 'dead' && h.activated) out.push(h);
   });
   return out;
+}
+
+// One melee swing (knife / bat / machete / axe) with wear and credit.
+function meleeHit(m, who, tgt, now) {
+  const ms = meleeStats(who);
+  tgt.hp -= ms.dmg; tgt.hurtTimer = 220;
+  m.soundQ.push({ t: ms.type === 'knife' || ms.type === 'machete' ? 'slash' : 'hit', now, x: who.x });
+  m.effects.push({ type: 'slash', x: tgt.x + who.facing * 10, y: MGY - 28 + (tgt.standingY || 0), at: now, dur: 230 });
+  m.effects.push({ type: 'txt', x: tgt.x, y: MGY - 58 + (tgt.standingY || 0), v: `-${ms.dmg}`, col: '#ffcc44', at: now, dur: 600 });
+  const broke = wearMelee(who);
+  if (broke) m.effects.push({ type: 'txt', x: who.x, y: MGY - 90, v: `${MELEE[broke].name.toUpperCase()} BROKE`, col: C.dng, at: now, dur: 1200 });
+  if (tgt.hp <= 0) {
+    tgt.hp = 0; tgt.state = 'dead'; tgt.deadAt = now;
+    m.soundQ.push({ t: 'zdie', zt: tgt.type, x: tgt.x }); m.killedCount++;
+    who._kills = (who._kills || 0) + 1;
+  }
 }
 
 // Shared AI tick for shooting + knife melee. Used by both the lead
@@ -664,16 +684,9 @@ function aiShoot(m, who, now, dt) {
     if (meleeTgt) {
       who.facing = meleeTgt.x > who.x ? 1 : -1;
       who.knifeTimer = (who.knifeTimer || 0) + dt;
-      if (who.knifeTimer >= 650) {
+      if (who.knifeTimer >= meleeStats(who).rate) {
         who.knifeTimer = 0; who.state = 'knife'; who.shootAt = now;
-        meleeTgt.hp -= 10; meleeTgt.hurtTimer = 220;
-        m.soundQ.push({ t: 'slash', x: who.x });
-        m.effects.push({ type: 'slash', x: meleeTgt.x + who.facing * 10, y: MGY - 28, at: now, dur: 230 });
-        m.effects.push({ type: 'txt', x: meleeTgt.x, y: MGY - 58, v: '-10', col: '#ffcc44', at: now, dur: 600 });
-        if (meleeTgt.hp <= 0) {
-          meleeTgt.hp = 0; meleeTgt.state = 'dead'; meleeTgt.deadAt = now;
-          m.soundQ.push({ t: 'zdie', zt: meleeTgt.type, x: meleeTgt.x }); m.killedCount++;
-        }
+        meleeHit(m, who, meleeTgt, now);
       }
     } else if (who.state === 'knife' && now - who.shootAt > 300) {
       who.state = 'idle'; who.knifeTimer = 0;
@@ -690,7 +703,7 @@ function aiShoot(m, who, now, dt) {
     for (let p = 0; p < (w.pel || 1); p++) {
       const sp2 = (Math.random() - 0.5) * w.sp * 2;
       m.bullets.push({
-        id: uid(), x: bx, y: bulletY,
+        id: uid(), x: bx, y: bulletY, src: who,
         dx: who.facing * w.spd * Math.cos(sp2),
         dy: w.spd * Math.sin(sp2),
         dmg: (w.pel ? w.dmg / w.pel : w.dmg) * (who.dmgMul || 1),
@@ -1141,7 +1154,7 @@ export function updateMission(m, now, dt) {
       for (let p = 0; p < (w.pel || 1); p++) {
         const sp2 = (Math.random() - 0.5) * w.sp * 2;
         m.bullets.push({
-          id: uid(), x: bx, y: bulletY,
+          id: uid(), x: bx, y: bulletY, src: s,
           dx: s.facing * w.spd * Math.cos(sp2), dy: w.spd * Math.sin(sp2),
           dmg: (w.pel ? w.dmg / w.pel : w.dmg) * (s.dmgMul || 1),
           tankMul: s.tankMul || 1,
@@ -1175,13 +1188,9 @@ export function updateMission(m, now, dt) {
     if (meleeTgt) {
       s.facing = meleeTgt.x > s.x ? 1 : -1;
       s.knifeTimer = (s.knifeTimer || 0) + dt;
-      if (s.knifeTimer >= 600) {
+      if (s.knifeTimer >= meleeStats(s).rate * 0.92) {
         s.knifeTimer = 0; s.state = 'knife'; s.shootAt = now;
-        meleeTgt.hp -= 10; meleeTgt.hurtTimer = 220;
-        m.soundQ.push({ t: 'slash', x: s.x });
-        m.effects.push({ type: 'slash', x: meleeTgt.x + s.facing * 10, y: MGY - 28, at: now, dur: 230 });
-        m.effects.push({ type: 'txt', x: meleeTgt.x, y: MGY - 58, v: '-10', col: '#ffcc44', at: now, dur: 600 });
-        if (meleeTgt.hp <= 0) { meleeTgt.hp = 0; meleeTgt.state = 'dead'; meleeTgt.deadAt = now; m.soundQ.push({ t: 'zdie', zt: meleeTgt.type, x: meleeTgt.x }); m.killedCount++; }
+        meleeHit(m, s, meleeTgt, now);
       }
     } else { s.knifeTimer = 0; if (s.state === 'knife' && now - s.shootAt > 300) s.state = 'idle'; }
   }
@@ -1599,6 +1608,7 @@ export function updateMission(m, now, dt) {
       m.effects.push({ type: 'txt', x: hit.x, y: MGY - 60 + (hit.standingY || 0), v: `-${Math.round(dmg)}`, col: C.bld, at: now, dur: 680 });
       if (hit.hp <= 0) {
         hit.hp = 0; hit.state = 'dead'; hit.deadAt = now;
+        if (b.src) b.src._kills = (b.src._kills || 0) + 1;
         m.soundQ.push({ t: 'zdie', zt: hit.type, x: hit.x });
         if (hit.type === 'brute') {
           m.effects.push({ type: 'txt', x: hit.x, y: MGY - 110, v: '☠ BRUTE DOWN', col: '#ffcc44', at: now, dur: 2400 });
@@ -1694,6 +1704,10 @@ export function updateMission(m, now, dt) {
       } else if (p.type === 'lostSoldier') {
         m.collected.lostSoldier = true;
         m.effects.push({ type: 'txt', x: p.x, y: MGY - 70, v: 'LOST SOLDIER!', col: '#ffd54a', at: now, dur: 1200 });
+      } else if (p.type === 'gear') {
+        (m.collected.gear || (m.collected.gear = [])).push(p.item);
+        m.soundQ.push({ t: 'pickup', x: p.x });
+        m.effects.push({ type: 'txt', x: p.x, y: MGY - 80 + (p.standingY || 0), v: `${gearIcon(p.item)} ${gearName(p.item).toUpperCase()}!`, col: '#ffd54a', at: now, dur: 1800 });
       } else if (p.type === 'vaccine') {
         // Vaccine sample (hospital scenario): stamp the carrier so
         // the renderer can draw the vial above their head, and so
@@ -2701,10 +2715,10 @@ export function dMissionWorld(ctx, m, now) {
       ctx.beginPath(); ctx.arc(0, 0, 18, 0, Math.PI * 2); ctx.fill();
     }
     ctx.fillStyle = 'rgba(20,30,15,0.85)'; ctx.fillRect(-12, -12, 24, 24);
-    ctx.strokeStyle = p.type === 'vaccine' ? '#88ff88' : p.type === 'civilian' ? '#88ddff' : C.acc; ctx.lineWidth = 1.5;
+    ctx.strokeStyle = p.type === 'vaccine' ? '#88ff88' : p.type === 'gear' ? '#ffd54a' : p.type === 'civilian' ? '#88ddff' : C.acc; ctx.lineWidth = 1.5;
     ctx.strokeRect(-12, -12, 24, 24);
     ctx.font = '14px monospace'; ctx.textAlign = 'center'; ctx.fillStyle = '#fff';
-    ctx.fillText(objIcons[p.type] || '?', 0, 5);
+    ctx.fillText(p.type === 'gear' ? gearIcon(p.item) : (objIcons[p.type] || '?'), 0, 5);
     ctx.textAlign = 'left'; ctx.restore();
   });
 

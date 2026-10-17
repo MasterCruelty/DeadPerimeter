@@ -87,6 +87,23 @@
   forward-compatible reads for v2/v1), **mobile touch controls**, and a
   **configurable difficulty curve**.
 
+### Weapons, armory & soldier progression
+- **Found guns** with their own art, sound and handling: AK-47, MP5,
+  .357 Revolver, Hunting Rifle (sniper reach on regular ammo) and a
+  Double Barrel shotgun. Weapon-themed places (Gun Shop, Precinct HQ,
+  Police Station, Depot) stock more of them; gun racks, glass cases and
+  military caches can hold one too.
+- **Melee weapons with wear** — Baseball Bat, Machete, Fire Axe — swung
+  when the gun runs dry instead of the knife; they break after their
+  hits. Found on sorties (hardware stores, lockers, workbenches) or
+  crafted at the workbench.
+- **Armory** at the command center: spare guns and melee weapons; equip
+  any soldier (the gun they had goes back into the armory).
+- **Experience and levels** (up to 10) from kills, surviving waves and
+  bringing sorties home: +5 max HP per level and a skill point —
+  Marksman (damage), Fast Hands (reload), Toughness (HP), Brawler (melee
+  damage, less wear). Skills apply in the siege and on sorties.
+
 ### Workshop progression
 Unlocked mid-run by spending materials at the management screen:
 

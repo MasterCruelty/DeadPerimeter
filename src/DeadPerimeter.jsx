@@ -1,7 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 
 import { C, CW, CH, GY, WX, WORLD_W, DPR, laneY, clickToLane } from './constants.js';
-import { WPN } from './data/weapons.js';
+import { WPN, wbase, ammoPool, MELEE } from './data/weapons.js';
+import { stashGear, ensureArmory, magSize } from './entities/gear.js';
+import { SKILLS, SKILL_MAX, xpForLevel, spendSkill } from './data/progression.js';
 import { RECRUIT_NAMES, RECRUIT_WEAPONS } from './data/expeditions.js';
 import { isHumanWaveNumber } from './data/humans.js';
 
@@ -164,6 +166,8 @@ export default function DeadPerimeter() {
   // Which soldier card currently has its upgrade panel expanded (id).
   // null = none. Toggled by the ⚙ UPGRADES button on each card.
   const [upgOpenId, setUpgOpenId] = useState(null);
+  const [skillOpenId, setSkillOpenId] = useState(null);
+  const [armPick, setArmPick] = useState({});   // armory row → chosen soldier index
   const [, setMissionTick] = useState(0);
   // Multi-soldier picker: an array of soldier indices (max BALANCE.maxExpeditionParty)
   const [expSoldierIdxs, setExpSoldierIdxs] = useState([]);
@@ -448,7 +452,7 @@ export default function DeadPerimeter() {
     // its magsLeft field (= spare mags after the loaded one).
     const mags = Math.max(1, Math.min(4, magsRef.current || 2));
     party.forEach(soldier => {
-      const poolKey = soldier.weapon === 'sniper' ? 'sniperAmmo' : 'ammo';
+      const poolKey = ammoPool(soldier.weapon);
       // Top up the loaded mag first.
       const wantLoaded = Math.max(0, soldier.maxAmmo - (soldier.ammo || 0));
       const giveLoaded = Math.min(wantLoaded, gs.resources[poolKey] || 0);
@@ -620,7 +624,8 @@ export default function DeadPerimeter() {
     for (const [k, v] of Object.entries(r.cost)) gs.resources[k] -= v;
     const mul = getResearchEffect(gs, 'craftMultiplier', 1);
     const caps = { food: 999, ammo: 999, medicine: 999, materials: 999, sniperAmmo: 99, turretAmmo: 999 };
-    for (const [k, v] of Object.entries(r.output)) {
+    if (r.melee) stashGear(gs, { kind: 'melee', type: r.melee });
+    for (const [k, v] of Object.entries(r.output || {})) {
       const add = Math.max(1, Math.round(v * mul));
       gs.resources[k] = Math.min(caps[k] ?? 999, (gs.resources[k] || 0) + add);
     }
@@ -839,7 +844,7 @@ export default function DeadPerimeter() {
     const s = gs.soldiers[idx]; if (!s || s.state === 'dead') return;
     const p = PERKS.find(x => x.id === perkId); if (!p) return;
     if (s.upgrades && s.upgrades[perkId]) return;
-    if (p.weapons !== 'all' && !p.weapons.includes(s.weapon)) return;
+    if (p.weapons !== 'all' && !p.weapons.includes(wbase(s.weapon))) return;
     for (const [k, v] of Object.entries(p.cost)) {
       if ((gs.resources[k] || 0) < v) return;
     }
@@ -849,6 +854,41 @@ export default function DeadPerimeter() {
     if (p.maxAmmoBonus) { s.maxAmmo += p.maxAmmoBonus; }
     saveGame(gs); setHasSave(true);
     setUi({ ...gs, soldiers: gs.soldiers.map(s => ({ ...s })) });
+  }, []);
+
+  // ── Armory: swap guns / melee weapons between the stash and a soldier.
+  const equipGun = useCallback((idx, w) => {
+    const gs = gsRef.current; if (!gs || gs.phase !== 'management') return;
+    const s = gs.soldiers[idx]; const a = ensureArmory(gs);
+    if (!s || s.state === 'dead' || s.onRoof || !(a.guns[w] > 0)) return;
+    a.guns[w]--; if (a.guns[w] <= 0) delete a.guns[w];
+    a.guns[s.weapon] = (a.guns[s.weapon] || 0) + 1;
+    const oldPool = ammoPool(s.weapon);
+    gs.resources[oldPool] = (gs.resources[oldPool] || 0) + (s.ammo || 0);
+    s.weapon = w; s.maxAmmo = magSize(s, w);
+    const pool = ammoPool(w), give = Math.min(s.maxAmmo, gs.resources[pool] || 0);
+    gs.resources[pool] -= give; s.ammo = give;
+    saveGame(gs); setHasSave(true);
+    setUi({ ...gs, soldiers: gs.soldiers.map(x => ({ ...x })) });
+  }, []);
+  const equipMelee = useCallback((idx, k) => {
+    const gs = gsRef.current; if (!gs || gs.phase !== 'management') return;
+    const s = gs.soldiers[idx]; const a = ensureArmory(gs);
+    if (!s || s.state === 'dead') return;
+    if (k === null) { if (s.melee) { a.melee.push(s.melee); s.melee = null; } }
+    else {
+      const item = a.melee[k]; if (!item) return;
+      a.melee.splice(k, 1);
+      if (s.melee) a.melee.push(s.melee);
+      s.melee = item;
+    }
+    saveGame(gs); setHasSave(true);
+    setUi({ ...gs, soldiers: gs.soldiers.map(x => ({ ...x })) });
+  }, []);
+  const learnSkill = useCallback((idx, id) => {
+    const gs = gsRef.current; if (!gs) return;
+    if (spendSkill(gs.soldiers[idx], id)) { saveGame(gs); setHasSave(true); }
+    setUi({ ...gs, soldiers: gs.soldiers.map(x => ({ ...x })) });
   }, []);
 
   const moveSquad = useCallback(dir => {
@@ -1615,7 +1655,7 @@ export default function DeadPerimeter() {
     const totals = { ammo: 0, sniperAmmo: 0 };
     expSoldierIdxs.forEach(i => {
       const s = gs.soldiers[i]; if (!s || s.state === 'dead') return;
-      const key = s.weapon === 'sniper' ? 'sniperAmmo' : 'ammo';
+      const key = ammoPool(s.weapon);
       const wantLoaded = Math.max(0, s.maxAmmo - (s.ammo || 0));
       const wantSpare  = (magsPerSoldier - 1) * s.maxAmmo;
       totals[key] += wantLoaded + wantSpare;
@@ -1730,13 +1770,19 @@ export default function DeadPerimeter() {
               // Split positive recoveries from the foodCost line so the
               // log reads "Recovered: ammo +N  ·  Eaten: 9 food" rather
               // than burying the deduction in the same comma-list.
-              const { foodCost, returnedAmmo, lootLost, ...gained } = expResult.reward;
+              const { foodCost, returnedAmmo, lootLost, gear, levelUps, ...gained } = expResult.reward;
               return (
                 <>
                   {Object.keys(gained).length > 0 && (
                     <div style={{ fontSize: '11px', color: C.acc, marginTop: '5px' }}>
                       Recovered: {Object.entries(gained).map(([k, v]) => `${k} +${v}`).join('  ·  ')}
                     </div>
+                  )}
+                  {gear && gear.length > 0 && (
+                    <div style={{ fontSize: '11px', color: '#ffd54a', marginTop: '3px' }}>🔫 To the armory: <b>{gear.join(', ')}</b></div>
+                  )}
+                  {levelUps && levelUps.length > 0 && (
+                    <div style={{ fontSize: '11px', color: '#ffd54a', marginTop: '3px' }}>★ Level up: {levelUps.join(' · ')}</div>
                   )}
                   {lootLost && (
                     <div style={{ fontSize: '11px', color: C.dng, marginTop: '3px' }}>
@@ -2088,6 +2134,39 @@ export default function DeadPerimeter() {
                     {s.veteran && s.state !== 'dead' && <span style={{ color: '#ffd54a', fontSize: '9px', marginLeft: '2px' }}>· vet</span>}
                   </div>
                   <div style={{ fontSize: '9px', color: C.txt }}>{WPN[s.weapon]?.name} · Lane {'FMB'[s.lane || 0]}</div>
+                  {s.state !== 'dead' && (() => {
+                    const L = s.level || 1, x0 = xpForLevel(L), x1 = xpForLevel(L + 1);
+                    const pct = L >= 10 ? 1 : Math.max(0, Math.min(1, ((s.xp || 0) - x0) / (x1 - x0)));
+                    return (
+                      <div style={{ fontSize: '8px', color: C.txt, marginTop: '2px' }}>
+                        <span style={{ color: '#ffd54a', fontWeight: 'bold' }}>Lv {L}</span>
+                        <span style={{ display: 'inline-block', width: '44px', height: '3px', background: '#1a1a1a', margin: '0 4px', verticalAlign: 'middle' }}>
+                          <span style={{ display: 'block', height: '3px', width: `${pct * 100}%`, background: '#ffd54a' }} />
+                        </span>
+                        <span title={s.melee ? `${MELEE[s.melee.type].name} — ${Math.max(0, Math.round(s.melee.dur))} hits left` : 'Combat knife'}>
+                          {s.melee ? `${MELEE[s.melee.type].icon}${Math.max(0, Math.round(s.melee.dur))}` : '🔪'}
+                        </span>
+                        {s.melee && <button style={{ ...btn('#1a1a1a', '#444'), fontSize: '7px', padding: '0 3px', marginLeft: '3px', marginTop: 0 }} onClick={() => equipMelee(i, null)} title="Return to the armory">✕</button>}
+                        {(s.skillPts || 0) > 0 && (
+                          <button style={{ ...btn('#3a2a08', '#ffd54a'), fontSize: '8px', padding: '1px 5px', marginLeft: '4px', marginTop: 0 }} onClick={() => setSkillOpenId(skillOpenId === s.id ? null : s.id)}>★ +{s.skillPts}</button>
+                        )}
+                      </div>
+                    );
+                  })()}
+                  {s.state !== 'dead' && skillOpenId === s.id && (
+                    <div style={{ marginTop: '4px', borderTop: `1px solid ${C.uib}`, paddingTop: '4px' }}>
+                      {SKILLS.map(sk => {
+                        const r = (s.skills && s.skills[sk.id]) || 0;
+                        return (
+                          <div key={sk.id} style={{ display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '2px', fontSize: '8px' }}>
+                            <span>{sk.icon}</span>
+                            <div style={{ flex: 1 }}><b style={{ color: C.txt }}>{sk.name}</b> <span style={{ color: '#ffd54a' }}>{'●'.repeat(r)}{'○'.repeat(SKILL_MAX - r)}</span><div style={{ opacity: 0.6 }}>{sk.desc}</div></div>
+                            <button style={{ ...btn('#3a2a08', '#ffd54a'), fontSize: '8px', padding: '1px 5px', marginTop: 0 }} disabled={!(s.skillPts > 0) || r >= SKILL_MAX} onClick={() => learnSkill(i, sk.id)}>+</button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                   <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '4px' }}>
                     <div style={{ flex: 1, height: '3px', background: '#1a1a1a' }}><div style={{ height: '3px', width: `${(s.hp / s.maxHp) * 100}%`, background: s.hp > 60 ? C.acc : s.hp > 30 ? C.wrn : C.dng }} /></div>
                     <span style={{ ...lbl, minWidth: '28px' }}>{s.state === 'dead' ? 'KIA' : `${s.hp}HP`}</span>
@@ -2127,7 +2206,7 @@ export default function DeadPerimeter() {
                         </div>
                         {wbBuilt && upgOpenId === s.id && (
                           <div style={{ marginTop: '4px', borderTop: `1px solid ${C.uib}`, paddingTop: '4px' }}>
-                            {PERKS.filter(p => p.weapons === 'all' || p.weapons.includes(s.weapon)).map(p => {
+                            {PERKS.filter(p => p.weapons === 'all' || p.weapons.includes(wbase(s.weapon))).map(p => {
                               const have = !!(s.upgrades && s.upgrades[p.id]);
                               const canPay = !have && Object.entries(p.cost).every(([k, v]) => (gs.resources[k] || 0) >= v);
                               const costLbl = Object.entries(p.cost).map(([k, v]) => `${resIcon(k)}${v}`).join(' ');
@@ -2159,6 +2238,50 @@ export default function DeadPerimeter() {
                 </div>
               ))}
             </div>
+            {gs && (() => {
+              const a = ensureArmory(gs);
+              const guns = Object.entries(a.guns).filter(([, n]) => n > 0);
+              if (!guns.length && !a.melee.length) return null;
+              const pickable = gs.soldiers.map((s, i) => [s, i]).filter(([s]) => s.state !== 'dead');
+              const sel = (key, list) => (
+                <select value={armPick[key] ?? ''} onChange={e => setArmPick({ ...armPick, [key]: e.target.value === '' ? undefined : +e.target.value })}
+                  style={{ background: '#0c140a', color: C.txt, border: `1px solid ${C.uib}`, fontSize: '9px', fontFamily: 'monospace' }}>
+                  <option value="">— soldier —</option>
+                  {list.map(([s, i]) => <option key={s.id} value={i}>{s.name} ({WPN[s.weapon]?.name})</option>)}
+                </select>
+              );
+              return (
+                <>
+                  <hr style={hr} />
+                  <div style={h2}>🔫 ARMORY</div>
+                  <div style={{ fontSize: '9px', color: C.txt, opacity: 0.55, marginBottom: '4px' }}>Weapons found on sorties or crafted. Equipping swaps the soldier&apos;s current one back into the armory.</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                    {guns.map(([w, n]) => {
+                      const W = WPN[w], key = 'g:' + w, target = armPick[key];
+                      return (
+                        <div key={key} style={{ ...card, display: 'flex', alignItems: 'center', gap: '8px', fontSize: '9px', padding: '4px 8px' }}>
+                          <b style={{ color: C.acc, minWidth: '110px' }}>🔫 {W.name} ×{n}</b>
+                          <span style={{ flex: 1, opacity: 0.75 }}>DMG {W.dmg}{W.pel ? `×${W.pel}` : ''} · RNG {W.range} · MAG {W.ammo} · {Math.round(60000 / W.rate)} rpm{W.desc ? ` · ${W.desc}` : ''}</span>
+                          {sel(key, pickable.filter(([s]) => !s.onRoof && s.weapon !== w))}
+                          <button style={{ ...btn('#1a3a18'), fontSize: '9px', padding: '2px 8px', marginTop: 0 }} disabled={target === undefined} onClick={() => { equipGun(target, w); setArmPick({ ...armPick, [key]: undefined }); }}>EQUIP</button>
+                        </div>
+                      );
+                    })}
+                    {a.melee.map((it, k) => {
+                      const M = MELEE[it.type], key = 'm:' + k, target = armPick[key];
+                      return (
+                        <div key={key} style={{ ...card, display: 'flex', alignItems: 'center', gap: '8px', fontSize: '9px', padding: '4px 8px' }}>
+                          <b style={{ color: C.acc, minWidth: '110px' }}>{M.icon} {M.name}</b>
+                          <span style={{ flex: 1, opacity: 0.75 }}>DMG {M.dmg} · {Math.round(60000 / M.rate)} swings/min · {Math.max(0, Math.round(it.dur))}/{M.dur} hits left</span>
+                          {sel(key, pickable)}
+                          <button style={{ ...btn('#1a3a18'), fontSize: '9px', padding: '2px 8px', marginTop: 0 }} disabled={target === undefined} onClick={() => { equipMelee(target, k); setArmPick({}); }}>EQUIP</button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </>
+              );
+            })()}
             {(gs?.workbench?.built || gs?.researchLab?.built) && (
               <>
                 <hr style={hr} />
@@ -2179,7 +2302,7 @@ export default function DeadPerimeter() {
                         const mul = getResearchEffect(gs, 'craftMultiplier', 1);
                         const canPay = Object.entries(r.cost).every(([k, v]) => (gs.resources[k] || 0) >= v);
                         const costLbl = Object.entries(r.cost).map(([k, v]) => `${resIcon(k)}${v}`).join(' ');
-                        const outLbl  = Object.entries(r.output).map(([k, v]) => `+${Math.max(1, Math.round(v * mul))}${resIcon(k)}`).join(' ');
+                        const outLbl  = r.melee ? `${MELEE[r.melee].name}` : Object.entries(r.output).map(([k, v]) => `+${Math.max(1, Math.round(v * mul))}${resIcon(k)}`).join(' ');
                         return (
                           <button
                             key={r.id}

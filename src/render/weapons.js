@@ -7,7 +7,7 @@
 // Style: dark outline, metallic / polymer / wood fills with a top-lit
 // gradient and a thin specular edge, matching the shaded actors.
 
-export const WSCALE = { rifle: 0.42, shotgun: 0.44, sniper: 0.4, pistol: 0.34 };
+export const WSCALE = { rifle: 0.42, shotgun: 0.44, sniper: 0.4, pistol: 0.34, ak: 0.42, smg: 0.42, revolver: 0.36, hunting: 0.4, dbarrel: 0.44 };
 
 // Reference points in art units, used by the actor rig and the muzzle
 // flash / light code:
@@ -21,6 +21,11 @@ export const WPOINTS = {
   shotgun: { butt: [-26, 0],  grip: [9, 10],  fore: [21, 2],   muzzle: [50, -10] },
   sniper:  { butt: [-30, -1], grip: [-1, 8],  fore: [19, -2],  muzzle: [78, -4] },
   pistol:  { butt: [-4, 6],   grip: [2.5, 9], fore: [3.5, 11], muzzle: [42, -9] },
+  ak:      { butt: [-27, -1], grip: [5, 9],   fore: [27, -3],  muzzle: [68, -7] },
+  smg:     { butt: [-19, -2], grip: [4, 9],   fore: [24, 2],   muzzle: [44, -6] },
+  revolver:{ butt: [-4, 6],   grip: [2.5, 9], fore: [3.5, 11], muzzle: [44, -8] },
+  hunting: { butt: [-31, -1], grip: [-1, 8],  fore: [22, -2],  muzzle: [78, -4] },
+  dbarrel: { butt: [-26, 0],  grip: [9, 10],  fore: [24, 0],   muzzle: [54, -8] },
 };
 export const wpt = (w, k) => {
   const p = (WPOINTS[w] || WPOINTS.rifle)[k], sc = WSCALE[w] || WSCALE.rifle;
@@ -149,13 +154,89 @@ function shotgun(ctx) {
   ctx.fillStyle = '#d0a020'; ctx.beginPath(); ctx.arc(48.5, -13.3, 1.2, 0, Math.PI * 2); ctx.fill();
 }
 
+function ak(ctx) {
+  // Wooden stock + pistol grip, stamped receiver, banana mag, wood handguard.
+  part(ctx, [[-27, -5], [-6, -7], [-5, 1], [-14, 2], [-27, 6]], ...WOOD, -7, 6);
+  part(ctx, [[1, 1], [9, 1], [7, 15], [1, 16], [0, 13]], ...WOOD, 1, 16);
+  part(ctx, [[12, 1], [19, 1], [24, 9, 28, 19], [21, 20], [16, 10, 12, 1]], ...METAL, 1, 20);
+  part(ctx, [[-6, -12], [24, -12], [24, 2], [-6, 2]], ...METAL, -12, 2);
+  ctx.fillStyle = 'rgba(0,0,0,0.45)'; ctx.fillRect(4, -9, 12, 3);
+  ctx.strokeStyle = '#141516'; ctx.lineWidth = 1.4;
+  ctx.beginPath(); ctx.moveTo(9, 2); ctx.quadraticCurveTo(10, 7, 5, 6.5); ctx.stroke();
+  part(ctx, [[24, -11], [40, -11], [40, -2], [24, -2]], ...WOOD, -11, -2);
+  part(ctx, [[24, -15], [36, -15], [36, -11], [24, -11]], ...WOOD, -15, -11);
+  part(ctx, [[40, -9], [63, -9], [63, -6], [40, -6]], ...METAL, -9, -6);
+  part(ctx, [[40, -15], [56, -15], [56, -12], [40, -12]], ...METAL, -15, -12);
+  part(ctx, [[55, -18], [58, -18], [58, -9], [55, -9]], ...METAL, -18, -9);
+  part(ctx, [[62, -10], [68, -10], [68, -5], [62, -5]], ...METAL, -10, -5);
+  spec(ctx, -5, -11.4, 23, 0.4);
+}
+
+function smg(ctx) {
+  // MP5: wire stock, short receiver, curved mag ahead of the grip, foregrip.
+  ctx.strokeStyle = '#1c1d1e'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(-19, -6); ctx.lineTo(-4, -6); ctx.moveTo(-19, 2); ctx.lineTo(-4, 0); ctx.moveTo(-19, -7); ctx.lineTo(-19, 3); ctx.stroke();
+  part(ctx, [[0, 1], [8, 1], [7, 14], [1, 15], [-1, 12]], ...POLY, 1, 15);
+  part(ctx, [[11, 1], [16, 1], [19, 8, 21, 17], [17, 18], [14, 9, 11, 1]], ...METAL, 1, 18);
+  part(ctx, [[-4, -12], [32, -12], [32, 2], [-4, 2]], ...METAL, -12, 2);
+  ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(6, -9, 9, 3);
+  part(ctx, [[20, -9], [33, -9], [33, 3], [20, 3]], ...POLY, -9, 3);
+  part(ctx, [[33, -8], [44, -8], [44, -4], [33, -4]], ...METAL, -8, -4);
+  part(ctx, [[-2, -16], [6, -16], [6, -12], [-2, -12]], ...METAL, -16, -12);
+  part(ctx, [[27, -16], [30, -16], [30, -12], [27, -12]], ...METAL, -16, -12);
+  spec(ctx, -3, -11.3, 31, 0.4);
+}
+
+function revolver(ctx) {
+  // Wood grip, frame + fluted cylinder, long ribbed barrel.
+  part(ctx, [[-3, 0], [8, 0], [9, 17], [1, 19], [-4, 6]], ...WOOD, 0, 19);
+  part(ctx, [[-4, -9], [12, -9], [12, 2], [-3, 2]], ...METAL, -9, 2);
+  part(ctx, [[12, -11], [24, -11], [24, 1], [12, 1]], ...METAL, -11, 1);
+  ctx.fillStyle = 'rgba(0,0,0,0.5)'; for (let y = -9; y < 0; y += 3) ctx.fillRect(13, y, 10, 1);
+  part(ctx, [[24, -10], [44, -10], [44, -5], [24, -5]], ...METAL, -10, -5);
+  part(ctx, [[24, -12], [44, -12], [44, -10], [24, -10]], ...METAL, -12, -10);
+  ctx.strokeStyle = '#141516'; ctx.lineWidth = 1.4;
+  ctx.beginPath(); ctx.moveTo(12, 2); ctx.quadraticCurveTo(13, 7, 7, 6.5); ctx.stroke();
+  ctx.fillStyle = '#1a1a1a'; ctx.fillRect(-5, -12, 3, 3);
+  spec(ctx, 13, -10.6, 43, 0.5);
+}
+
+function hunting(ctx) {
+  // Walnut sporter stock, bolt handle, small scope, slim long barrel.
+  part(ctx, [[-31, -5], [-10, -7], [-2, -2], [-2, 3], [-12, 2], [-20, 6], [-31, 6]], ...WOOD, -7, 6);
+  part(ctx, [[-3, 1], [4, 1], [2, 13], [-5, 12]], ...WOOD, 1, 13);
+  part(ctx, [[-4, -8], [16, -8], [16, 1], [-4, 1]], ...METAL, -8, 1);
+  part(ctx, [[16, -6], [44, -6], [44, 2], [16, 2]], ...WOOD, -6, 2);
+  part(ctx, [[44, -6], [78, -5.5], [78, -3], [44, -2.5]], ...METAL, -6, -2.5);
+  ctx.strokeStyle = '#1c1d1e'; ctx.lineWidth = 1.6;
+  ctx.beginPath(); ctx.moveTo(4, -6); ctx.lineTo(1, 0); ctx.stroke();
+  ctx.fillStyle = '#2a2c2e'; ctx.beginPath(); ctx.arc(1, 0.5, 1.6, 0, Math.PI * 2); ctx.fill();
+  part(ctx, [[-2, -16], [14, -16], [16, -18], [16, -11], [14, -13], [-2, -13]], ...METAL, -18, -11);
+  part(ctx, [[2, -13], [5, -13], [5, -8], [2, -8]], ...METAL, -13, -8);
+  part(ctx, [[10, -13], [13, -13], [13, -8], [10, -8]], ...METAL, -13, -8);
+  spec(ctx, 45, -5.5, 77, 0.45);
+}
+
+function dbarrel(ctx) {
+  // Side-by-side: wood stock + fore-end, two stacked barrels, no pump.
+  part(ctx, [[-26, -5], [-4, -8], [-4, 4], [-14, 3], [-26, 6]], ...WOOD, -8, 6);
+  part(ctx, [[5, 3], [12, 3], [11, 17], [4, 16]], ...WOOD, 3, 17);
+  part(ctx, [[-4, -11], [12, -11], [12, 4], [-4, 4]], ...METAL, -11, 4);
+  ctx.strokeStyle = '#141516'; ctx.lineWidth = 1.4;
+  ctx.beginPath(); ctx.moveTo(12, 4); ctx.quadraticCurveTo(13, 9, 7, 8.5); ctx.stroke();
+  part(ctx, [[12, -12], [54, -12], [54, -8], [12, -8]], ...METAL, -12, -8);
+  part(ctx, [[12, -8], [54, -8], [54, -4], [12, -4]], ...METAL, -8, -4);
+  part(ctx, [[14, -4], [32, -4], [32, 3], [14, 3]], ...WOOD, -4, 3);
+  ctx.fillStyle = '#050505'; ctx.beginPath(); ctx.arc(54, -10, 1.3, 0, Math.PI * 2); ctx.arc(54, -6, 1.3, 0, Math.PI * 2); ctx.fill();
+  spec(ctx, 13, -11.4, 53, 0.45);
+}
+
+const ART = { rifle, pistol, sniper, shotgun, ak, smg, revolver, hunting, dbarrel };
+
 export function dWpn(ctx, w, rcl = 0) {
   ctx.save(); ctx.translate(-rcl, 0);
   const k = WSCALE[w] || WSCALE.rifle;
   ctx.scale(k, k);
-  if (w === 'rifle') rifle(ctx);
-  else if (w === 'pistol') pistol(ctx);
-  else if (w === 'sniper') sniper(ctx);
-  else shotgun(ctx);
+  (ART[w] || rifle)(ctx);
   ctx.restore();
 }

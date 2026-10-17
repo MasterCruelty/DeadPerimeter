@@ -1,6 +1,9 @@
 import { rng } from '../constants.js';
 import { RECRUIT_NAMES, CIVILIAN_WEAPONS, VETERAN_WEAPONS, KIND_HP } from '../data/expeditions.js';
 import { BALANCE } from '../data/difficulty.js';
+import { ammoPool } from '../data/weapons.js';
+import { addXp } from '../data/progression.js';
+import { stashGear, gearName } from '../entities/gear.js';
 import { mkSoldier } from '../entities/soldier.js';
 import { recordDeath } from '../entities/gameState.js';
 
@@ -9,6 +12,7 @@ export function finishMission(m, gs) {
   // in gs.soldiers. The lead drives the win / lose outcome.
   const partyMission = [m.soldier, ...(m.followers || [])];
   let returned = 0;
+  const levelUps = [];
   const writeBack = (mSol) => {
     const orig = gs.soldiers.find(s => s.id === mSol.origId);
     if (!orig) return;
@@ -21,11 +25,15 @@ export function finishMission(m, gs) {
     } else {
       orig.hp = Math.max(1, mSol.hp);
       orig.ammo = mSol.ammo;
+      orig.melee = mSol.melee ? { ...mSol.melee } : null;   // wear carries over
+      // XP: own kills + bringing the sortie home.
+      const ups = addXp(orig, (mSol._kills || 0) * 5 + (m.state === 'won' ? 20 : 0));
+      if (ups) levelUps.push(`${orig.name} → Lv ${orig.level}`);
       // Unused spare magazines go back into the stash (they used to
       // vanish, so every sortie burned its whole loadout).
       const spare = Math.max(0, mSol.magsLeft || 0) * (mSol.maxAmmo || 0);
       if (spare > 0) {
-        const key = mSol.weapon === 'sniper' ? 'sniperAmmo' : 'ammo';
+        const key = ammoPool(mSol.weapon);
         gs.resources[key] = Math.min(key === 'sniperAmmo' ? 99 : 999, (gs.resources[key] || 0) + spare);
         returned += spare;
       }
@@ -51,6 +59,7 @@ export function finishMission(m, gs) {
   const reward = {};
   if (foodCost > 0) reward.foodCost = foodCost;
   if (returned > 0) reward.returnedAmmo = returned;
+  if (levelUps.length) reward.levelUps = levelUps;
   // Sortie kills count toward the run's tally + score.
   gs.kills = (gs.kills || 0) + (m.killedCount || 0);
   gs.score = (gs.score || 0) + (m.killedCount || 0) * 10 + (m.state === 'won' ? 50 : 0);
@@ -61,6 +70,11 @@ export function finishMission(m, gs) {
     const lost = Object.entries(m.collected).filter(([k, v]) => typeof v === 'number' && v > 0 && k !== 'rescuedCivs');
     if (lost.length) reward.lootLost = Object.fromEntries(lost);
   } else {
+    // Weapons found out there go to the armory.
+    if (Array.isArray(m.collected.gear) && m.collected.gear.length) {
+      m.collected.gear.forEach(item => stashGear(gs, item));
+      reward.gear = m.collected.gear.map(gearName);
+    }
     if (m.collected.ammo)      { gs.resources.ammo      = Math.min(999, gs.resources.ammo + m.collected.ammo);           reward.ammo = m.collected.ammo; }
     if (m.collected.medicine)  { gs.resources.medicine  = Math.min(999, gs.resources.medicine + m.collected.medicine);   reward.medicine = m.collected.medicine; }
     if (m.collected.food)      { gs.resources.food      = Math.min(999, gs.resources.food + m.collected.food);           reward.food = m.collected.food; }
