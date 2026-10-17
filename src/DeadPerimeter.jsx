@@ -15,6 +15,10 @@ import { mkTurret } from './entities/turret.js';
 import { mkWave, mkHumanWave } from './entities/wave.js';
 import { dWaveCondition } from './render/weather.js';
 import CityMap from './ui/CityMap.jsx';
+import CompactPanel from './ui/CompactPanel.jsx';
+import { raidDue, raidLaunched, assaultOutcome } from './update/faction.js';
+import { ensureQuests, refreshOffers, acceptJob, declineJob, deliverJob, canDeliver, completeAfterSortie, jobGoal, jobText, sortiesPerDay, healCost, turretMaterials, NPC_LIST } from './update/quests.js';
+import { MAX_ACTIVE, FORT_UNLOCKS, STORY } from './data/quests.js';
 import { cityDests, ensureCity, applyCityVisit } from './data/city.js';
 import { rollSiegeEvent } from './update/siegeEvents.js';
 import { dSiegeEvent } from './render/siegeEvents.js';
@@ -124,6 +128,10 @@ const mkSnap = gs => ({
   workbench: gs.workbench, researchLab: gs.researchLab, research: gs.research,
   soldiersLost: gs.soldiersLost || 0, civiliansLost: gs.civiliansLost || 0,
   playMs: gs.playMs || 0, startedAt: gs.startedAt,
+  // Shared (live) references: the command-center panels mutate these
+  // through gsRef, so the snapshot must point at the same objects.
+  city: gs.city, armory: gs.armory, quests: gs.quests, compact: gs.compact,
+  waveMod: gs.waveMod, nextWaveMod: gs.nextWaveMod,
 });
 
 export default function DeadPerimeter() {
@@ -167,6 +175,7 @@ export default function DeadPerimeter() {
   // null = none. Toggled by the ⚙ UPGRADES button on each card.
   const [upgOpenId, setUpgOpenId] = useState(null);
   const [skillOpenId, setSkillOpenId] = useState(null);
+  const [jobNote, setJobNote] = useState(null);
   const [armPick, setArmPick] = useState({});   // armory row → chosen soldier index
   const [, setMissionTick] = useState(0);
   // Multi-soldier picker: an array of soldier indices (max BALANCE.maxExpeditionParty)
@@ -410,6 +419,9 @@ export default function DeadPerimeter() {
     });
     // Decide whether this is a human wave
     gs.isHumanWave = isHumanWaveNumber(gs.wave);
+    // A hostile Compact sends a raid every few days instead of the wave.
+    gs.compactRaid = false;
+    if (raidDue(gs) && gs.wave < BALANCE.maxWaves) { gs.isHumanWave = true; gs.compactRaid = true; raidLaunched(gs); }
     // Wave condition: briefed in the intel panel, applied here.
     gs.waveMod = ensureNextWaveMod(gs); gs.nextWaveMod = undefined;
     gs.spawnQueue = gs.isHumanWave ? mkHumanWave(gs.wave) : mkWave(gs.wave, gs.waveMod);
@@ -422,7 +434,8 @@ export default function DeadPerimeter() {
     gs.humans = [];
     gs.bullets = []; gs.effects = []; gs.soundQ = [];
     gs.zombiesSpawned = 0;
-    if (gs.waveMod) pushRadio(gs, 'deploy', { line: WAVE_MODS[gs.waveMod].radio, cooldown: 0 });
+    if (gs.compactRaid) pushRadio(gs, 'baseHit', { line: 'Compact soldiers at the wall! This is a raid!', urgent: true, cooldown: 0 });
+    else if (gs.waveMod) pushRadio(gs, 'deploy', { line: WAVE_MODS[gs.waveMod].radio, cooldown: 0 });
     gs.squadTarget = null; gs.squadLane = null; gs.selectedSoldierId = null;
     const ground = gs.soldiers.filter(s => s.state !== 'dead' && !s.onExpedition && !s.onRoof);
     ground.forEach((s, i) => { s.x = WX + 20; s.state = 'walk'; s.facing = 1; s.destX = 224 + i * 24; s.reloadTriggered = false; });
@@ -434,12 +447,14 @@ export default function DeadPerimeter() {
     const idxs = expSolsRef.current, di = expDstRef.current;
     if (!idxs || idxs.length === 0 || di === null) return;
     const gs = gsRef.current;
-    if ((gs.expeditionsToday || 0) >= BALANCE.expeditionsPerDay) return;
+    if ((gs.expeditionsToday || 0) >= sortiesPerDay(gs)) return;
 
     const party = idxs.map(i => gs.soldiers[i]).filter(s => s && s.state !== 'dead');
     if (party.length === 0) return;
     const dest = expDestsRef.current[di];
     if (!dest) return;
+    // Far places take the whole day (both sortie slots).
+    if ((gs.expeditionsToday || 0) + (dest.slots || 1) > sortiesPerDay(gs)) return;
     // Travel rations for the round trip across the city (replaces the
     // per-survivor sortie ration). No food, no trip.
     const rations = (dest.travel || 0) * party.length;
@@ -472,7 +487,7 @@ export default function DeadPerimeter() {
     const m = mkMission(party, dest, gs.wave || 1, mags, gs.research?.completed);
     missionRef.current = m;
     inputRef.current = { left: false, right: false, shoot: false, up: false, down: false };
-    gs.expeditionsToday = (gs.expeditionsToday || 0) + 1;
+    gs.expeditionsToday = (gs.expeditionsToday || 0) + ((dest && dest.slots) || 1);
     pausedRef.current = false; setPaused(false); getAM()?.duck(false);
     setScr('mission');
   }, []);
@@ -484,6 +499,8 @@ export default function DeadPerimeter() {
     const am0 = getAM(); if (am0) { am0.windStop(); am0.cityHumStop(); }
     const result = finishMission(m, gs);
     if (result) result.discovered = applyCityVisit(gs, m);
+    if (result) result.compact = assaultOutcome(gs, m);
+    if (result) result.quests = completeAfterSortie(gs, m);
     // Persist loot, losses and the city state right away.
     try { saveGame(gs); setHasSave(true); } catch (e) { /* non-fatal */ }
     missionRef.current = null;
@@ -777,14 +794,14 @@ export default function DeadPerimeter() {
   const buildTurret = useCallback(() => {
     const gs = gsRef.current;
     if (
-      gs.resources.materials < BALANCE.turretCostMaterials ||
+      gs.resources.materials < turretMaterials(gs) ||
       (gs.resources.turretAmmo || 0) < BALANCE.turretCostAmmo ||
       (gs.turrets?.length || 0) >= BALANCE.maxTurrets
     ) return;
     const mouseWorldX = WX + 60;
     placementRef.current = {
       kind: 'turret',
-      cost: { materials: BALANCE.turretCostMaterials, turretAmmo: BALANCE.turretCostAmmo },
+      cost: { materials: turretMaterials(gs), turretAmmo: BALANCE.turretCostAmmo },
       // Turrets can mount along the wall OR be set forward into the
       // killbox as an advance emplacement. Wider strip than barricade
       // gives the player real tactical choice (forward vs anchored).
@@ -825,9 +842,10 @@ export default function DeadPerimeter() {
 
   const healSoldier = useCallback(idx => {
     const gs = gsRef.current;
-    if (gs.resources.medicine < 5) return;
+    const cost = healCost(gs);
+    if (gs.resources.medicine < cost) return;
     const s = gs.soldiers[idx]; if (!s || s.state === 'dead') return;
-    gs.resources.medicine -= 5;
+    gs.resources.medicine -= cost;
     const heal = Math.round(40 * getResearchEffect(gs, 'medicineMul', 1));
     s.hp = Math.min(s.maxHp, s.hp + heal);
     saveGame(gs); setHasSave(true);
@@ -1619,7 +1637,7 @@ export default function DeadPerimeter() {
   const canRecruit  = gs && gs.resources.food >= 20 && gs.resources.materials >= 15 && gs.soldiers.filter(s => s.state !== 'dead').length < BALANCE.maxActiveSoldiers;
   const canBarricadeFlag = gs && gs.resources.materials >= 15 && (gs.barricades?.length || 0) < BALANCE.maxBarricades;
   const canTurret = gs &&
-    gs.resources.materials >= BALANCE.turretCostMaterials &&
+    gs.resources.materials >= turretMaterials(gs) &&
     (gs.resources.turretAmmo || 0) >= BALANCE.turretCostAmmo &&
     (gs.turrets?.length || 0) < BALANCE.maxTurrets;
   const reserveCount = gs?.reserve?.length || 0;
@@ -1638,7 +1656,7 @@ export default function DeadPerimeter() {
     setExpDests(expDestsRef.current);
   };
 
-  const sortiesLeft = gs ? BALANCE.expeditionsPerDay - (gs.expeditionsToday || 0) : 0;
+  const sortiesLeft = gs ? sortiesPerDay(gs) - (gs.expeditionsToday || 0) : 0;
   // Expeditions unlock after the first wave is cleared so the player
   // gets a controlled "tutorial" wave before adding the off-map layer.
   const expeditionsUnlocked = !gs || gs.wave >= 2;
@@ -1646,6 +1664,8 @@ export default function DeadPerimeter() {
   const partyValid = expSoldierIdxs.length > 0 && expSoldierIdxs.length <= BALANCE.maxExpeditionParty;
   const rationsNeed = expDestIdx !== null && expDests[expDestIdx] ? (expDests[expDestIdx].travel || 0) * expSoldierIdxs.length : 0;
   const rationsOk = !gs || (gs.resources.food || 0) >= rationsNeed;
+  const slotsNeed = expDestIdx !== null && expDests[expDestIdx] ? (expDests[expDestIdx].slots || 1) : 1;
+  const slotsOk = sortiesLeft >= slotsNeed;
 
   // Total ammo this sortie would draw from the stash based on the
   // currently-selected party + mags loadout. Used by the loadout UI
@@ -1673,7 +1693,7 @@ export default function DeadPerimeter() {
           <div>
             <div style={h1}>🗺 EXPEDITION</div>
             <div style={{ color: C.txt, opacity: 0.5, fontSize: '10px', marginTop: '3px' }}>
-              DAY {gs?.day} — {sortiesLeft}/{BALANCE.expeditionsPerDay} sorties left before nightfall
+              DAY {gs?.day} — {sortiesLeft}/{sortiesPerDay(gs)} sorties left before nightfall
             </div>
           </div>
           <div style={{ color: C.dng, fontWeight: 'bold', fontSize: '20px' }}>WAVE {gs?.wave}/{BALANCE.maxWaves}</div>
@@ -1697,7 +1717,11 @@ export default function DeadPerimeter() {
               );
             })}</div>
             <div style={h2}>CHOOSE DESTINATION</div>
-            {gs && <CityMap city={ensureCity(gs)} dests={expDests} selected={expDestIdx} onPick={pickDest} day={gs.day} />}
+            {gs && <CityMap city={ensureCity(gsRef.current || gs)} dests={expDests} selected={expDestIdx} onPick={pickDest} day={gs.day} jobs={ensureQuests(gsRef.current || gs).active} />}
+            {gs && expDestIdx !== null && expDests[expDestIdx] && expDests[expDestIdx].locId === 'compound' && (
+              <CompactPanel gs={gsRef.current || gs} sortiesPerDay={sortiesPerDay(gsRef.current || gs)}
+                onChange={() => { const G = gsRef.current; saveGame(G); setHasSave(true); setUi({ ...G, soldiers: G.soldiers.map(x => ({ ...x })) }); }} />
+            )}
             {/* Loadout selector — how many magazines each soldier carries */}
             <div style={{ marginTop: '10px', background: 'rgba(8,16,8,0.7)', border: `1px solid ${C.uib}`, padding: '8px 12px' }}>
               <div style={{ fontSize: '11px', color: C.txt, marginBottom: '6px', letterSpacing: '.04em' }}>
@@ -1728,9 +1752,10 @@ export default function DeadPerimeter() {
             <div style={{ marginTop: '10px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
               <button
                 style={btn('#1a3a18')}
-                disabled={!partyValid || expDestIdx === null || !canSortie || !rationsOk}
+                disabled={!partyValid || expDestIdx === null || !canSortie || !rationsOk || !slotsOk}
                 onClick={playMission}
-              >🎮 LAUNCH SORTIE</button>
+              >{expDestIdx !== null && expDests[expDestIdx] && expDests[expDestIdx].faction ? '⚔ ASSAULT THE COMPOUND' : '🎮 LAUNCH SORTIE'}</button>
+              {rationsOk && !slotsOk && <span style={{ alignSelf: 'center', fontSize: '10px', color: C.dng }}>Too far for today: this trip takes the whole day (2 sorties)</span>}
               {!rationsOk && <span style={{ alignSelf: 'center', fontSize: '10px', color: C.dng }}>Not enough food for the trip: need {rationsNeed} 🥫</span>}
             </div>
             <div style={{ fontSize: '9px', color: C.txt, opacity: 0.5, marginTop: '8px', lineHeight: '1.5' }}>
@@ -1802,6 +1827,17 @@ export default function DeadPerimeter() {
                 </>
               );
             })()}
+            {expResult.compact && (
+              <div style={{ fontSize: '12px', color: expResult.compact.fallen ? '#ffd54a' : C.dng, marginTop: '5px', fontWeight: 'bold' }}>
+                🏴 {expResult.compact.line}
+              </div>
+            )}
+            {(expResult.quests || []).map(q => (
+              <div key={q.id} style={{ fontSize: '11px', color: '#ffd54a', marginTop: '5px', borderLeft: '2px solid #ffd54a', paddingLeft: '6px' }}>
+                📋 <b>JOB DONE — {q.title}</b>{q.reward ? ` · ${q.reward}` : ''}{q.unlock ? ` · 🏗 ${q.unlock} unlocked` : ''}
+                <div style={{ color: C.txt, fontStyle: 'italic', opacity: 0.85 }}>“{q.line}”</div>
+              </div>
+            ))}
             {expResult.discovered && expResult.discovered.length > 0 && (
               <div style={{ fontSize: '11px', color: '#ffd54a', marginTop: '4px' }}>
                 📍 Scouted new locations: <b>{expResult.discovered.join(', ')}</b>
@@ -2007,7 +2043,7 @@ export default function DeadPerimeter() {
               </div>
             )}
             {(() => {
-              const mod = ensureNextWaveMod(gs), md = mod && WAVE_MODS[mod];
+              const mod = ensureNextWaveMod(gsRef.current || gs), md = mod && WAVE_MODS[mod];
               const intel = waveIntel(gs.wave, mod);
               const parts = intel.parts.filter(([n]) => n > 0);
               return (<>
@@ -2019,6 +2055,11 @@ export default function DeadPerimeter() {
                   {gs.wave === BALANCE.maxWaves && <span style={{ color: C.dng }}>· mega-wave ×{BALANCE.megaWaveMultiplier}</span>}
                   {intel.boss && <span style={{ color: '#ff5533', fontWeight: 'bold' }}>☠ BOSS: {intel.boss}</span>}
                 </div>
+                {raidDue(gsRef.current || gs) && (
+                  <div style={{ background: 'rgba(40,14,8,0.92)', border: '1px solid #d8b060', padding: '6px 14px', marginTop: '4px', fontSize: '10px', color: '#ffcc88' }}>
+                    🏴 <b>NORTHGATE COMPACT RAID</b> — their soldiers attack the wall instead of the dead this wave. Assault their compound to end it.
+                  </div>
+                )}
                 {md && (
                   <div style={{ background: 'rgba(24,22,14,0.9)', border: `1px solid ${md.color}`, padding: '6px 14px', marginTop: '4px', fontSize: '10px', color: C.txt }}>
                     <b style={{ color: md.color, letterSpacing: '.06em' }}>{md.icon} CONDITION: {md.name}</b>
@@ -2097,7 +2138,7 @@ export default function DeadPerimeter() {
               <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap' }}>
                 <button style={{ ...btn('#1a3028', '#226644'), fontSize: '10px', padding: '4px 10px' }} disabled={!canRecruit} onClick={recruit}>+RECRUIT (🥫20 🔧15)</button>
                 <button style={{ ...btn('#2a1e08', '#885522'), fontSize: '10px', padding: '4px 10px' }} disabled={!canBarricadeFlag} onClick={buildBarricade}>🪵 BARRICADE (🔧15)</button>
-                <button style={{ ...btn('#1a2438', '#446699'), fontSize: '10px', padding: '4px 10px' }} disabled={!canTurret} onClick={buildTurret}>🛠 MG TURRET (🔧{BALANCE.turretCostMaterials} 🟠{BALANCE.turretCostAmmo})</button>
+                <button style={{ ...btn('#1a2438', '#446699'), fontSize: '10px', padding: '4px 10px' }} disabled={!canTurret} onClick={buildTurret}>🛠 MG TURRET (🔧{turretMaterials(gs)} 🟠{BALANCE.turretCostAmmo})</button>
                 <button
                   style={{ ...btn('#2a1818', '#883333'), fontSize: '10px', padding: '4px 10px' }}
                   disabled={!gs || gs.baseHp >= gs.baseMaxHp || (gs.resources?.materials || 0) < BALANCE.wallRepairCost}
@@ -2186,7 +2227,7 @@ export default function DeadPerimeter() {
                         )}
                         <div style={{ display: 'flex', gap: '3px', marginTop: '3px', flexWrap: 'wrap' }}>
                           {s.hp < s.maxHp && (
-                            <button style={{ ...btn('#162814', '#336622'), fontSize: '8px', padding: '2px 6px', marginRight: 0 }} onClick={() => healSoldier(i)} disabled={gs.resources.medicine < 5}>💊 HEAL</button>
+                            <button style={{ ...btn('#162814', '#336622'), fontSize: '8px', padding: '2px 6px', marginRight: 0 }} onClick={() => healSoldier(i)} disabled={gs.resources.medicine < healCost(gs)}>💊 HEAL {healCost(gs)}</button>
                           )}
                           {!s.onRoof && (
                             <button
@@ -2238,8 +2279,92 @@ export default function DeadPerimeter() {
                 </div>
               ))}
             </div>
+            {gs && gs.wave >= 2 && (() => {
+              // Work on the live state (gs here is the render snapshot).
+              const G = gsRef.current || gs;
+              const q = ensureQuests(G); refreshOffers(G);
+              const unlocked = Object.keys(q.unlocks).filter(k => q.unlocks[k]);
+              return (
+                <>
+                  <hr style={hr} />
+                  <div style={h2}>🏚 SURVIVORS AT THE FORT <span style={{ fontSize: '10px', color: C.txt, opacity: 0.6 }}>· jobs {q.active.length}/{MAX_ACTIVE}</span></div>
+                  {unlocked.length > 0 && (
+                    <div style={{ fontSize: '9px', color: '#a8e070', marginBottom: '6px' }}>
+                      🏗 {unlocked.map(k => <span key={k} title={FORT_UNLOCKS[k].desc} style={{ marginRight: '10px' }}>{FORT_UNLOCKS[k].name} <span style={{ opacity: 0.7 }}>({FORT_UNLOCKS[k].desc})</span></span>)}
+                    </div>
+                  )}
+                  <div style={row}>
+                    {NPC_LIST.map(n => {
+                      const offer = q.offers[n.id], active = q.active.filter(j => j.npc === n.id);
+                      return (
+                        <div key={n.id} style={{ ...card, flex: '1 1 240px', borderColor: offer && offer.story ? '#ffd54a' : C.uib }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <div style={{ width: '30px', height: '30px', borderRadius: '50%', background: '#141a12', border: `2px solid ${n.color}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '15px' }}>{n.icon}</div>
+                            <div><div style={{ color: n.color, fontWeight: 'bold', fontSize: '11px' }}>{n.name}</div><div style={{ fontSize: '8px', opacity: 0.65 }}>{n.role}</div></div>
+                          </div>
+                          {active.map(j => (
+                            <div key={j.id} style={{ marginTop: '6px', fontSize: '9px', background: 'rgba(40,40,10,0.35)', padding: '4px 6px', border: '1px dashed rgba(255,213,74,0.4)' }}>
+                              <b style={{ color: '#ffd54a' }}>▶ {j.story ? '★ ' : ''}{j.title}</b>
+                              <div style={{ color: C.txt }}>{jobGoal(j)}</div>
+                              {j.kind === 'deliver' && (
+                                <button style={{ ...btn('#1a3a18'), fontSize: '9px', padding: '2px 8px', marginTop: '3px' }} disabled={!canDeliver(G, j)}
+                                  onClick={() => { const r = deliverJob(G, j.id); if (r) { saveGame(G); setHasSave(true); setJobNote(r); } setUi({ ...G, soldiers: G.soldiers.map(x => ({ ...x })) }); }}>HAND OVER</button>
+                              )}
+                            </div>
+                          ))}
+                          {offer ? (
+                            <div style={{ marginTop: '6px', fontSize: '9px' }}>
+                              <b style={{ color: offer.story ? '#ffd54a' : C.acc }}>{offer.story ? '★ STORY · ' : ''}{offer.title}</b>
+                              <div style={{ color: C.txt, fontStyle: 'italic', opacity: 0.9, margin: '2px 0' }}>“{jobText(offer)}”</div>
+                              <div style={{ color: C.txt, opacity: 0.8 }}>Goal: {jobGoal(offer)}</div>
+                              <div style={{ color: '#88ddff', opacity: 0.9 }}>
+                                Reward: {offer.unlock ? `🏗 ${FORT_UNLOCKS[offer.unlock].name} — ${FORT_UNLOCKS[offer.unlock].desc}` : Object.entries(offer.reward || {}).filter(([k, v]) => v && k !== 'xp' && k !== 'gear').map(([k, v]) => `+${v} ${k}`).concat(offer.reward && offer.reward.gear ? ['a weapon'] : []).join(', ')}
+                              </div>
+                              <div style={{ display: 'flex', gap: '4px', marginTop: '4px' }}>
+                                <button style={{ ...btn('#1a3a18'), fontSize: '9px', padding: '2px 8px', marginTop: 0 }} disabled={q.active.length >= MAX_ACTIVE}
+                                  onClick={() => { acceptJob(G, n.id); saveGame(G); setHasSave(true); setUi({ ...G, soldiers: G.soldiers.map(x => ({ ...x })) }); }}>ACCEPT</button>
+                                {!offer.story && (
+                                  <button style={{ ...btn('#2a1a1a', '#664444'), fontSize: '9px', padding: '2px 8px', marginTop: 0 }}
+                                    onClick={() => { declineJob(G, n.id); saveGame(G); setHasSave(true); setUi({ ...G, soldiers: G.soldiers.map(x => ({ ...x })) }); }}>NOT NOW</button>
+                                )}
+                              </div>
+                            </div>
+                          ) : !active.length && <div style={{ marginTop: '6px', fontSize: '9px', opacity: 0.55 }}>{n.intro}</div>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {/* Journal: story progress + recent jobs */}
+                  <div style={{ marginTop: '8px', background: 'rgba(8,14,8,0.7)', border: `1px solid ${C.uib}`, padding: '6px 10px', fontSize: '9px' }}>
+                    <div style={{ color: '#ffd54a', fontWeight: 'bold', letterSpacing: '.05em' }}>📖 JOURNAL · STORY {STORY.filter(st => q.done.includes(st.id)).length}/{STORY.length}</div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 14px', marginTop: '3px' }}>
+                      {STORY.map((st, k) => {
+                        const done = q.done.includes(st.id), live = q.active.some(j => j.id === st.id) || Object.values(q.offers).some(o => o && o.id === st.id);
+                        const seen = done || live;
+                        return (
+                          <span key={st.id} style={{ color: done ? C.acc : live ? '#ffd54a' : 'rgba(184,204,170,0.4)' }}>
+                            {done ? '✔' : live ? '▶' : '·'} {k + 1}. {seen ? st.title : '???'}{done && st.unlock ? ` (${FORT_UNLOCKS[st.unlock].name})` : ''}
+                          </span>
+                        );
+                      })}
+                    </div>
+                    {q.log.length > 0 && (
+                      <div style={{ marginTop: '5px', borderTop: `1px dashed ${C.uib}`, paddingTop: '4px', color: C.txt, opacity: 0.85 }}>
+                        {q.log.slice(0, 6).map((e, k) => (
+                          <div key={k}>Day {e.day} · {NPC_LIST.find(n => n.id === e.npc)?.name || e.npc} · {e.story ? '★ ' : ''}{e.title}{e.reward ? ` — ${e.reward}` : ''}{e.unlock ? ` — 🏗 ${FORT_UNLOCKS[e.unlock].name}` : ''}</div>
+                        ))}
+                        {q.log.length > 6 && <div style={{ opacity: 0.6 }}>…and {q.log.length - 6} earlier jobs</div>}
+                      </div>
+                    )}
+                  </div>
+                  {jobNote && (
+                    <div style={{ marginTop: '6px', fontSize: '10px', color: '#ffd54a' }}>📋 <b>{jobNote.title}</b> done{jobNote.reward ? ` · ${jobNote.reward}` : ''} — <i style={{ color: C.txt }}>“{jobNote.line}”</i></div>
+                  )}
+                </>
+              );
+            })()}
             {gs && (() => {
-              const a = ensureArmory(gs);
+              const a = ensureArmory(gsRef.current || gs);
               const guns = Object.entries(a.guns).filter(([, n]) => n > 0);
               if (!guns.length && !a.melee.length) return null;
               const pickable = gs.soldiers.map((s, i) => [s, i]).filter(([s]) => s.state !== 'dead');
@@ -2469,7 +2594,7 @@ export default function DeadPerimeter() {
               title={!expeditionsUnlocked ? 'Unlocks after the first wave' : sortiesLeft <= 0 ? 'No sorties left today' : ''}
             >🗺 EXPEDITION{
               !expeditionsUnlocked ? ' — LOCKED'
-              : sortiesLeft > 0 ? ` (${sortiesLeft}/${BALANCE.expeditionsPerDay})`
+              : sortiesLeft > 0 ? ` (${sortiesLeft}/${sortiesPerDay(gs)})`
               : ' — NIGHTFALL'
             }</button>
             {!expeditionsUnlocked && (

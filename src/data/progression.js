@@ -12,6 +12,7 @@ export const SKILLS = [
   { id: 'reload', icon: '⚡', name: 'Fast Hands', desc: '−6% reload time per rank' },
   { id: 'tough',  icon: '🛡', name: 'Toughness',  desc: '+12 max HP per rank' },
   { id: 'melee',  icon: '🪓', name: 'Brawler',    desc: '+15% melee damage, −15% weapon wear per rank' },
+  { id: 'endurance', icon: '🫁', name: 'Endurance', desc: '+20% stamina and recovery per rank' },
 ];
 export const SKILL_MAX = 5;
 
@@ -52,5 +53,6 @@ export function skillEffect(sol, key, v) {
   if (key === 'reloadMul' && sk.reload) return v * (1 - 0.06 * sk.reload);
   if (key === 'meleeMul' && sk.melee) return v * (1 + 0.15 * sk.melee);
   if (key === 'wearMul' && sk.melee) return v * (1 - 0.15 * sk.melee);
+  if (key === 'stamMul' && sk.endurance) return v * (1 + 0.2 * sk.endurance);
   return v;
 }

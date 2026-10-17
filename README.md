@@ -102,7 +102,49 @@
 - **Experience and levels** (up to 10) from kills, surviving waves and
   bringing sorties home: +5 max HP per level and a skill point —
   Marksman (damage), Fast Hands (reload), Toughness (HP), Brawler (melee
-  damage, less wear). Skills apply in the siege and on sorties.
+  damage, less wear), Endurance (stamina). Skills apply in the siege and
+  on sorties.
+- **Stamina**: melee swings and jumps on sorties cost stamina (blue bar
+  under the HP bar). A winded soldier swings much slower until it
+  recovers; Endurance raises the pool and the recovery rate.
+
+### Survivors at the fort & story
+- Three survivors live at Fort Omega — **Dr. Elena Reyes** (medic),
+  **Sgt. Marcus Hale** (quartermaster) and **Jun Park** (mechanic) — and
+  hand out jobs from the command center (up to 3 running): **recover** an
+  item at a city location (it waits on an upper floor, often behind the
+  locked door), **rescue** a named survivor and walk them to the van,
+  **clear** a place's infestation, or **hand over** supplies. Accepting
+  a job reveals its location; the map marks it with `!`, the sortie HUD
+  tracks it, and the result screen shows the NPC's thanks and reward.
+- A **six-step main story** (insulin for the infirmary, a radio for the
+  precinct, a generator coil, a lab centrifuge, a soldier left behind,
+  the Central Hospital research archive) unlocks permanent fort upgrades:
+  cheaper heals, +1 sortie per day, cheaper turrets, faster research,
+  a veteran rifleman, and a more forgiving vaccine finale.
+- **Journal**: the survivors panel tracks story progress (n/6) and the
+  last jobs completed, with day and reward.
+
+### The Northgate Compact
+The radio room's first catch is a broadcast from the **Northgate
+Compact**: National Guard deserters who walled off a depot in the
+industrial district and declared their own provisional government, led
+by **Col. Adaeze Voss**. They are neutral, and they are the only place
+to buy guns.
+- **Trade**: the first purchase of the day sends an envoy (one sortie
+  slot). Revolvers, shotguns, ammo and sniper rounds at first; MP5s,
+  hunting rifles and turret belts at standing 25; AKs and a 15% discount
+  at standing 60. Everything you pay ends up in their treasury, which
+  also grows on its own every day (and their armory gains a rifle every
+  four days).
+- **Assault**: launch a sortie against the compound instead. Few dead,
+  but 8–14 trained soldiers and the colonel, with the armory locked at
+  the end of the street. Kill Voss or 80% of the garrison and drive
+  home: the armory and the whole treasury are yours to carry out, and
+  the Compact is gone for good. Fail and they turn hostile, raiding the
+  fort every five days with soldiers tougher than any bandit.
+- The longer you trade, the bigger the prize, and the more you lose by
+  ending it. When to switch is your call.
 
 ### Workshop progression
 Unlocked mid-run by spending materials at the management screen:
@@ -126,7 +168,9 @@ Unlocked mid-run by spending materials at the management screen:
   **infestation** (grows daily, drops when you thin the herd; it sets the
   risk tier), **loot left** (what you take stays taken, slow restock) and
   whether it has been **discovered** — unexplored places show as `?` until
-  you scout a location nearby. Travel costs food per soldier by distance.
+  you scout a location nearby. Travel costs food per soldier by distance,
+  and time: far places (Industrial, Medical Hill) take the whole day,
+  i.e. two sortie slots.
 - **Reward model** (`data/rewards.js`): every resource has a shadow price
   in materials taken from the workbench recipes, and pickups are sized so
   each is worth about the same — choosing a place is about what the fort
@@ -136,6 +180,8 @@ Unlocked mid-run by spending materials at the management screen:
   locked doors. A wiped party brings nothing home.
 - **Explore missions** at map locations: a longer street (2600–3800 px)
   with 2–4 buildings to walk into, each with an upper floor and stairs.
+  Wide buildings are split into rooms: stand at a closed interior door
+  for a moment to open it. Doors block the dead too, upstairs is free.
   The layout is seeded per location, so it's the same place every time.
   Some buildings are **locked**: find the key in a container before it or
   force the door (slow and loud — it draws a pack). There is no finish

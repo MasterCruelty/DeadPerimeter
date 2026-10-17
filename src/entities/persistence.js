@@ -56,6 +56,8 @@ export function saveGame(gs) {
       transmissionsDone: Array.isArray(gs.transmissionsDone) ? [...gs.transmissionsDone] : [],
       lastSupplyDrop: gs.lastSupplyDrop || null,
       city: gs.city || null,
+      quests: gs.quests || null,
+      compact: gs.compact || null,
       // Omitted while not rolled yet, so the load rolls it fresh.
       ...(gs.nextWaveMod !== undefined ? { nextWaveMod: gs.nextWaveMod } : {}),
       usedNames: Array.from(gs.usedNames || []),
@@ -122,6 +124,8 @@ export function loadGame(mkGS) {
     gs.transmissionsDone = Array.isArray(data.transmissionsDone) ? [...data.transmissionsDone] : [];
     gs.lastSupplyDrop = data.lastSupplyDrop || null;
     if (data.city && data.city.locs) gs.city = data.city;
+    if (data.quests) gs.quests = data.quests;
+    if (data.compact) gs.compact = data.compact;
     // undefined (old saves) → rolled when the intel is first shown.
     gs.nextWaveMod = 'nextWaveMod' in data ? data.nextWaveMod : undefined;
     gs.usedNames = new Set(data.usedNames || []);

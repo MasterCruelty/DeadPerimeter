@@ -260,7 +260,8 @@ export function drawSoldierBody(ctx, s, now) {
 export function drawHostileBody(ctx, h, now) {
   const seed = hashOf(`h${h.id}`);
   const kind = h.type === 'gunman' ? 'gunman' : 'knifeman';
-  const look = lookOf(kind, seed, { color: h.h.color, cap: h.h.cap });
+  // Compact raiders wear tactical kit instead of street clothes.
+  const look = h.compact ? lookOf('swat', seed) : lookOf(kind, seed, { color: h.h.color, cap: h.h.cap });
   if (h.state === 'dead') {
     const dp = Math.min(1, (now - (h.deadAt || 0)) / 480);
     if (dp < 1) {

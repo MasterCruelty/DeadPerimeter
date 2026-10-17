@@ -1,6 +1,6 @@
 import { C, CH, uid, rng } from '../constants.js';
 import { WPN, wbase, MELEE } from '../data/weapons.js';
-import { meleeStats, wearMelee, gearIcon, gearName } from '../entities/gear.js';
+import { meleeStats, wearMelee, gearIcon, gearName, tickStam, spendStam, JUMP_COST, maxStam, winded } from '../entities/gear.js';
 import { ZTP } from '../data/zombies.js';
 import { MISSION_W, MISSION_VIEW, MGY, objIcons, rollEncounter, setMissionWidth } from '../data/expeditions.js';
 import { setupCityMission, tickCity, clampCity, onContainerSearched } from './cityMission.js';
@@ -607,7 +607,7 @@ export function mkMission(soldier, dest, wave = 1, magsPerSoldier = 2, researchC
     state: 'active',
     // Activation tracking for the goal kill-ratio gate
     activatedCount: 0, killedCount: 0, _lastGoalHint: 0,
-    collected: { ammo: 0, medicine: 0, food: 0, materials: 0, sniperAmmo: 0, turretAmmo: 0, civilian: null, rescuedCivs: 0, lostSoldier: null, gear: [] },
+    collected: { ammo: 0, medicine: 0, food: 0, materials: 0, sniperAmmo: 0, turretAmmo: 0, civilian: null, rescuedCivs: 0, lostSoldier: null, gear: [], quests: [] },
     startedAt: 0, endedAt: 0,
   };
   if (explore) setupCityMission(mission, dest);
@@ -665,10 +665,11 @@ function aiShoot(m, who, now, dt) {
   }
   if (who.state === 'reload') return;
 
-  // Pick nearest activated zombie in range
+  // Pick nearest activated zombie or armed hostile in range
   const range = effRange(who, w);
-  const tgt = m.zombies
-    .filter(z => z.state !== 'dead' && z.activated && Math.abs(z.x - who.x) <= range)
+  const inRange = e => e.state !== 'dead' && e.activated && Math.abs(e.x - who.x) <= range;
+  const tgt = m.zombies.filter(inRange)
+    .concat((m.humans || []).filter(h => h.hostile && inRange(h)))
     .sort((a, b) => Math.abs(a.x - who.x) - Math.abs(b.x - who.x))[0];
 
   if (!tgt) {
@@ -778,6 +779,7 @@ export function updateMission(m, now, dt) {
   }
   const s = m.soldier;
   s.hurtTimer = Math.max(0, s.hurtTimer - dt);
+  aliveParty(m).forEach(p => tickStam(p, dt));
   (m.followers || []).forEach(f => { f.hurtTimer = Math.max(0, f.hurtTimer - dt); });
   (m.humans   || []).forEach(h => { h.hurtTimer = Math.max(0, h.hurtTimer - dt); });
 
@@ -876,7 +878,7 @@ export function updateMission(m, now, dt) {
       s.standingY = 0;
       s.climbing = null;
     }
-  } else if (m.inputUp && onSurface && s.state !== 'knife' && s.state !== 'reload') {
+  } else if (m.inputUp && onSurface && s.state !== 'knife' && s.state !== 'reload' && spendStam(s, JUMP_COST)) {
     // No ladder under us — UP is a jump from the current surface.
     s.vy = JUMP_VEL;
     s.state = 'walk';
@@ -1374,10 +1376,11 @@ export function updateMission(m, now, dt) {
       // fire rate is 1.6x slower than the gun's spec and their per-
       // shot damage is multiplied by 0.55 to keep multi-bandit
       // firefights from one-shotting the player's squad.
-      else if (now - h.lastShot > wMeta.rate * 1.6) {
+      // Compact soldiers are trained: faster, steadier fire.
+      else if (now - h.lastShot > wMeta.rate * (h.compact ? 1.25 : 1.6)) {
         h.lastShot = now; h.state = 'shoot'; h.ammo--;
         const pellets = wMeta.pel || 1;
-        const baseDmg = (wMeta.pel ? wMeta.dmg / wMeta.pel : wMeta.dmg) * 0.55;
+        const baseDmg = (wMeta.pel ? wMeta.dmg / wMeta.pel : wMeta.dmg) * (h.compact ? 0.7 : 0.55);
         for (let p = 0; p < pellets; p++) {
           // Wider aim cone — they're not pros.
           const spread = (Math.random() - 0.5) * ((wMeta.spread || 0.04) * 2.2);
@@ -1582,6 +1585,11 @@ export function updateMission(m, now, dt) {
       if (humanHit.hp <= 0) {
         humanHit.hp = 0; humanHit.state = 'dead'; humanHit.deadAt = now;
         m.killedCount++;
+        if (b.src) b.src._kills = (b.src._kills || 0) + 1;
+        if (humanHit.colonel) {
+          m.effects.push({ type: 'txt', x: humanHit.x, y: MGY - 110, v: '★ COL. VOSS DOWN', col: '#ffd54a', at: now, dur: 2600 });
+          pushRadio(m, 'kill', { line: 'The colonel is down! Their line is breaking!', speaker: m.soldier, cooldown: 0 });
+        }
         missionKillChatter(m, m.soldier);
       }
       return false;
@@ -1704,6 +1712,11 @@ export function updateMission(m, now, dt) {
       } else if (p.type === 'lostSoldier') {
         m.collected.lostSoldier = true;
         m.effects.push({ type: 'txt', x: p.x, y: MGY - 70, v: 'LOST SOLDIER!', col: '#ffd54a', at: now, dur: 1200 });
+      } else if (p.type === 'quest') {
+        (m.collected.quests || (m.collected.quests = [])).push(p.questId);
+        m.soundQ.push({ t: 'pickup', x: p.x });
+        m.effects.push({ type: 'txt', x: p.x, y: MGY - 96 + (p.standingY || 0), v: `📋 ${p.label.toUpperCase()} — BRING IT HOME`, col: '#ffd54a', at: now, dur: 2400 });
+        pushRadio(m, 'kill', { line: `Got the ${p.label.toLowerCase()}. Back to the van!`, speaker: grabber, cooldown: 0 });
       } else if (p.type === 'gear') {
         (m.collected.gear || (m.collected.gear = [])).push(p.item);
         m.soundQ.push({ t: 'pickup', x: p.x });
@@ -2715,10 +2728,10 @@ export function dMissionWorld(ctx, m, now) {
       ctx.beginPath(); ctx.arc(0, 0, 18, 0, Math.PI * 2); ctx.fill();
     }
     ctx.fillStyle = 'rgba(20,30,15,0.85)'; ctx.fillRect(-12, -12, 24, 24);
-    ctx.strokeStyle = p.type === 'vaccine' ? '#88ff88' : p.type === 'gear' ? '#ffd54a' : p.type === 'civilian' ? '#88ddff' : C.acc; ctx.lineWidth = 1.5;
+    ctx.strokeStyle = p.type === 'vaccine' ? '#88ff88' : p.type === 'gear' || p.type === 'quest' ? '#ffd54a' : p.type === 'civilian' ? '#88ddff' : C.acc; ctx.lineWidth = 1.5;
     ctx.strokeRect(-12, -12, 24, 24);
     ctx.font = '14px monospace'; ctx.textAlign = 'center'; ctx.fillStyle = '#fff';
-    ctx.fillText(p.type === 'gear' ? gearIcon(p.item) : (objIcons[p.type] || '?'), 0, 5);
+    ctx.fillText(p.type === 'gear' ? gearIcon(p.item) : p.type === 'quest' ? '📋' : (objIcons[p.type] || '?'), 0, 5);
     ctx.textAlign = 'left'; ctx.restore();
   });
 
@@ -2744,9 +2757,14 @@ export function dMissionWorld(ctx, m, now) {
       state: r.state === 'following' ? 'walk' : 'idle',
       facing: r.facing,
       walkPhase: r.walkPhase, hurtTimer: r.hurtTimer,
-      civilian: true, onRoof: false, onExpedition: false, unarmed: true, npc: true,
+      // Job targets (a named soldier) wear fatigues, not civvies.
+      civilian: !r.questId, veteran: !!r.questId, onRoof: false, onExpedition: false, unarmed: true, npc: true,
     };
     dSoldier(ctx, rc, now);
+    if (r.questId && r.state !== 'dead') {
+      ctx.fillStyle = '#ffd54a'; ctx.font = 'bold 9px monospace'; ctx.textAlign = 'center';
+      ctx.fillText(`📋 ${r.name}`, r.x, MGY - 92); ctx.textAlign = 'left';
+    }
     // Floating "?" / "!" marker over their head so the player notices them
     if (r.state === 'idle') {
       ctx.fillStyle = '#88ddff'; ctx.font = 'bold 14px monospace'; ctx.textAlign = 'center';
@@ -2762,8 +2780,9 @@ export function dMissionWorld(ctx, m, now) {
   (m.humans || []).forEach(h => {
     const hc = {
       ...h, lane: 0, onExpedition: false, npc: true,
-      civilian: !h.bandit,                // peaceful = civilian look
+      civilian: !h.bandit && !h.compact,  // peaceful = civilian look
       bandit: !!h.bandit,                 // hostile  = bandit look
+      swat: !!h.compact, police: !!h.compact,   // Compact soldiers: tactical kit
       maxHp: h.maxHp, hp: h.hp,
     };
     dSoldier(ctx, hc, now);
@@ -2771,6 +2790,10 @@ export function dMissionWorld(ctx, m, now) {
     const px = h.x, py = MGY - 64;
     ctx.fillStyle = h.hostile ? '#cc2222' : '#44bb44';
     ctx.beginPath(); ctx.arc(px, py, 2, 0, Math.PI * 2); ctx.fill();
+    if (h.colonel && h.state !== 'dead') {
+      ctx.fillStyle = '#ffd54a'; ctx.font = 'bold 9px monospace'; ctx.textAlign = 'center';
+      ctx.fillText('★ COL. VOSS', px, py - 6); ctx.textAlign = 'left';
+    }
     if (h.state !== 'dead' && h.hp < h.maxHp) {
       // small hp bar
       ctx.fillStyle = 'rgba(20,20,20,0.7)'; ctx.fillRect(px - 11, py + 4, 22, 3);
@@ -2934,6 +2957,12 @@ export function dMissionHUD(ctx, m, now) {
     const r = z.type === 'brute' ? 2.5 : 1.2;
     ctx.fillRect(mx(z.x) - r, py + ph / 2 - r, r * 2, r * 2);
   });
+  (m.humans || []).forEach(h => {
+    if (h.state === 'dead' || !h.hostile || !(h.activated || h.compact)) return;
+    ctx.fillStyle = h.compact ? '#d8b060' : '#ff8844';
+    const r = h.colonel ? 2.5 : 1.5;
+    ctx.fillRect(mx(h.x) - r, py + ph / 2 - r, r * 2, r * 2);
+  });
   [m.soldier, ...(m.followers || [])].forEach(p => {
     if (!p || p.hp <= 0 || p.state === 'dead') return;
     ctx.fillStyle = p === m.soldier ? '#ffffff' : '#7cf060';
@@ -2946,7 +2975,13 @@ export function dMissionHUD(ctx, m, now) {
   const cleared = Math.min(m.killedCount, need);
   ctx.fillStyle = m.killedCount >= need && need > 0 ? C.acc : C.wrn;
   ctx.font = '9px monospace';
-  ctx.fillText(`HOSTILES ${cleared}/${need || 0}`, px, 33);
+  if (m.compactAssault) {
+    const troops = m.humans.filter(h => h.compact);
+    const down = troops.filter(h => h.state === 'dead').length;
+    const voss = troops.some(h => h.colonel && h.state === 'dead');
+    ctx.fillStyle = voss || down >= Math.ceil(troops.length * 0.8) ? C.acc : '#d8b060';
+    ctx.fillText(`🏴 GARRISON ${down}/${troops.length}${voss ? ' · VOSS DOWN' : ''}`, px, 33);
+  } else ctx.fillText(`HOSTILES ${cleared}/${need || 0}`, px, 33);
   const total = (m.rescuables || []).length;
   if (total > 0) {
     const following = (m.rescuables || []).filter(r => r.state === 'following' && r.hp > 0).length;
@@ -2966,6 +3001,10 @@ export function dMissionHUD(ctx, m, now) {
   ctx.fillText(s.name.toUpperCase(), 590, 14);
   ctx.fillStyle = '#141612'; ctx.fillRect(660, 7, 90, 7);
   ctx.fillStyle = hpCol; ctx.fillRect(660, 7, 90 * hpPct, 7);
+  // Stamina (melee swings, jumps): blue, flashing amber when winded.
+  const stPct = Math.max(0, Math.min(1, (s.stam ?? maxStam(s)) / maxStam(s)));
+  ctx.fillStyle = '#141612'; ctx.fillRect(660, 16, 90, 3);
+  ctx.fillStyle = winded(s) && Math.floor(now / 200) % 2 ? '#ffaa33' : '#5aa8e0'; ctx.fillRect(660, 16, 90 * stPct, 3);
   ctx.fillStyle = C.txt; ctx.font = '9px monospace';
   ctx.fillText(`${Math.max(0, Math.round(s.hp))}`, 754, 14);
   const knife = s.ammo <= 0 && (s.magsLeft || 0) <= 0;
