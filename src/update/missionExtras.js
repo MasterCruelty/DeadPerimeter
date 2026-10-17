@@ -20,6 +20,7 @@ import { uid, rng } from '../constants.js';
 import { ZTP } from '../data/zombies.js';
 import { MISSION_W, MGY } from '../data/expeditions.js';
 import { pushRadio } from '../audio/radio.js';
+import { streetSpot, segAt } from './cityMission.js';
 export { MISSION_CONDS, SIDE_OBJ } from '../data/missionExtras.js';
 
 function mz(type, x, activated, extra = {}) {
@@ -76,16 +77,26 @@ export function setupMissionExtras(m, dest, wave) {
     m.side = { type: 'sos', x, rid: r.id, timeLimit: dest.risk === 'HIGH' ? 80000 : 70000, state: 'active' };
   }
 
+  // Explore streets: no objective behind a locked door (the SOS timer
+  // or the nest would be unreachable until the door is forced).
+  if (m.side && m.segs) {
+    const sg = segAt(m, m.side.x);
+    if (sg && sg.locked) {
+      const nx = streetSpot(m, m.side.x);
+      if (nx !== null) {
+        m.side.x = nx;
+        const r = m.side.type === 'sos' && m.rescuables.find(q => q.id === m.side.rid);
+        if (r) r.x = nx;
+      }
+    }
+  }
+
   if (m.objective !== 'defend' && dest.risk !== 'LOW' && Math.random() < 0.38) {
     let x = Math.round(MISSION_W * (0.36 + Math.random() * 0.22));
     if (m.encounter && Math.abs(m.encounter.x - x) < 260) x = Math.min(MISSION_W - 400, m.encounter.x + 320);
     // Explore streets: the car stays outside, in a gap between buildings.
-    const sg = (m.segs || []).find(q => x > q.x0 - 70 && x < q.x1 + 70);
-    if (sg) {
-      x = sg.x1 + 140;
-      if ((m.segs || []).some(q => x > q.x0 - 70 && x < q.x1 + 70)) x = Math.max(300, sg.x0 - 140);
-    }
-    m.alarm = { x, triggered: false };
+    if (m.segs) x = streetSpot(m, x);
+    if (x !== null) m.alarm = { x, triggered: false };
   }
 }
 
