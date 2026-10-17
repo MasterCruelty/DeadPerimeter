@@ -5,6 +5,7 @@ import { MISSION_W, MISSION_VIEW, MGY, objIcons, rollEncounter, setMissionWidth 
 import { setupCityMission, tickCity, clampCity, onContainerSearched } from './cityMission.js';
 import { dCityWorld, dCityHUD } from '../render/cityMission.js';
 import { BIOMES, DEFAULT_BIOME, SEARCHABLE_TYPES } from '../data/biomes.js';
+import { pickupValue, boxValue, LOCKED_MUL } from '../data/rewards.js';
 import { BALANCE, RESEARCHES, getSoldierPerkEffect } from '../data/difficulty.js';
 import { dZombie } from '../render/zombie.js';
 import { dSoldier } from '../render/soldier.js';
@@ -156,25 +157,15 @@ export function mkMission(soldier, dest, wave = 1, magsPerSoldier = 2, researchC
   // After 15+ days the user was sitting on 500 food / 300 materials.
   const pkCount = Math.round((dest.risk === 'LOW' ? 6 : dest.risk === 'MED' ? 7 : 9)
     * (explore ? widthMul * (0.25 + 0.75 * (dest.lootLeft ?? 1)) : 1));
-  // Wave-bonus curve flattened from /2 to /3 so late-game pickups
-  // don't drift into "every crate is +10 of everything" territory.
-  const waveBonus = Math.floor(Math.max(0, wave - 1) / 3);
+  // Value-normalised quantities, risk/distance premium, deeper = richer
+  // (see data/rewards.js). Spread evenly over the reachable street:
+  // the old formula could drop the last pickup past the end of the map.
+  const valueMul = dest.valueMul || 1;
   for (let i = 0; i < pkCount; i++) {
-    const x = 300 + Math.floor(MISSION_W / (pkCount + 1)) * (i + 1) + rng(-60, 60);
+    const x = Math.max(260, Math.min(MISSION_W - 160,
+      Math.round(300 + (MISSION_W - 520) * (i + 1) / (pkCount + 1)) + rng(-50, 50)));
     const type = pkOptions[Math.floor(Math.random() * pkOptions.length)];
-    // Per-pickup base values (post-second-rebalance):
-    //   ammo 12-22 (unchanged — combat consumable, still fair)
-    //   medicine 6-12 (unchanged — heals are an ongoing cost)
-    //   food 8-14 → 5-9 (avg 7 — was inflating into hundreds)
-    //   materials 4-8 → 3-5 (avg 4 — same problem)
-    //   sniperAmmo 2-5, turretAmmo 8-16 (unchanged — niche)
-    const base = type === 'medicine'   ? rng(6, 12)
-      : type === 'ammo'       ? rng(12, 22)
-      : type === 'food'       ? rng(5, 9)
-      : type === 'sniperAmmo' ? rng(2, 5)
-      : type === 'turretAmmo' ? rng(8, 16)
-      : rng(3, 5);
-    pickups.push({ id: uid(), x, type, value: base + waveBonus, collected: false, lane: 0 });
+    pickups.push({ id: uid(), x, type, value: pickupValue(type, { wave, x, W: MISSION_W, mul: valueMul }), collected: false, lane: 0 });
   }
   // (Pickup-elevation pass runs AFTER buildings + platforms are
   // generated, further below — buildings/platforms are still in the
@@ -592,6 +583,7 @@ export function mkMission(soldier, dest, wave = 1, magsPerSoldier = 2, researchC
 
   const mission = {
     W: MISSION_W,                        // world width (MISSION_W is synced to this)
+    wave, valueMul,                      // reward scaling (data/rewards.js)
     soldier: msol, followers,
     origSoldier: lead,                   // back-compat: legacy field points to lead
     origSoldiers: partySoldiers,         // full original-soldiers list (for finishMission)
@@ -1665,12 +1657,7 @@ export function updateMission(m, now, dt) {
       };
       const pool = LOOT_TABLE[o.type] || ['materials'];
       const type = pool[Math.floor(Math.random() * pool.length)];
-      const VALUES = {
-        ammo: [4, 9], medicine: [3, 6], food: [3, 6],
-        materials: [2, 4], sniperAmmo: [1, 2], turretAmmo: [3, 6],
-      };
-      const [lo, hi] = VALUES[type] || [1, 3];
-      const value = rng(lo, hi);
+      const value = boxValue(type, { wave: m.wave || 1, mul: (m.valueMul || 1) * (o.rich ? LOCKED_MUL : 1) });
       m.collected[type] = (m.collected[type] || 0) + value;
       m.effects.push({
         type: 'txt',

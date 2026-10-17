@@ -110,6 +110,13 @@ Unlocked mid-run by spending materials at the management screen:
   risk tier), **loot left** (what you take stays taken, slow restock) and
   whether it has been **discovered** — unexplored places show as `?` until
   you scout a location nearby. Travel costs food per soldier by distance.
+- **Reward model** (`data/rewards.js`): every resource has a shadow price
+  in materials taken from the workbench recipes, and pickups are sized so
+  each is worth about the same — choosing a place is about what the fort
+  needs, not about one loot table being worth five times another. Loot
+  then scales with the location's danger and distance, with depth into
+  the street (push on or head back?), with the days, and ×1.5 behind
+  locked doors. A wiped party brings nothing home.
 - **Explore missions** at map locations: a longer street (2600–3800 px)
   with 2–4 buildings to walk into, each with an upper floor and stairs.
   The layout is seeded per location, so it's the same place every time.
