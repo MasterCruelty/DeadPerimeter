@@ -16,6 +16,7 @@
 import { C } from '../constants.js';
 import { rollMissionExtras } from './missionExtras.js';
 import { lootSummary } from './expeditions.js';
+import { destValueMul } from './rewards.js';
 
 export const MAP_W = 860, MAP_H = 420;
 export const FORT_POS = { x: 74, y: 352 };
@@ -105,6 +106,7 @@ export function cityDests(gs) {
       risk, riskColor: RISK_COLOR[risk],
       zSpawn: 0.4 + st.infest * 1.5,
       solDmg: [0, 0], missionLen: SIZE_W[l.size],
+      valueMul: destValueMul(st.infest, travelCost(l)),
       infest: st.infest, lootLeft: st.loot, seed: st.seed, visits: st.visits, lastDay: st.lastDay,
       travel: travelCost(l), district: l.district,
       cond: t.cond, side: t.side,

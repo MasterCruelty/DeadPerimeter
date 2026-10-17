@@ -10,6 +10,7 @@
 import { uid } from '../constants.js';
 import { ZTP } from '../data/zombies.js';
 import { BIOMES, SEARCHABLE_TYPES } from '../data/biomes.js';
+import { LOCKED_MUL } from '../data/rewards.js';
 import { MISSION_W, MGY } from '../data/expeditions.js';
 import { pushRadio } from '../audio/radio.js';
 
@@ -123,6 +124,13 @@ export function setupCityMission(m, dest) {
     props.push({ x: px + Math.round((r() - 0.5) * 60), type: s ? BIOMES[s.biomeKey].propType : street.propType });
   }
 
+  // Behind a locked door the shelves are untouched: forcing it costs
+  // time and noise, so it pays more.
+  obstacles.forEach(o => { const s = segAt({ segs }, o.x); if (s && s.locked) o.rich = true; });
+  m.pickups.forEach(p => {
+    const s = segAt({ segs }, p.x);
+    if (s && s.locked && typeof p.value === 'number' && p.type !== 'civilian' && p.type !== 'lostSoldier') p.value = Math.round(p.value * LOCKED_MUL);
+  });
   // Loot on the upper floors pays a bit more; some dead wait up there.
   m.pickups.forEach(p => {
     p.standingY = undefined;

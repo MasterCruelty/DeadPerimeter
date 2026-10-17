@@ -1730,12 +1730,17 @@ export default function DeadPerimeter() {
               // Split positive recoveries from the foodCost line so the
               // log reads "Recovered: ammo +N  ·  Eaten: 9 food" rather
               // than burying the deduction in the same comma-list.
-              const { foodCost, returnedAmmo, ...gained } = expResult.reward;
+              const { foodCost, returnedAmmo, lootLost, ...gained } = expResult.reward;
               return (
                 <>
                   {Object.keys(gained).length > 0 && (
                     <div style={{ fontSize: '11px', color: C.acc, marginTop: '5px' }}>
                       Recovered: {Object.entries(gained).map(([k, v]) => `${k} +${v}`).join('  ·  ')}
+                    </div>
+                  )}
+                  {lootLost && (
+                    <div style={{ fontSize: '11px', color: C.dng, marginTop: '3px' }}>
+                      Nobody made it back — the loot is lost: {Object.entries(lootLost).map(([k, v]) => `${k} ${v}`).join(' · ')}
                     </div>
                   )}
                   {returnedAmmo > 0 && (

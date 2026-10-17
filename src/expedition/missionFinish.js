@@ -54,12 +54,20 @@ export function finishMission(m, gs) {
   // Sortie kills count toward the run's tally + score.
   gs.kills = (gs.kills || 0) + (m.killedCount || 0);
   gs.score = (gs.score || 0) + (m.killedCount || 0) * 10 + (m.state === 'won' ? 50 : 0);
-  if (m.collected.ammo)      { gs.resources.ammo      = Math.min(999, gs.resources.ammo + m.collected.ammo);           reward.ammo = m.collected.ammo; }
-  if (m.collected.medicine)  { gs.resources.medicine  = Math.min(999, gs.resources.medicine + m.collected.medicine);   reward.medicine = m.collected.medicine; }
-  if (m.collected.food)      { gs.resources.food      = Math.min(999, gs.resources.food + m.collected.food);           reward.food = m.collected.food; }
-  if (m.collected.materials) { gs.resources.materials = Math.min(999, gs.resources.materials + m.collected.materials); reward.materials = m.collected.materials; }
-  if (m.collected.sniperAmmo){ gs.resources.sniperAmmo= Math.min(99,  (gs.resources.sniperAmmo || 0) + m.collected.sniperAmmo); reward.sniperAmmo = m.collected.sniperAmmo; }
-  if (m.collected.turretAmmo){ gs.resources.turretAmmo= Math.min(999, (gs.resources.turretAmmo || 0) + m.collected.turretAmmo); reward.turretAmmo = m.collected.turretAmmo; }
+  // A party wipe brings nothing home: if nobody walks back to the van,
+  // the loot stays out there with them. (Before, a wiped squad still
+  // banked everything, so pushing on had no downside but the bodies.)
+  if (m.state === 'lost') {
+    const lost = Object.entries(m.collected).filter(([k, v]) => typeof v === 'number' && v > 0 && k !== 'rescuedCivs');
+    if (lost.length) reward.lootLost = Object.fromEntries(lost);
+  } else {
+    if (m.collected.ammo)      { gs.resources.ammo      = Math.min(999, gs.resources.ammo + m.collected.ammo);           reward.ammo = m.collected.ammo; }
+    if (m.collected.medicine)  { gs.resources.medicine  = Math.min(999, gs.resources.medicine + m.collected.medicine);   reward.medicine = m.collected.medicine; }
+    if (m.collected.food)      { gs.resources.food      = Math.min(999, gs.resources.food + m.collected.food);           reward.food = m.collected.food; }
+    if (m.collected.materials) { gs.resources.materials = Math.min(999, gs.resources.materials + m.collected.materials); reward.materials = m.collected.materials; }
+    if (m.collected.sniperAmmo){ gs.resources.sniperAmmo= Math.min(99,  (gs.resources.sniperAmmo || 0) + m.collected.sniperAmmo); reward.sniperAmmo = m.collected.sniperAmmo; }
+    if (m.collected.turretAmmo){ gs.resources.turretAmmo= Math.min(999, (gs.resources.turretAmmo || 0) + m.collected.turretAmmo); reward.turretAmmo = m.collected.turretAmmo; }
+  }
 
   // Rescued civilians (NPCs that followed the lead to the goal alive).
   // Each one is funnelled into the reserve as a future civilian recruit,
