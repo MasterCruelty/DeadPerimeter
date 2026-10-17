@@ -25,6 +25,7 @@ function lookOf(kind, seed, extra) {
 }
 
 export function actorKind(a) {
+  if (a.compact) return 'guard';
   if (a.police) return a.swat ? 'swat' : 'police';
   if (a.bandit) return 'bandit';
   if (a.civilian) return 'civilian';
@@ -134,7 +135,7 @@ function paintKnife(T, hand, ang) {
 // the caller can place the muzzle flash.
 export function drawSoldierBody(ctx, s, now) {
   const seed = hashOf(`${s.name || ''}|${s.id || 0}`);
-  const look = lookOf(actorKind(s), seed, s.jacket ? { jacket: s.jacket } : null);
+  const look = lookOf(actorKind(s), seed, s.jacket ? { jacket: s.jacket } : s.colonel ? { officer: true } : null);
   if (s.state === 'dead') {
     const dp = s.deadAt ? Math.min(1, (now - s.deadAt) / 480) : 1;
     if (dp < 1) {
@@ -261,7 +262,7 @@ export function drawHostileBody(ctx, h, now) {
   const seed = hashOf(`h${h.id}`);
   const kind = h.type === 'gunman' ? 'gunman' : 'knifeman';
   // Compact raiders wear tactical kit instead of street clothes.
-  const look = h.compact ? lookOf('swat', seed) : lookOf(kind, seed, { color: h.h.color, cap: h.h.cap });
+  const look = h.compact ? lookOf('guard', seed, h.colonel ? { officer: true } : null) : lookOf(kind, seed, { color: h.h.color, cap: h.h.cap });
   if (h.state === 'dead') {
     const dp = Math.min(1, (now - (h.deadAt || 0)) / 480);
     if (dp < 1) {

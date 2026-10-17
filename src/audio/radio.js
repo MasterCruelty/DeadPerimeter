@@ -77,5 +77,5 @@ export function pushRadio(state, category, opts = {}) {
 
   // Prefer real TTS; procedural chatter when it's off or fails. Speak
   // the bare line (no "Bravo:" prefix) since the HUD shows the speaker.
-  speakOrChatter(text, { pitch, urgent: !!opts.urgent }, state.soundQ);
+  speakOrChatter(text, { pitch, urgent: !!opts.urgent, voice: opts.speaker && opts.speaker.name }, state.soundQ);
 }

@@ -80,13 +80,12 @@ export const BALANCE = {
 
   // Per-wave clear bonuses. Food is intentionally 0 — daily rations
   // come from expedition food runs and helicopter evac payouts, not
-  // from holding the wall. Ammo bonus stays so combat stays sustainable.
-  // Ammo resupply scales with the wave: a flat 25 couldn't keep up
-  // with consumption (~10 rounds per wave number from wave 5 on), so
-  // the stash bled dry around wave 10 even with careful play.
-  waveClearAmmo: 30,
-  waveClearAmmoPerWave: 5,
-  waveClearAmmoMax: 160,
+  // from holding the wall. The ammo resupply covers about half of what
+  // a wave burns (measured ~25 rounds early, 50–75 by wave 8–13), so
+  // staying home drains the stash and sorties are where ammo comes from.
+  waveClearAmmo: 15,
+  waveClearAmmoPerWave: 2,
+  waveClearAmmoMax: 60,
   waveClearSniperAmmo: 2,           // Delta's 15 starting rounds lasted ~3 waves
   waveClearFood: 0,
 

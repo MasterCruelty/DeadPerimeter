@@ -9,11 +9,12 @@
 //   light: { x, y, r (radius px), i (intensity), c: [r, g, b] }
 //   cone:  { x, y, dir (rad, 0 = right, y down), half (rad), r, i, c }
 // ────────────────────────────────────────────────────────────────
-import { CW, GY, WX, laneY, laneSc } from '../constants.js';
+import { CW, GY, WX, laneY, laneSc, ZOOM_FY } from '../constants.js';
 import { MISSION_W, MGY, setMissionWidth } from '../data/expeditions.js';
 import { BIOMES, DEFAULT_BIOME } from '../data/biomes.js';
 import { CITY_FIRES, CITY_FIRE_PARALLAX } from './background.js';
 import { isIndoorAt, VAN_X } from '../update/cityMission.js';
+import { ROOM_EXIT_X } from '../update/rooms.js';
 
 const WARM   = [1.0, 0.72, 0.42];
 const MUZZLE = [1.0, 0.70, 0.30];
@@ -38,6 +39,14 @@ function push(list, x, y, r, i, c, camX) {
   const sx = x - camX;
   if (sx < -r || sx > CW + r) return;
   list.push({ x: sx, y, r, i, c });
+}
+
+// Siege zoom: the lights above are in unzoomed screen space; scale them
+// the same way the world layer is scaled (see ZOOM_FY in constants.js).
+export function zoomLights(scene, z) {
+  if (!scene || z === 1) return scene;
+  const map = l => ({ ...l, x: l.x * z, y: ZOOM_FY + (l.y - ZOOM_FY) * z, r: l.r * z });
+  return { ...scene, lights: scene.lights.map(map), cones: (scene.cones || []).map(map) };
 }
 
 // ── Siege ────────────────────────────────────────────────────────
@@ -142,8 +151,9 @@ export function missionLights(m, now) {
     else if (p.type === 'exit-sign') push(lights, p.x, MGY - 173, 90, 0.6, [1.0, 0.25, 0.18], cam);
   });
 
-  // Interior doors: the caged lamp over each frame.
-  (m.idoors || []).forEach(d => push(lights, d.x, MGY - 66, d.open ? 60 : 80, d.open ? 0.3 : 0.5, [1.0, 0.85, 0.6], cam));
+  // Room doors: the caged lamp over each; in a room, the EXIT sign.
+  (m.rdoors || []).forEach(d => push(lights, d.x, MGY - 74, 80, 0.5, [1.0, 0.85, 0.6], cam));
+  if (m.room) push(lights, ROOM_EXIT_X, MGY - 80, 70, 0.6, [0.35, 1.0, 0.5], cam);
 
   // Party: muzzle flashes + a flashlight cone on the lead indoors.
   const party = [m.soldier, ...(m.followers || [])].filter(p => p && p.hp > 0 && p.state !== 'dead');
@@ -175,7 +185,7 @@ export function missionLights(m, now) {
     const y = MGY - 30 + (p.standingY || 0) + (p.lane === 1 ? -34 : 0);
     push(lights, p.x, y, p.type === 'vaccine' ? 120 : 55, p.type === 'vaccine' ? 0.8 : 0.3, p.type === 'vaccine' ? [0.5, 1, 0.55] : [0.55, 0.85, 0.4], cam);
   });
-  if (m.objective === 'explore') push(lights, VAN_X + 40, MGY - 20, 140, 0.55, [1.0, 0.92, 0.7], cam);
+  if (m.objective === 'explore' && !m.room) push(lights, VAN_X + 40, MGY - 20, 140, 0.55, [1.0, 0.92, 0.7], cam);
   else if (m.objective !== 'defend') push(lights, MISSION_W - 30, MGY - 60, 150, 0.45, [0.5, 0.9, 0.35], cam);
   else push(lights, m.defendAnchor + 12, MGY - 60, 120, 0.5, [1.0, 0.6, 0.2], cam);
   if (m.extraction) {

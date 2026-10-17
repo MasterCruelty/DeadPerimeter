@@ -2,18 +2,20 @@
 // Zombie actors. Same humanoid rig as the survivors, with rotting
 // skin, torn clothes, glowing eyes, slack jaws, and per-type builds:
 //
-//   walker   six outfits (tee, plaid, work shirt, scrubs, suit, hoodie)
-//   runner   wiry, tank top + shorts, sprinting lean
+//   walker   24 variants from archetypes (tee, plaid, scrubs, suit, cop,
+//            construction worker, soldier, firefighter, cook...)
+//   runner   wiry, tank top / jogger / hoodie, sprinting lean
 //   spitter  hunched, swollen glowing acid sac on the throat
 //   tank     hulking, torn firefighter coat (scaled ×1.35 by the caller)
-//   brute    shirtless mass of muscle and bone spurs (×1.7 by the caller)
+//   brute    shirtless mass of muscle and bone spurs (×1.7 by the caller);
+//            each named mini-boss has its own look (BOSS_LOOKS)
 //
 // Whole poses (arms included) are cached as sprite frames.
 // ────────────────────────────────────────────────────────────────
 import { sprite, blit, blob, shape, detail, mix } from './paint.js';
 import {
   rigGeom, fkArm, paintLeg, paintTorso, paintHead, paintArm,
-  walkPose, standPose, corpsePose, hashOf,
+  walkPose, standPose, corpsePose, hashOf, helmet, cap, beanie,
 } from './humanoid.js';
 
 const BOX = { w: 80, h: 80, ox: 34, oy: 76 };
@@ -93,6 +95,18 @@ function rags(o = {}) {
   };
 }
 
+// Bull horns (THE OX) over a bald scalp.
+function horns() {
+  return (T, G, hx, hy, R, a) => {
+    const c = Math.cos(a), s = Math.sin(a);
+    const L = (x, y) => [hx + x * c - y * s, hy + x * s + y * c];
+    // Short, thick, curving out and up from the temples.
+    shape(T, [L(-R * 0.55, -R * 0.55), [...L(-R - 2.5, -R * 0.7), ...L(-R - 3.2, -R - 2.6)].slice(0, 4), L(-R - 1.8, -R - 2.2), [...L(-R - 1.2, -R * 0.9), ...L(-R * 0.2, -R * 0.85)].slice(0, 4)], '#d8ccae');
+    shape(T, [L(R * 0.15, -R * 0.75), [...L(R + 1.2, -R * 0.95), ...L(R + 2.4, -R - 2.8)].slice(0, 4), L(R + 1.1, -R - 2.4), [...L(R * 0.7, -R * 1.05), ...L(R * 0.45, -R * 0.95)].slice(0, 4)], '#c8bc9e');
+    detail(T, g => { g.translate(hx, hy); g.rotate(a); g.strokeStyle = '#c8a040'; g.lineWidth = 0.9; g.beginPath(); g.arc(R + 1, 2.4, 1.5, 0, Math.PI * 2); g.stroke(); });   // nose ring
+  };
+}
+
 function hairFor(col, style) {
   return (T, G, hx, hy, R, a) => {
     if (style === 'bald') {
@@ -109,36 +123,116 @@ function hairFor(col, style) {
 }
 
 // ── Looks per type / variant ─────────────────────────────────────
-const WALKERS = [
-  { shirt: '#b8b2a0', pants: '#3a4a66', hair: ['#2a1c10', 'short'], tears: [[3, 8, 3.5, 2.6], [-3, 15, 2.6, 3]], ribs: true },
-  { shirt: '#7a2a24', pants: '#4a3a28', hair: ['#5a3a1a', 'short'], stripes: 'rgba(20,10,10,0.45)' },
-  { shirt: '#3c5272', pants: '#22262e', hair: ['#141414', 'bald'] },
-  { shirt: '#4a7a6a', pants: '#4a7a6a', hair: ['#7a6040', 'long'], barefoot: true },
-  { shirt: '#24262c', pants: '#24262c', hair: ['#2a2420', 'short'], suit: true },
-  { shirt: '#6a6a66', pants: '#2c2c34', hair: ['#3a2410', 'long'], tears: [[-2, 9, 2.4, 3.2]] },
+// Walker archetypes; each is varied by colour, hair and wounds into the
+// WALKER_VARIANTS slots (deterministic per zombie id).
+const ARCHETYPES = [
+  { shirts: ['#b8b2a0', '#8a8678', '#a89a7a'], pants: ['#3a4a66', '#2a3448'], tears: [[3, 8, 3.5, 2.6], [-3, 15, 2.6, 3]], ribs: true },          // tee
+  { shirts: ['#7a2a24', '#2a4a7a', '#4a5a2a'], pants: ['#4a3a28', '#33333a'], stripes: 'rgba(20,10,10,0.45)' },                                     // plaid
+  { shirts: ['#4a7a6a', '#4a6a8a'], pants: 'same', barefoot: true },                                                                                // scrubs
+  { shirts: ['#24262c', '#3a3a44'], pants: 'same', suit: true },                                                                                    // office
+  { shirts: ['#1d2a44'], pants: ['#1a1c24'], hat: () => cap('#121a2a', '#050505', { badge: true }), badge: true },                                  // cop
+  { shirts: ['#d86a1a', '#c8b020'], pants: ['#3a3a44', '#4a3e2e'], hat: () => helmet('#d8b020'), hivis: true },                                    // construction
+  { shirts: ['#4b5a3a', '#5a5a42'], pants: 'same', hat: () => helmet('#3a4628'), camo: true },                                                      // soldier
+  { shirts: ['#6a5a3a'], pants: ['#4a3e2a'], hat: () => helmet('#a0281a'), hivis: true, coat: true },                                               // firefighter
+  { shirts: ['#d8d4c8'], pants: ['#2a2a2a', '#3a3a44'], apron: true },                                                                              // cook
+  { shirts: ['#6a6a66', '#3a3a3a', '#5a3a5a'], pants: ['#2c2c34', '#33415a'], hood: true },                                                         // hoodie
 ];
+const WALKER_VARIANTS = 24;
+// Each day uses a pool of 8 of the 24 (rotating), so a wave or a sortie
+// paints about as many sprite frames as before while the days look
+// different. The command screen prewarms the day's pool.
+const POOL = 8;
+let poolOffset = 0;
+export function setWalkerPool(day) { poolOffset = ((day || 1) * 5) % WALKER_VARIANTS; }
+const HAIR_COLS = ['#2a1c10', '#5a3a1a', '#141414', '#7a6040', '#8a8a80', '#3a2410'];
+function walkerVariant(v) {
+  const A = ARCHETYPES[v % ARCHETYPES.length], r = hashOf('wv' + v);
+  const shirt = A.shirts[r % A.shirts.length];
+  const pants = A.pants === 'same' ? shirt : A.pants[(r >> 3) % A.pants.length];
+  const style = ['short', 'long', 'bald', 'short'][(r >> 5) & 3];
+  const tears = [[[3, 8, 3.5, 2.6], [-3, 15, 2.6, 3]], [[-2, 9, 2.4, 3.2]], [[4, 12, 3, 4], [-4, 5, 2, 2]], [[1, 16, 3.4, 2.4]]][(r >> 8) & 3];
+  return { ...A, shirt, pants, hair: [HAIR_COLS[(r >> 10) % HAIR_COLS.length], style], tears: A.tears || tears, tint: (r >> 13) % 6 };
+}
+const ZSKINS = ['#8a8a6a', '#6a7a5a', '#7a8a6a', '#5a6a50', '#8a8270', '#6a7058'];
+
+// Extra clothing marks for the archetypes, on top of the rags.
+function archetypeDetail(W, skin) {
+  const base = rags({ skin, ...W });
+  return (g, P) => {
+    base(g, P);
+    if (W.hivis) { g.strokeStyle = W.coat ? '#d8d070' : '#e8e060'; g.lineWidth = 1.7; [6, 15].forEach(u => { const a = P(-10, u), b = P(11, u); g.beginPath(); g.moveTo(a[0], a[1]); g.lineTo(b[0], b[1]); g.stroke(); }); }
+    if (W.apron) { g.fillStyle = 'rgba(240,236,224,0.9)'; const a = P(-6, 0), b = P(8, 16); g.fillRect(Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.abs(b[0] - a[0]), Math.abs(b[1] - a[1])); g.fillStyle = 'rgba(120,10,10,0.55)'; const c = P(2, 7); g.beginPath(); g.ellipse(c[0], c[1], 4, 3, 0.4, 0, Math.PI * 2); g.fill(); }
+    if (W.badge) { const c = P(4, 15); g.fillStyle = '#dfb84a'; g.beginPath(); g.arc(c[0], c[1], 1.3, 0, Math.PI * 2); g.fill(); }
+    if (W.camo) { g.fillStyle = 'rgba(30,36,20,0.35)'; [[2, 6], [-4, 12], [5, 17]].forEach(([v, u]) => { const c = P(v, u); g.beginPath(); g.ellipse(c[0], c[1], 3, 1.8, 0.5, 0, Math.PI * 2); g.fill(); }); }
+  };
+}
+
+// The named mini-bosses (data/waveMods.js BOSS_NAMES) each get a look.
+const BOSS_LOOKS = {
+  'THE BUTCHER': skin => ({
+    skin: mix(skin, '#9a8a7a', 0.35), shirt: '#d8d0c0', sleeves: 'none', pants: '#2a2420', eye: '#ff2a10', hair: ['#000', 'bald'],
+    torso: (g, P) => {   // bloody leather apron
+      g.fillStyle = '#5a3a24'; const a = P(-8, -2), b = P(9, 20); g.fillRect(Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.abs(b[0] - a[0]), Math.abs(b[1] - a[1]));
+      g.fillStyle = 'rgba(130,8,8,0.8)'; [[2, 6, 5, 4], [-3, 13, 4, 6], [5, 16, 3, 3]].forEach(([v, u, w, h]) => { const c = P(v, u); g.beginPath(); g.ellipse(c[0], c[1], w, h, 0.3, 0, Math.PI * 2); g.fill(); });
+      g.strokeStyle = '#2a1a10'; g.lineWidth = 1; const s1 = P(-6, 20), s2 = P(6, 22); g.beginPath(); g.moveTo(s1[0], s1[1]); g.lineTo(s2[0], s2[1]); g.stroke();
+    } }),
+  'GOLIATH': skin => ({
+    skin: mix(skin, '#6a7a5a', 0.2), shirt: '#3a4a66', sleeves: 'none', pants: '#3a4a66', eye: '#ffcc22', hair: ['#3a2410', 'long'],
+    torso: (g, P) => {   // torn denim overalls, straps over bare shoulders
+      g.fillStyle = skin; const a = P(-8, 14), b = P(9, 23); g.fillRect(Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.abs(b[0] - a[0]), Math.abs(b[1] - a[1]));
+      g.strokeStyle = '#2a3a56'; g.lineWidth = 2.2; [[-4, 14, -5, 23], [5, 14, 6, 23]].forEach(([v0, u0, v1, u1]) => { const a2 = P(v0, u0), b2 = P(v1, u1); g.beginPath(); g.moveTo(a2[0], a2[1]); g.lineTo(b2[0], b2[1]); g.stroke(); });
+      g.fillStyle = '#c8b060'; [[-4, 14], [5, 14]].forEach(([v, u]) => { const c = P(v, u); g.fillRect(c[0] - 1, c[1] - 1, 2, 2); });
+    } }),
+  'THE WARDEN': skin => ({
+    skin: mix(skin, '#7a7a6a', 0.3), shirt: '#2a3448', sleeves: 'long', pants: '#22262e', eye: '#ff3a1c', hat: () => helmet('#1a1e26', { goggles: true }),
+    torso: (g, P) => {
+      rags({ skin, tears: [[5, 8, 3, 3], [-4, 15, 3, 3]] })(g, P);
+      const c = P(4, 16); g.fillStyle = '#c8c8c8'; g.fillRect(c[0] - 2, c[1] - 1.5, 4, 3);      // badge
+      g.strokeStyle = '#8a8a8a'; g.lineWidth = 0.8; for (let k = 0; k < 4; k++) { const a = P(-7 + k * 2, 1); g.beginPath(); g.ellipse(a[0], a[1], 1.2, 0.8, 0, 0, Math.PI * 2); g.stroke(); }  // key ring
+    } }),
+  'MOTHER': skin => ({
+    skin: mix(skin, '#b0b0a0', 0.4), shirt: '#5a2a3a', sleeves: 'short', pants: '#5a2a3a', barefoot: true, eye: '#c8ff40', hair: ['#9a9a90', 'long'],
+    torso: (g, P) => {   // tattered dress, swollen belly
+      rags({ skin, tears: [[2, 6, 4, 3], [-5, 16, 2, 4]] })(g, P);
+      g.strokeStyle = 'rgba(240,220,230,0.4)'; g.lineWidth = 0.8;
+      for (let u = 4; u < 20; u += 5) { const a = P(-8, u), b = P(9, u + 1); g.beginPath(); g.moveTo(a[0], a[1]); g.lineTo(b[0], b[1]); g.stroke(); }
+    } }),
+  'THE OX': skin => ({
+    skin: mix(skin, '#5a4a3a', 0.35), shirt: '#4a3a26', sleeves: 'none', pants: '#4a3a26', eye: '#ff6a10', hair: ['#000', 'bald'], horns: true,
+    torso: (g, P) => {   // farm overalls, scars
+      g.fillStyle = skin; const a = P(-8, 15), b = P(9, 23); g.fillRect(Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.abs(b[0] - a[0]), Math.abs(b[1] - a[1]));
+      g.strokeStyle = 'rgba(160,60,50,0.85)'; g.lineWidth = 0.9;
+      [[[-3, 20], [4, 17]], [[0, 18], [6, 21]], [[-5, 6], [2, 9]]].forEach(([p0, p1]) => { const a2 = P(...p0), b2 = P(...p1); g.beginPath(); g.moveTo(a2[0], a2[1]); g.lineTo(b2[0], b2[1]); g.stroke(); });
+    } }),
+};
 
 const LOOKS = new Map();
 export function zombieLook(type, z) {
   const base = z.z.sc;
   const id = z.id || 0;
-  const v = type === 'walker' ? hashOf('w' + id) % WALKERS.length : 0;
-  const key = `${type}|${v}`;
+  const v = type === 'walker' ? (poolOffset + hashOf('w' + id) % POOL) % WALKER_VARIANTS : type === 'runner' ? hashOf('r' + id) % 3 : 0;
+  const boss = type === 'brute' && z.bossName && BOSS_LOOKS[z.bossName] ? z.bossName : null;
+  const key = `${type}|${v}|${boss || ''}`;
   let l = LOOKS.get(key);
   if (l) return l;
   if (type === 'walker') {
-    const W = WALKERS[v];
-    const skin = mix(base, ['#8a8a6a', '#6a7a5a', '#7a8a6a', '#5a6a50', '#8a8270', '#6a7058'][v], 0.35);
+    const W = walkerVariant(v);
+    const skin = mix(base, ZSKINS[W.tint], 0.35);
     l = {
-      skin, shirt: W.shirt, sleeves: W.suit ? 'long' : 'short', pants: W.pants, boots: '#2a2018', barefoot: !!W.barefoot,
-      ripPants: true, torsoDetail: rags({ skin, ...W }), headgear: hairFor(...W.hair), face: zombieFace(),
+      skin, shirt: W.shirt, sleeves: W.suit || W.coat || W.badge || W.hood ? 'long' : 'short', pants: W.pants, boots: '#2a2018', barefoot: !!W.barefoot,
+      ripPants: true, torsoDetail: archetypeDetail(W, skin), headgear: W.hat ? W.hat() : W.hood ? beanie(mix(W.shirt, '#000', 0.2)) : hairFor(...W.hair), face: zombieFace(),
       pose: { lean: 0.22, head: 0.28, reach: v % 2 === 0 },
     };
   } else if (type === 'runner') {
     const skin = mix(base, '#c0b080', 0.15);
+    const R = [
+      { shirt: '#8a8a7a', pants: '#3a3a44', shorts: true, sleeves: 'none', hair: ['#1a1208', 'short'] },
+      { shirt: '#c83a3a', pants: '#22242a', shorts: true, sleeves: 'short', hair: ['#5a3a1a', 'long'] },    // jogger
+      { shirt: '#3a4a5a', pants: '#2a2a30', shorts: false, sleeves: 'long', hair: ['#141414', 'bald'] },    // hoodie
+    ][v];
     l = {
-      skin, shirt: '#8a8a7a', sleeves: 'none', pants: '#3a3a44', shorts: true, boots: '#2a2a2a', ripPants: false,
-      torsoDetail: rags({ skin, tears: [[4, 12, 3, 4]], ribs: true }), headgear: hairFor('#1a1208', 'short'),
+      skin, shirt: R.shirt, sleeves: R.sleeves, pants: R.pants, shorts: R.shorts, boots: '#2a2a2a', ripPants: false,
+      torsoDetail: rags({ skin, tears: [[4, 12, 3, 4]], ribs: v === 0 }), headgear: hairFor(...R.hair),
       face: zombieFace('#ffcc22'), pose: { lean: 0.42, head: 0.15 },
     };
   } else if (type === 'spitter') {
@@ -159,6 +253,13 @@ export function zombieLook(type, z) {
       },
       headgear: hairFor('#1a1208', 'bald'), face: zombieFace('#ff7a1c'), skullShape: [7.2, 7.4],
       pose: { lean: 0.18, head: 0.35 },
+    };
+  } else if (boss) { // named mini-boss: brute build, own outfit
+    const B = BOSS_LOOKS[boss](mix(base, '#4a5a3c', 0.15));
+    l = {
+      skin: B.skin, shirt: B.shirt, sleeves: B.sleeves, pants: B.pants, boots: '#100e0c', barefoot: !!B.barefoot, limbK: 1.55, bulk: 4, belly: boss === 'MOTHER' ? 6 : 3, chestOut: 4,
+      torsoDetail: B.torso, headgear: B.hat ? B.hat() : B.horns ? horns(B.hair) : hairFor(...B.hair), face: zombieFace(B.eye), skullShape: [6.4, 6.8], spikes: boss !== 'THE WARDEN',
+      pose: { lean: 0.26, head: 0.45 },
     };
   } else { // brute
     const skin = mix(base, '#4a5a3c', 0.15);

@@ -17,9 +17,10 @@ const CRATE_LIFE = 26000;
 
 export function rollSiegeEvent(gs) {
   if (gs.wave < 3 || gs.wave >= BALANCE.maxWaves) return null;
-  // Safety net: when the stash runs low Command almost always flies in
-  // a crate, with a guaranteed ammo load.
-  if ((gs.resources.ammo || 0) < 40 + gs.wave * 6 && Math.random() < 0.85) {
+  // Safety net: when the stash is nearly empty Command may fly in an
+  // ammo crate — at most once every 3 waves, so it can't replace sorties.
+  if ((gs.resources.ammo || 0) < 15 + gs.wave * 2 && gs.wave - (gs.lastRichCrate ?? -9) >= 3 && Math.random() < 0.6) {
+    gs.lastRichCrate = gs.wave;
     return { type: 'supply', at: rng(9000, 20000), state: 'pending', rich: true };
   }
   if (Math.random() > 0.45) return null;
@@ -90,7 +91,7 @@ export function tickSiegeEvent(gs, now, dt) {
     const pool = [['ammo', 40], ['medicine', 10], ['materials', 15], ['turretAmmo', 30], ['sniperAmmo', 6]]
       .sort(() => Math.random() - 0.5);
     const loot = ev.rich
-      ? [['ammo', 50 + gs.wave * 4], pool.find(([k]) => k !== 'ammo')]
+      ? [['ammo', 25 + gs.wave * 2], pool.find(([k]) => k !== 'ammo')]
       : pool.slice(0, 2);
     loot.forEach(([k, v]) => { r[k] = Math.min(k === 'sniperAmmo' ? 99 : 999, (r[k] || 0) + v); });
     ev.loot = loot;

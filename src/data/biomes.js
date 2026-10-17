@@ -127,4 +127,44 @@ BIOMES.office_interior = {
   accentLight: 'rgba(180,200,220,0.05)',
 };
 
+// Rooms off the street (update/rooms.js).
+BIOMES.apartment_interior = {
+  indoor: true,
+  ceiling:    ['#1c1612', '#120e0a'],
+  ceilingTrim: '#0a0806',
+  wallFill:   '#5a4636',                 // old floral wallpaper, faded
+  wallDark:   '#2a2018',
+  wallTrim:   '#3a2a1a',
+  ground:     ['#4a3422', '#22180e'],    // worn parquet
+  groundLine: '#2a1c10',
+  windowCount: 1,
+  windowFill: '#101a2a',                 // night sky
+  lightSpacing: 450,
+  lightColor: 'rgba(255,196,120,0.5)',
+  lightFixture: 'bulb',
+  obstacles: ['desk', 'locker', 'crate'],
+  propsPerStep: 300,
+  propType: 'wall-poster',
+  accentLight: 'rgba(220,160,80,0.08)',
+};
+
+BIOMES.clinic_interior = {
+  indoor: true,
+  ceiling:    ['#1a2224', '#0e1416'],
+  ceilingTrim: '#0a1012',
+  wallFill:   '#7a8a80',                 // pale green tiles
+  wallDark:   '#3a4640',
+  wallTrim:   '#2a3430',
+  ground:     ['#5a6460', '#2a302e'],    // vinyl floor
+  groundLine: '#3a4240',
+  windowCount: 0,
+  lightSpacing: 300,
+  lightColor: 'rgba(210,240,230,0.5)',
+  lightFixture: 'panel',
+  obstacles: ['medkit', 'filing-cabinet', 'locker'],
+  propsPerStep: 300,
+  propType: 'exit-sign',
+  accentLight: 'rgba(180,220,200,0.06)',
+};
+
 export const DEFAULT_BIOME = 'armory';

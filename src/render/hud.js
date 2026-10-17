@@ -1,4 +1,4 @@
-import { C, CW, CH, WX, WORLD_W, laneY, laneSc } from '../constants.js';
+import { C, CW, CH, WX, WORLD_W, laneY, laneSc, zoomOf } from '../constants.js';
 import { BALANCE, waveClearAmmoFor } from '../data/difficulty.js';
 import { WAVE_MODS } from '../data/waveMods.js';
 import { dSiegeEventBanner } from './siegeEvents.js';
@@ -191,7 +191,7 @@ function dRadar(ctx, gs, now) {
   // Wall
   ctx.fillStyle = C.acc; ctx.fillRect(R.x, R.y + 2, sx(WX) - R.x, R.h - 4);
   // Camera window
-  const cx = sx(gs.cameraX || 0), cw = (CW / WORLD_W) * R.w;
+  const cx = sx(gs.cameraX || 0), cw = (CW / zoomOf(gs) / WORLD_W) * R.w;
   ctx.strokeStyle = 'rgba(220,230,200,0.55)';
   ctx.strokeRect(cx + 0.5, R.y + 1.5, cw - 1, R.h - 3);
   // Barricades / turrets
@@ -227,7 +227,8 @@ function dOffscreenIndicators(ctx, gs, now) {
   let right = 0, nearest = Infinity;
   (pool || []).forEach(e => {
     if (e.state === 'dead') return;
-    if (e.x > cam + CW) { right++; nearest = Math.min(nearest, e.x - (cam + CW)); }
+    const edge = cam + CW / zoomOf(gs);
+    if (e.x > edge) { right++; nearest = Math.min(nearest, e.x - edge); }
   });
   right += gs.spawnQueue ? gs.spawnQueue.filter(q => q.at <= gs.waveTime + 4000).length : 0;
   if (right <= 0) return;

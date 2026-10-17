@@ -16,7 +16,7 @@
 //   depthMul  — deeper into the street pays more, so "push on or head
 //               back to the van" is a real stopping decision
 //   waveMul   — scarcity grows with the days
-//   lockedMul — loot behind a locked door (forcing it costs time + noise)
+//   lockedMul — loot behind a barricade or in a side room (time + noise + risk)
 import { rng } from '../constants.js';
 
 export const PRICE = { ammo: 4 / 30, turretAmmo: 3 / 15, sniperAmmo: 8 / 5, medicine: 1, materials: 1, food: 0.5 };

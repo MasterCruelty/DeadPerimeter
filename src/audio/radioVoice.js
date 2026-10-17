@@ -118,26 +118,48 @@ function stopHiss() {
 }
 
 // Map our pitch indicator (string or Hz) to a SpeechSynthesisUtterance.pitch.
+// Kept in a narrow band: TTS engines turn anything past ~±10% into a
+// cartoon. Speakers are told apart by voice, not by pitch.
 function ttsPitch(pitch) {
   if (typeof pitch === 'number') {
-    return Math.max(0.6, Math.min(1.4, 0.8 + (pitch - 130) / 90 * 0.4));
+    return Math.max(0.9, Math.min(1.06, 0.97 + (pitch - 150) / 90 * 0.08));
   }
-  if (pitch === 'low')  return 0.78;
-  if (pitch === 'high') return 1.18;
-  return 1.0;
+  if (pitch === 'low')  return 0.92;
+  if (pitch === 'high') return 1.04;
+  return 0.98;
 }
 
-// Pick a deterministic English voice per pitch tier so each speaker
-// stays consistent across a run. Falls back to first available voice
-// if no English voices are present on the system.
-function pickVoice(pitch) {
-  if (!_voices || _voices.length === 0) return null;
-  const en = _voices.filter(v => v.lang && v.lang.toLowerCase().startsWith('en'));
-  const pool = en.length > 0 ? en : _voices;
-  let idx = 1;
-  if (pitch === 'low')  idx = 0;
-  else if (pitch === 'high') idx = 2;
-  return pool[idx % pool.length];
+// Voices worth hearing: neural / natural ones first, then the plain
+// system voices; macOS novelty voices and old formant synths are out.
+const NOVELTY = /albert|bad news|bahh|bells|boing|bubbles|cellos|deranged|good news|hysterical|organ|trinoids|whisper|wobble|zarvox|jester|superstar|junior|ralph|kathy|fred|princess|grand(ma|pa)|rocko|eddy|flo\b|reed|sandy|shelley|espeak/i;
+const MALE = /\bmale\b|daniel|arthur|guy|ryan|christopher|eric|roger|steffan|thomas|aaron|oliver|george|david|mark|james|rishi|alex\b|tom\b|liam|brian|andrew|william|connor|mitchell|prabhat|davis|tony|jason/i;
+const FEMALE = /female|samantha|victoria|karen|zira|susan|hazel|aria|jenny|moira|tessa|fiona|libby|sonia|serena|ava|allison|emma|michelle|natasha|clara|google us english/i;
+function scoreVoice(v) {
+  const n = v.name || '';
+  let sc = 0;
+  if (/natural|neural|online|premium|enhanced/i.test(n)) sc += 6;
+  if (/google/i.test(n)) sc += 2;
+  if (MALE.test(n)) sc += 3;
+  if (FEMALE.test(n)) sc -= 2;
+  if (/en[-_](us|gb|au|ie|ca)/i.test(v.lang || '')) sc += 1;
+  return sc;
+}
+function rankedVoices() {
+  if (!_voices || _voices.length === 0) return [];
+  const en = _voices.filter(v => v.lang && v.lang.toLowerCase().startsWith('en') && !NOVELTY.test(v.name || ''));
+  const pool = en.length ? en : _voices.filter(v => !NOVELTY.test(v.name || ''));
+  return pool.slice().sort((a, b) => scoreVoice(b) - scoreVoice(a));
+}
+
+// A consistent voice per speaker: the speaker's name picks one of the
+// best few voices, so the squad doesn't all sound the same.
+function pickVoice(pitch, key) {
+  const pool = rankedVoices();
+  if (!pool.length) return null;
+  const top = pool.slice(0, Math.min(4, pool.length));
+  let h = 0; const s = String(key ?? pitch ?? '');
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+  return top[Math.abs(h) % top.length];
 }
 
 // Strip emojis / pictographs that TTS reads literally ("squared latin
@@ -182,9 +204,9 @@ export function speakRadio(text, opts = {}) {
 
     const u = new SpeechSynthesisUtterance(c);
     u.pitch = ttsPitch(opts.pitch);
-    u.rate  = opts.urgent ? 1.18 : 1.04;
+    u.rate  = opts.urgent ? 1.1 : 1.0;
     u.volume = 0.95;
-    const v = pickVoice(opts.pitch);
+    const v = pickVoice(opts.pitch, opts.voice);
     if (v) u.voice = v;
 
     // speak() can "succeed" and still produce nothing (no voices
