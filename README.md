@@ -103,6 +103,19 @@ Unlocked mid-run by spending materials at the management screen:
   turret belts at the workbench (recipes in `data/difficulty.js`).
 
 ### Sorties & missions
+- **City map**: sorties start from a map of the city around Fort Omega —
+  16 fixed locations in five districts (Old Town, Market, Civic Center,
+  Medical Hill, Industrial). Each place keeps its state between visits:
+  **infestation** (grows daily, drops when you thin the herd; it sets the
+  risk tier), **loot left** (what you take stays taken, slow restock) and
+  whether it has been **discovered** — unexplored places show as `?` until
+  you scout a location nearby. Travel costs food per soldier by distance.
+- **Explore missions** at map locations: a longer street (2600–3800 px)
+  with 2–4 buildings to walk into, each with an upper floor and stairs.
+  The layout is seeded per location, so it's the same place every time.
+  Some buildings are **locked**: find the key in a container before it or
+  force the door (slow and loud — it draws a pack). There is no finish
+  line: you leave whenever you walk back to the **van**.
 Auto-dispatch was retired — every sortie is now **played live**. Single
 mode, deeper mission system:
 

@@ -2,6 +2,15 @@
 // EXPEDITION_DESTS picks a biome by name; the mission renderer uses
 // the palette + obstacle pool to give each run its own atmosphere.
 
+// Obstacle types that can be searched for loot (all mission kinds).
+export const SEARCHABLE_TYPES = new Set([
+  // Indoor
+  'desk', 'locker', 'filing-cabinet', 'evidence-box', 'gun-rack',
+  'glass-case', 'workbench', 'cubicle', 'photocopier', 'water-cooler',
+  // Outdoor / shared
+  'crate', 'ammo-crate', 'container', 'trash-bin', 'medkit',
+]);
+
 export const BIOMES = {
   hospital: {
     sky:   ['#0a1c2a', '#163240'],     // cool clinical blue

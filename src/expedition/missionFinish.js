@@ -44,7 +44,8 @@ export function finishMission(m, gs) {
   // return. Stamped on the result so the post-mission log can
   // surface the deduction.
   const survivors = partyMission.filter(ms => ms.hp > 0 && ms.state !== 'dead').length;
-  const foodCost = Math.min(gs.resources.food || 0, survivors * BALANCE.sortieFoodCostPerSoldier);
+  // City sorties already paid their travel rations at launch.
+  const foodCost = m.dest && m.dest.locId ? 0 : Math.min(gs.resources.food || 0, survivors * BALANCE.sortieFoodCostPerSoldier);
   gs.resources.food = Math.max(0, (gs.resources.food || 0) - foodCost);
 
   const reward = {};
