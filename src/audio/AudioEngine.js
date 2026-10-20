@@ -220,7 +220,7 @@ export class AudioEngine {
     o.frequency.setValueAtTime(f[0], t); o.frequency.linearRampToValueAtTime(f[1], t + dur * 0.4); o.frequency.linearRampToValueAtTime(f[2], t + dur);
     // Pitch tremor: slow noise into the frequency.
     const jn = this._ns(), jl = this.ctx.createBiquadFilter(); jl.type = 'lowpass'; jl.frequency.value = 16;
-    const jg = this.ctx.createGain(); jg.gain.value = f[0] * 0.5; jn.connect(jl); jl.connect(jg); jg.connect(o.frequency);
+    const jg = this.ctx.createGain(); jg.gain.value = f[0] * 5;   // filtered noise is ~0.02 RMS → ~±10% pitch wander jn.connect(jl); jl.connect(jg); jg.connect(o.frequency);
     const src = this.ctx.createGain(); src.gain.value = 1; o.connect(src);
     let so = null;
     if (sub) { so = this.ctx.createOscillator(); so.type = 'square'; so.frequency.setValueAtTime(f[0] / 2, t); so.frequency.linearRampToValueAtTime(f[2] / 2, t + dur);
@@ -250,6 +250,11 @@ export class AudioEngine {
     const end = t + dur + 0.05; o.stop(end); jn.stop(end); bn.stop(end); if (so) so.stop(end);
   }
   zombieDie(type, pan) {
+    // A mine or a shotgun can drop several at once: voice two of them,
+    // the rest just hit the ground.
+    const now = this._t;
+    if (now - (this._dieWin ?? -1e9) > 90) { this._dieWin = now; this._dieN = 0; }
+    if (++this._dieN > 2) { this._thunk(this.ctx.currentTime + 0.1, 90, 0.18, 0.4, pan); return; }
     const k = type === 'brute' ? 0.55 : type === 'tank' ? 0.7 : type === 'runner' ? 1.3 : 1;
     // Choked death rattle, then the body hitting the ground.
     this._voice({ f: [120 * k, 90 * k, 55 * k], dur: 0.8, v0: 'A', v1: 'U', rasp: 6, gurgle: 0.9, gRate: 13, breath: 0.45, vol: 0.38, sub: type === 'brute' || type === 'tank' ? 0.5 : 0, pan });
@@ -314,6 +319,7 @@ export class AudioEngine {
   }
   // Brute / mini-boss: a deep, enraged bellow from a huge throat.
   roar(pan) {
+    if (this._t - (this._lastRoar ?? -1e9) < 600) return; this._lastRoar = this._t;
     this._voice({ f: [78, 104, 60], dur: 1.9, v0: 'A', v1: 'O', rasp: 10, gurgle: 0.35, gRate: 14, breath: 0.45, vol: 0.46, sub: 0.8, pan });
     this._voice({ f: [150, 205, 120], dur: 1.5, v0: 'AE', v1: 'A', rasp: 8, gurgle: 0.2, breath: 0.3, vol: 0.2, at: 0.08, pan });
   }
@@ -527,7 +533,7 @@ export class AudioEngine {
     // pitch can be a preset string or an explicit Hz number (used for
     // per-soldier voice differentiation). Adult male range.
     const baseF = typeof pitch === 'number'
-      ? Math.max(95, Math.min(165, pitch * 0.8))
+      ? 95 + Math.max(0, Math.min(1, (pitch - 115) / 120)) * 70   // soldier voicePitch 115–235 → 95–165 Hz
       : pitch === 'low' ? 100 : pitch === 'high' ? 150 : 122;
     const vol = urgent ? 0.3 : 0.24, pace = urgent ? 0.82 : 1.0;
     const VOW = [[730, 1090, 2440], [530, 1840, 2480], [390, 2000, 2550], [570, 840, 2410], [440, 1020, 2240], [660, 1720, 2410]];
@@ -606,9 +612,9 @@ export function getAM() {
 
 // camX: current camera scroll; events carrying a world `x` are panned
 // by where they happen on screen (viewport width 900).
-export function processSounds(q, am, mutedRef, camX = null) {
+export function processSounds(q, am, mutedRef, camX = null, zoom = 1) {
   if (!am || mutedRef.current) { q.length = 0; return; }
-  const pan = e => (camX === null || typeof e.x !== 'number') ? 0 : ((e.x - camX) - 450) / 450;
+  const pan = e => (camX === null || typeof e.x !== 'number') ? 0 : Math.max(-1, Math.min(1, ((e.x - camX) * zoom - 450) / 450));
   q.forEach(e => {
     switch (e.t) {
       case 'shot':

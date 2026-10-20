@@ -108,9 +108,16 @@ function grant(gs, job) {
       if (st) st.discovered = true;
     }
     if (job.unlock === 'cole') {
-      const cole = mkSoldier('Cole', 'ak', 270, 120, 1, false, false, { veteran: true });
-      cole.ammo = 0; cole.level = 3; cole.xp = 180; cole.skillPts = 2;
-      gs.soldiers.push(cole);
+      const full = gs.soldiers.filter(s => s.state !== 'dead').length >= BALANCE.maxActiveSoldiers;
+      if (full) {
+        // Squad full: he waits on the bench (the reserve keeps no XP).
+        gs.reserve = gs.reserve || [];
+        gs.reserve.push({ name: 'Cole', weapon: 'ak', veteran: true, hp: 120 });
+      } else {
+        const cole = mkSoldier('Cole', 'ak', 270, 120, 1, false, false, { veteran: true });
+        cole.ammo = 0; cole.level = 3; cole.xp = 180; cole.skillPts = 2;
+        gs.soldiers.push(cole);
+      }
       if (gs.usedNames) gs.usedNames.add('Cole');
     }
   }

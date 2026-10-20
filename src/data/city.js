@@ -143,10 +143,14 @@ export function applyCityVisit(gs, m) {
   ensureCity(gs);
   const st = gs.city.locs[id];
   st.visits++; st.lastDay = gs.day;
-  const zTotal = Math.max(1, m.zombies.length);
+  // The street plus every room the party went into (update/rooms.js).
+  const worlds = [m, ...(m.rdoors || []).map(d => d.world).filter(Boolean)];
+  const all = k => worlds.flatMap(w => w[k] || []);
+  const zTotal = Math.max(1, all('zombies').length);
   st.infest = Math.max(0.1, st.infest - 0.45 * Math.min(1, (m.killedCount || 0) / zTotal));
-  const lootable = m.pickups.length + m.obstacles.filter(o => o.searchable).length;
-  const taken = m.pickups.filter(p => p.collected).length + m.obstacles.filter(o => o.searchable && o.searched && !o._preLooted).length;
+  const pickups = all('pickups'), boxes = all('obstacles').filter(o => o.searchable);
+  const lootable = pickups.length + boxes.length;
+  const taken = pickups.filter(p => p.collected).length + boxes.filter(o => o.searched && !o._preLooted).length;
   if (lootable > 0) st.loot = Math.max(0.05, st.loot * (1 - 0.85 * taken / lootable));
   const here = LOCATIONS.find(l => l.id === id);
   const found = [];

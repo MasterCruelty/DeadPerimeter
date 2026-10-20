@@ -3,7 +3,7 @@ import { WPN, wbase, MELEE } from '../data/weapons.js';
 import { meleeStats, wearMelee, gearIcon, gearName, tickStam, spendStam, JUMP_COST, maxStam, winded } from '../entities/gear.js';
 import { ZTP } from '../data/zombies.js';
 import { MISSION_W, MISSION_VIEW, MGY, objIcons, rollEncounter, setMissionWidth } from '../data/expeditions.js';
-import { setupCityMission, tickCity, clampCity, barricadeStops, onContainerSearched } from './cityMission.js';
+import { setupCityMission, tickCity, clampCity, barricadeStops, barricadeBetween, onContainerSearched } from './cityMission.js';
 import { dCityWorld, dCityHUD } from '../render/cityMission.js';
 import { dRoomDecor, dRoomDoors } from '../render/rooms.js';
 import { roomKind } from './rooms.js';
@@ -679,7 +679,7 @@ function aiShoot(m, who, now, dt) {
 
   // Pick nearest activated zombie or armed hostile in range
   const range = effRange(who, w);
-  const inRange = e => e.state !== 'dead' && e.activated && Math.abs(e.x - who.x) <= range;
+  const inRange = e => e.state !== 'dead' && e.activated && Math.abs(e.x - who.x) <= range && !barricadeBetween(m, who.x, e.x);
   const tgt = m.zombies.filter(inRange)
     .concat((m.humans || []).filter(h => h.hostile && inRange(h)))
     .sort((a, b) => Math.abs(a.x - who.x) - Math.abs(b.x - who.x))[0];

@@ -27,7 +27,7 @@ function dSpriteAt(drawFn, ctx, entity, screenX, screenFootY, scale, now) {
 // pulling in the full mkSoldier / mkZombie factories.
 function mkIntroSoldier(opts = {}) {
   return {
-    id: opts.id || 'i' + Math.random(), name: opts.name || 'X',
+    id: opts.id || 'i', name: opts.name || 'X',   // stable id: the look comes from name + id
     weapon: opts.weapon || 'rifle',
     hp: opts.hp ?? 100, maxHp: 100,
     ammo: opts.ammo ?? 30, maxAmmo: 30,
@@ -45,7 +45,7 @@ function mkIntroZombie(opts = {}) {
   const type = opts.type || 'walker';
   const ztp = ZTP[type] || ZTP.walker;
   return {
-    id: opts.id || 'z' + Math.random(),
+    id: opts.id || 'iz',   // stable: the outfit is picked from the id
     type, z: ztp,
     hp: opts.hp ?? ztp.hp, maxHp: ztp.hp,
     state: opts.state || 'walk',
@@ -724,7 +724,7 @@ function dShotZombieBite(ctx, t, now) {
   const zx = CW * 0.65 - tug;
   const ZSCALE = 4.5;
   const biteZ = mkIntroZombie({
-    type: 'walker', facing: -1, state: 'attack',
+    id: 'ib', type: 'walker', facing: -1, state: 'attack',
     walkPhase: now / 240,
   });
   dSpriteAt(dZombie, ctx, biteZ, zx, CH - 50, ZSCALE, now);
@@ -1414,7 +1414,7 @@ function dShotPoliceLine(ctx, t, now) {
       zstate = 'attack';
     }
     const z = mkIntroZombie({
-      type: zw.type, facing: -1, state: zstate,
+      id: 'iw' + zi, type: zw.type, facing: -1, state: zstate,
       walkPhase: zi * 0.4,
     });
     dSpriteAt(dZombie, ctx, z, zx, GY, 1.35, now);
@@ -1433,7 +1433,7 @@ function dShotPoliceLine(ctx, t, now) {
     // Pretend it died ~700 ms ago in the cinematic timeline (long
     // enough for dZombie to render as fully fallen).
     const z = mkIntroZombie({
-      type: 'walker', facing: -1, state: 'dead',
+      id: 'ic' + c.killedAt, type: 'walker', facing: -1, state: 'dead',
     });
     z.deadAt = now - 900;
     dSpriteAt(dZombie, ctx, z, c.x, GY, 1.35, now);
@@ -2118,7 +2118,7 @@ function dShotLastDefender(ctx, t, now) {
     const zx = CW - 60 + i * 22;
     if (zx > CW + 20) continue;
     const z = mkIntroZombie({
-      type: i === 1 ? 'runner' : 'walker',
+      id: 'ih' + i, type: i === 1 ? 'runner' : 'walker',
       facing: -1, state: 'walk',
       walkPhase: i * 0.7,
     });
@@ -3191,7 +3191,7 @@ function dShotFortWide(ctx, t, now) {
                 : i % 4 === 0 ? 'runner'
                 : 'walker';
     const z = mkIntroZombie({
-      type: ztype, facing: -1, state: 'walk',
+      id: 'ir' + i, type: ztype, facing: -1, state: 'walk',
       walkPhase: i * 0.4,
     });
     dSpriteAt(dZombie, ctx, z, zx, ly, sc, now);

@@ -185,7 +185,7 @@ export function missionLights(m, now) {
     const y = MGY - 30 + (p.standingY || 0) + (p.lane === 1 ? -34 : 0);
     push(lights, p.x, y, p.type === 'vaccine' ? 120 : 55, p.type === 'vaccine' ? 0.8 : 0.3, p.type === 'vaccine' ? [0.5, 1, 0.55] : [0.55, 0.85, 0.4], cam);
   });
-  if (m.objective === 'explore' && !m.room) push(lights, VAN_X + 40, MGY - 20, 140, 0.55, [1.0, 0.92, 0.7], cam);
+  if (m.objective === 'explore') { if (!m.room) push(lights, VAN_X + 40, MGY - 20, 140, 0.55, [1.0, 0.92, 0.7], cam); }
   else if (m.objective !== 'defend') push(lights, MISSION_W - 30, MGY - 60, 150, 0.45, [0.5, 0.9, 0.35], cam);
   else push(lights, m.defendAnchor + 12, MGY - 60, 120, 0.5, [1.0, 0.6, 0.2], cam);
   if (m.extraction) {

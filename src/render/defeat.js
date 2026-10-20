@@ -22,7 +22,7 @@ function dSpriteAt(drawFn, ctx, entity, screenX, screenFootY, scale, now) {
 }
 function mkSold(opts = {}) {
   return {
-    id: 'd' + Math.random(),
+    id: opts.id ?? 'd',   // stable: the look comes from name + id
     name: opts.name || 'X', weapon: opts.weapon || 'rifle',
     hp: opts.hp ?? 100, maxHp: 100,
     ammo: opts.ammo ?? 30, maxAmmo: 30,
@@ -40,7 +40,7 @@ function mkZom(opts = {}) {
   const type = opts.type || 'walker';
   const ztp = ZTP[type] || ZTP.walker;
   return {
-    id: 'dz' + Math.random(),
+    id: opts.id ?? 'dz',   // stable: the outfit is picked from the id
     type, z: ztp,
     hp: opts.hp ?? ztp.hp, maxHp: ztp.hp,
     state: opts.state || 'walk',
@@ -185,7 +185,7 @@ function dKiller(ctx, k, elapsed, now) {
   const sc = LANES[lane].sc;
   const facing = k.dx > 0 ? -1 : 1;
   const z = mkZom({
-    type: k.type, facing, state: 'attack',
+    id: 'dk' + k.type + k.walkPhase, type: k.type, facing, state: 'attack',
     walkPhase: k.walkPhase + now * 0.001,
   });
   const j = Math.sin(now / 140 + k.dx) * 1.4;
@@ -201,7 +201,7 @@ function dGroundDeadZombie(ctx, dz, elapsed, now) {
   const ly = laneY(lane);
   const sc = LANES[lane].sc;
   const z = mkZom({
-    type: 'walker', facing: (dz.x % 2 === 0) ? -1 : 1, state: 'dead',
+    id: 'dd' + dz.x, type: 'walker', facing: (dz.x % 2 === 0) ? -1 : 1, state: 'dead',
     walkPhase: 0,
   });
   z.deadAt = now - Math.min(1500, elapsed - dz.killedAt);
@@ -381,7 +381,7 @@ function dHordeWave(ctx, elapsed, now) {
                   : (i % 4 === 0) ? 'runner'
                   : 'walker';
       const z = mkZom({
-        type: ztype, facing: -1, state: 'walk', walkPhase: i * 0.3,
+        id: 'dh' + i, type: ztype, facing: -1, state: 'walk', walkPhase: i * 0.3,
       });
       dSpriteAt(dZombie, ctx, z, zx, laneY(lane), LANES[lane].sc, now);
     }
@@ -395,7 +395,7 @@ function dHordeWave(ctx, elapsed, now) {
       const zx = WX - 30 - i * 22 + Math.sin(now / 300 + i) * 2;
       if (zx < 30) continue;
       const z = mkZom({
-        type: i % 4 === 0 ? 'runner' : 'walker',
+        id: 'dw' + i, type: i % 4 === 0 ? 'runner' : 'walker',
         facing: 1, state: 'walk', walkPhase: i * 0.4,
       });
       dSpriteAt(dZombie, ctx, z, zx, laneY(lane), LANES[lane].sc, now);
@@ -500,7 +500,7 @@ function dSilence(ctx, defeat, ph, now) {
   for (let i = 0; i < 5; i++) {
     const zx = WX - 100 + i * 70 + Math.sin(now / 500 + i) * 6;
     const z = mkZom({
-      type: 'walker', facing: i % 2 === 0 ? 1 : -1,
+      id: 'de' + i, type: 'walker', facing: i % 2 === 0 ? 1 : -1,
       state: 'walk', walkPhase: i * 0.5,
     });
     dSpriteAt(dZombie, ctx, z, zx, GY, 1.0, now);

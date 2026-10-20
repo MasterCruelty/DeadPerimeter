@@ -123,9 +123,10 @@ export function enterRoom(m, door, party, now) {
   if (!door.world) door.world = buildRoom(m, door);
   const street = take(m);
   Object.assign(m, door.world, { cameraX: 0, bullets: [] });
-  m.room = { door, street };
+  m.room = { door, street, enteredAt: now };
   setMissionWidth(m.W);
   placeParty(party, ROOM_EXIT_X + 60, 1);
+  hideFallen(m, true);
   const K = ROOM_KINDS[door.kind];
   m.soundQ.push({ t: 'thud', x: ROOM_EXIT_X });
   m.effects.push({ type: 'txt', x: ROOM_EXIT_X + 120, y: MGY - 110, v: `🚪 ${K.name.toUpperCase()}${door.visited ? '' : ' — CHECK IT'}`, col: '#e8d8b0', at: now, dur: 1800 });
@@ -134,13 +135,27 @@ export function enterRoom(m, door, party, now) {
 
 export function exitRoom(m, party, now) {
   if (!m.room) return;
-  const { door, street } = m.room;
+  const { door, street, enteredAt } = m.room;
   door.world = take(m);
   Object.assign(m, street, { bullets: [] });
   m.room = null;
   setMissionWidth(m.W);
   placeParty(party, door.x, -1);
+  hideFallen(m, false);
+  // The street is frozen while you're inside: an SOS deadline waits too.
+  if (now !== undefined && m.side && m.side.type === 'sos' && m.side.state === 'active') m.side.timeLimit += now - enteredAt;
   if (now !== undefined) m.soundQ.push({ t: 'thud', x: door.x });
+}
+
+// Fallen squad members stay where they fell: hide street corpses while
+// inside a room, and leave the ones who fell in a room inside it.
+function hideFallen(m, entering) {
+  [m.soldier, ...(m.followers || [])].forEach(p => {
+    if (!p || (p.hp > 0 && p.state !== 'dead')) return;
+    if (entering) { if (p._streetX === undefined) { p._streetX = p.x; p.x = -9999; } }
+    else if (p._streetX !== undefined) { p.x = p._streetX; delete p._streetX; }
+    else p.x = -9999;
+  });
 }
 
 // The door the lead is standing at (street), or the exit (room).
