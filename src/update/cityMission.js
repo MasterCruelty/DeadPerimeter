@@ -23,6 +23,9 @@ export const VAN_X = 96;
 const LEAVE_MS = 1600;
 const FORCE_MS = 4500;
 const FLOOR_Y = MGY - 80;
+// Both sides are held this far from a barricade: wider than any melee
+// reach (knife 52, bite 50), so nothing fights through it.
+const BAR_GAP = 32;
 
 function mulberry32(a) {
   return () => {
@@ -238,7 +241,7 @@ export function tickCity(m, now, dt, party) {
   // barricade is torn down.
   (m.segs || []).forEach(s => {
     if (!s.locked) return;
-    party.forEach(p => { if (p.x > s.x0 - 18 && p.x < s.x1) p.x = s.x0 - 18; });
+    party.forEach(p => { if (p.x > s.x0 - BAR_GAP && p.x < s.x1) p.x = s.x0 - BAR_GAP; });
     const atDoor = lead.x >= s.x0 - 50 && Math.abs(lead.standingY || 0) < 18;
     if (!atDoor) return;
     if (m.keys > 0) {
@@ -284,20 +287,28 @@ export function clampCity(m) {
       const k = '_in' + s.id;
       const inside = z[k] ?? (z[k] = z.x > s.x0 && z.x < s.x1);
       if (inside) {
-        const nx = Math.max(s.x0 + 16, Math.min(s.x1 - 14, z.x));
+        const nx = Math.max(s.x0 + BAR_GAP, Math.min(s.x1 - 14, z.x));
         if (z.type && nx > z.x && z.activated) {     // pressed against the barricade
           z.state = 'attack'; z.facing = -1;
           if (Math.random() < 0.004) m.soundQ.push({ t: 'bhit', x: s.x0 });
         }
         z.x = nx;
-      } else if (z.x > s.x0 - 14 && z.x < s.x1 + 14) z.x = z.x < (s.x0 + s.x1) / 2 ? s.x0 - 14 : s.x1 + 14;
+      } else if (z.x > s.x0 - BAR_GAP && z.x < s.x1 + 14) z.x = z.x < (s.x0 + s.x1) / 2 ? s.x0 - BAR_GAP : s.x1 + 14;
     });
   });
 }
 
-// A bullet reaching a standing barricade stops in it.
+// A bullet whose path crosses a standing barricade stops in it. The
+// path starts at the shooter (a muzzle can sit past the barricade line
+// when its owner is pressed against it).
 export function barricadeStops(m, b) {
-  return (m.segs || []).some(s => s.locked && Math.abs(b.x - s.x0) <= Math.abs(b.dx || 0) / 2 + 3);
+  if (b.ox === undefined) b.ox = b.src ? b.src.x : b.x - (b.dx || 0);
+  return (m.segs || []).some(s => s.locked && (b.ox - s.x0) * (b.x - s.x0) <= 0);
 }
+
+// A standing barricade between two x positions (no shooting / biting
+// through it).
+export const barricadeBetween = (m, xa, xb) =>
+  (m.segs || []).some(s => s.locked && (xa - s.x0) * (xb - s.x0) < 0);
 
 export const leaveProgress = (m, now) => m._leaveAt ? Math.min(1, (now - m._leaveAt) / LEAVE_MS) : 0;

@@ -135,7 +135,7 @@ function paintKnife(T, hand, ang) {
 // the caller can place the muzzle flash.
 export function drawSoldierBody(ctx, s, now) {
   const seed = hashOf(`${s.name || ''}|${s.id || 0}`);
-  const look = lookOf(actorKind(s), seed, s.jacket ? { jacket: s.jacket } : s.colonel ? { officer: true } : null);
+  const look = lookOf(actorKind(s), seed, s.jacket || s.colonel ? { ...(s.jacket ? { jacket: s.jacket } : {}), ...(s.colonel ? { officer: true } : {}) } : null);
   if (s.state === 'dead') {
     const dp = s.deadAt ? Math.min(1, (now - s.deadAt) / 480) : 1;
     if (dp < 1) {

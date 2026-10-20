@@ -20,7 +20,6 @@ export function rollSiegeEvent(gs) {
   // Safety net: when the stash is nearly empty Command may fly in an
   // ammo crate — at most once every 3 waves, so it can't replace sorties.
   if ((gs.resources.ammo || 0) < 15 + gs.wave * 2 && gs.wave - (gs.lastRichCrate ?? -9) >= 3 && Math.random() < 0.6) {
-    gs.lastRichCrate = gs.wave;
     return { type: 'supply', at: rng(9000, 20000), state: 'pending', rich: true };
   }
   if (Math.random() > 0.45) return null;
@@ -45,6 +44,7 @@ function startEvent(gs, ev, now) {
     pushRadio(gs, 'deploy', { line: `Survivor running for the gate, lane ${ev.lane + 1}! Cover them!`, urgent: true, cooldown: 0 });
   } else {
     ev.x = WX + rng(320, 640); ev.dropY = -320; ev.landed = false;
+    if (ev.rich) gs.lastRichCrate = gs.wave;   // the cooldown starts when it actually flies in
     pushRadio(gs, 'deploy', { line: ev.rich ? 'Command heard we are running dry. Ammo crate inbound!' : 'Command dropping a crate in the field. Go get it!', cooldown: 0 });
     gs.soundQ.push({ t: 'heliStart', intensity: 0.5 });
   }

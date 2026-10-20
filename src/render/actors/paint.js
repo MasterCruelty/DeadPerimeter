@@ -30,6 +30,9 @@ const enc = (nx, ny, nz) => {
 
 // ── Colour helpers ───────────────────────────────────────────────
 function hex(c) {
+  // shade() returns rgb(...) strings that get shaded again (pants from a
+  // shaded shirt, the back leg from those pants...).
+  if (c[0] === 'r') return c.slice(c.indexOf('(') + 1, c.indexOf(')')).split(',').slice(0, 3).map(Number);
   const n = parseInt(c.slice(1), 16);
   return c.length === 4
     ? [((n >> 8) & 15) * 17, ((n >> 4) & 15) * 17, (n & 15) * 17]

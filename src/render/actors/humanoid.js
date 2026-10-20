@@ -233,7 +233,7 @@ export function paintArm(T, G, arm, look, back, opts = {}) {
 export function hashOf(str) {
   let h = 0;
   for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) | 0;
-  return Math.abs(h);
+  return Math.abs(h) & 0x7fffffff;   // |-2^31| would stay negative in bit ops
 }
 
 const SKINS = ['#d6a283', '#c48b6a', '#a8724f', '#8a5a3c', '#6e4630', '#e0b296'];

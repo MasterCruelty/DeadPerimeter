@@ -224,13 +224,26 @@ function dRadar(ctx, gs, now) {
 function dOffscreenIndicators(ctx, gs, now) {
   const pool = gs.isHumanWave ? gs.humans : gs.zombies;
   const cam = gs.cameraX || 0;
-  let right = 0, nearest = Infinity;
+  const edge = cam + CW / zoomOf(gs);
+  let right = 0, nearest = Infinity, left = 0;
   (pool || []).forEach(e => {
     if (e.state === 'dead') return;
-    const edge = cam + CW / zoomOf(gs);
     if (e.x > edge) { right++; nearest = Math.min(nearest, e.x - edge); }
+    else if (e.x < cam) left++;               // panned / zoomed past them: they're at the wall
   });
   right += gs.spawnQueue ? gs.spawnQueue.filter(q => q.at <= gs.waveTime + 4000).length : 0;
+  if (left > 0) {
+    const y = HUD_RADAR.y + HUD_RADAR.h + 20;
+    ctx.save();
+    ctx.globalAlpha = 0.65 + 0.35 * Math.sin(now / 200);
+    ctx.fillStyle = 'rgba(60,8,8,0.85)';
+    ctx.beginPath();
+    ctx.moveTo(6, y); ctx.lineTo(22, y - 16); ctx.lineTo(70, y - 16); ctx.lineTo(70, y + 16); ctx.lineTo(22, y + 16); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = C.dng; ctx.lineWidth = 1; ctx.stroke();
+    ctx.fillStyle = '#ffb0a0'; ctx.font = 'bold 12px monospace'; ctx.textAlign = 'center';
+    ctx.fillText(`◀ ${left}`, 40, y + 4);
+    ctx.restore();
+  }
   if (right <= 0) return;
   // Sits under the radar, clear of the lanes, so it never hides a
   // hostile that is already on screen at the right edge.

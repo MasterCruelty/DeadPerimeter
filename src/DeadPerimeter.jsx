@@ -49,7 +49,7 @@ import { zoomLights, siegeLights, missionLights } from './render/lighting.js';
 import { dExtractionScene, EXTRACTION_DURATION, EXTRACTION_SCRIPT, mkExtraction } from './render/extraction.js';
 import { TRANSMISSIONS } from './data/transmissions.js';
 import { pushRadio } from './audio/radio.js';
-import { initRadioVoice, setRadioVoiceEnabled, speakOrChatter } from './audio/radioVoice.js';
+import { initRadioVoice, setRadioVoiceEnabled, setRadioMuted, speakOrChatter } from './audio/radioVoice.js';
 
 import { update } from './update/siege.js';
 import { mkMission, updateMission, dMissionWorld, dMissionHUD } from './update/mission.js';
@@ -202,6 +202,7 @@ export default function DeadPerimeter() {
     const n = !mutedR.current;
     mutedR.current = n; setMuted(n);
     if (am) am.mute(n);
+    setRadioMuted(n);
   }, []);
 
   const togglePause = useCallback(() => {
@@ -384,6 +385,7 @@ export default function DeadPerimeter() {
 
   const startWave = useCallback(() => {
     const gs = gsRef.current;
+    setFastOn((gs.speed || 1) > 1);   // a new / loaded game starts at 1×
     pausedRef.current = false; setPaused(false); getAM()?.duck(false);
     const am = getAM(); if (am && !mutedR.current) am.startBg();
     gs.soldiers.forEach(s => {
@@ -1081,7 +1083,7 @@ export default function DeadPerimeter() {
         if (e.key === 'ArrowUp'    || e.key === 'w' || e.key === 'W') { inputRef.current.up = true;    e.preventDefault(); }
         if (e.key === 'ArrowDown'  || e.key === 's' || e.key === 'S') { inputRef.current.down = true;  e.preventDefault(); }
         if (e.key === ' ' || e.key === 'Spacebar') { inputRef.current.shoot = true; e.preventDefault(); }
-        if ((e.key === 'e' || e.key === 'E') && !e.repeat) { missionRef.current.inputInteract = true; e.preventDefault(); }
+        if ((e.key === 'e' || e.key === 'E') && !e.repeat && !missionRef.current.dialog) { missionRef.current.inputInteract = true; e.preventDefault(); }
       } else {
         // Siege phase: arrow keys pan the camera across the wider WORLD_W.
         const gs = gsRef.current;
@@ -1439,7 +1441,7 @@ export default function DeadPerimeter() {
             gs.simNow += dt;
             update(gs, gs.simNow, dt);
           }
-          processSounds(gs.soundQ, getAM(), mutedR, gs.cameraX || 0);
+          processSounds(gs.soundQ, getAM(), mutedR, gs.cameraX || 0, zoomOf(gs));
         }
         const simNow = gs.simNow;
         // Camera pan from arrow-key input. 0.55 px/ms ≈ 33 px/frame at
@@ -1698,7 +1700,7 @@ export default function DeadPerimeter() {
             {gs && <CityMap city={ensureCity(gsRef.current || gs)} dests={expDests} selected={expDestIdx} onPick={pickDest} day={gs.day} jobs={ensureQuests(gsRef.current || gs).active} />}
             {gs && expDestIdx !== null && expDests[expDestIdx] && expDests[expDestIdx].locId === 'compound' && (
               <CompactPanel gs={gsRef.current || gs} sortiesPerDay={sortiesPerDay(gsRef.current || gs)}
-                onChange={() => { const G = gsRef.current; saveGame(G); setHasSave(true); setUi({ ...G, soldiers: G.soldiers.map(x => ({ ...x })) }); }} />
+                onChange={() => { const G = gsRef.current; saveGame(G); setHasSave(true); expDestsRef.current = cityDests(G); setExpDests(expDestsRef.current); setUi({ ...G, soldiers: G.soldiers.map(x => ({ ...x })) }); }} />
             )}
             {/* Loadout selector — how many magazines each soldier carries */}
             <div style={{ marginTop: '10px', background: 'rgba(8,16,8,0.7)', border: `1px solid ${C.uib}`, padding: '8px 12px' }}>

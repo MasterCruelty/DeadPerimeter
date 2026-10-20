@@ -16,6 +16,7 @@ let _hissNode = null;
 let _current = null;     // utterance in flight
 let _fails = 0;          // consecutive utterances that never started
 let _ttsBroken = false;  // engine produces nothing: use chatter instead
+let _muted = false;      // game sound muted: speech and its hiss too
 
 const STORAGE_KEY = 'fortomega_radioVoice';
 
@@ -48,6 +49,12 @@ export function initRadioVoice() {
 }
 
 export function isRadioVoiceEnabled() { return _enabled && isRadioVoiceAvailable(); }
+
+// Follows the game's mute button (speech bypasses the audio engine).
+export function setRadioMuted(b) {
+  _muted = !!b;
+  if (_muted) { try { window.speechSynthesis?.cancel(); } catch {} stopHiss(); }
+}
 
 export function setRadioVoiceEnabled(b) {
   _enabled = !!b;
@@ -179,6 +186,7 @@ function clean(text) {
 //   opts.pitch:  'low'|'mid'|'high'|<number>  speaker tier
 //   opts.urgent: boolean                      louder hiss, faster rate
 export function speakRadio(text, opts = {}) {
+  if (_muted) return true;                 // say nothing, and no chatter either
   if (!isRadioVoiceEnabled() || _ttsBroken) return false;
   if (!text) return false;
   try {
@@ -220,19 +228,25 @@ export function speakRadio(text, opts = {}) {
       if (++_fails >= 2) _ttsBroken = true;
       if (opts.onFail) { try { opts.onFail(); } catch {} }
     };
-    u.onstart = () => { started = true; _fails = 0; };
+    u.onstart = () => {
+      // Started after we gave up on it (the chatter already played).
+      if (failed) { try { ss.cancel(); } catch {} return; }
+      started = true; _fails = 0;
+    };
     u.onend = () => {
+      if (u._superseded) return;             // a newer line owns the hiss now
       const t = (_ctx && _ctx.currentTime) || 0;
       radioClick(t + 0.04, 0.04, 0.18);
       stopHiss();
       if (_current === u) _current = null;
     };
     u.onerror = e => {
+      if (u._superseded) return;
       stopHiss();
       if (e && (e.error === 'interrupted' || e.error === 'canceled')) return;
       fail();
     };
-    setTimeout(fail, 1200);
+    setTimeout(fail, 3000);                // network voices can take a while
 
     _current = u;                          // Chrome GCs unreferenced utterances
     ss.speak(u);
