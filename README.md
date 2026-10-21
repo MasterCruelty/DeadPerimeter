@@ -18,6 +18,8 @@
 | **Sortie** — walk into buildings, climb, loot, get back to the van | **Rooms** — press E at a door: apartments, clinics, storage, armories |
 | ![Compound assault](docs/screenshots/assault.jpg) | ![Command center](docs/screenshots/command-center.jpg) |
 | **Assault on the Northgate Compact** — soldiers, not zombies | **Command center** — survivors' jobs, main story, journal |
+| ![Italian title screen](docs/screenshots/italian-menu.jpg) | ![Italian sortie](docs/screenshots/italian-room.jpg) |
+| **English / Italiano** — pick the language on the title screen | **Fully translated** — HUD, missions, story and radio voices |
 
 ---
 
@@ -106,6 +108,10 @@ who drops the case on death and four endings depending on what (and
 who) makes it out.
 
 ### Presentation
+- **English and Italian**: pick the language on the title screen or in
+  the command center (it follows the browser's language the first time).
+  Everything is translated, radio voices included: they speak the chosen
+  language when the device has a voice for it.
 - **HD graphics**: WebGL lighting over Canvas 2D — muzzle flashes,
   flashlights, fires, bloom, grading — always at full quality.
 - Rigged, shaded characters and zombies drawn in code; no image assets.

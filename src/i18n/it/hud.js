@@ -10,7 +10,7 @@ export default {
   "WALL": "MURO",
   "▸ {name} SELECTED": "▸ {name} SELEZ.",
   "CLICK LANE → MOVE SQUAD": "CLICCA CORSIA → MUOVI SQUADRA",
-  "1-9 SELECT · ←/→ PAN · F SPEED": "1-9 SELEZ. · ←/→ VISTA · F VELOCITÀ",
+  "1-9 SELECT · ←/→ PAN · F SPEED": "1-9 SCEGLI · ←/→ VISTA · F 2×",
   "⚠ HOSTILE SURVIVORS ⚠": "⚠ SOPRAVVISSUTI OSTILI ⚠",
   "✦ WAVE CLEARED ✦": "✦ ONDATA RESPINTA ✦",
   "+{n} ammo · returning to command": "+{n} munizioni · rientro al comando",

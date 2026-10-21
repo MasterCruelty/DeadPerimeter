@@ -1704,7 +1704,7 @@ export default function DeadPerimeter() {
                 <div key={s.id} onClick={() => toggleSoldier(i)} style={{ ...card, cursor: 'pointer', borderColor: picked ? C.acc : C.uib, opacity: picked ? 1 : 0.7, position: 'relative' }}>
                   {order && <div style={{ position: 'absolute', top: 4, right: 6, background: C.acc, color: '#061006', fontSize: '9px', fontWeight: 'bold', borderRadius: '50%', width: '14px', height: '14px', textAlign: 'center', lineHeight: '14px' }}>{order}</div>}
                   <div style={{ color: C.acc, fontWeight: 'bold', fontSize: '11px' }}>{s.name}</div>
-                  <div style={{ fontSize: '9px', color: C.txt }}>{WPN[s.weapon]?.name}</div>
+                  <div style={{ fontSize: '9px', color: C.txt }}>{t(WPN[s.weapon]?.name)}</div>
                   <div style={{ fontSize: '9px', color: s.hp > 60 ? C.acc : s.hp > 30 ? C.wrn : C.dng }}>{s.hp}HP</div>
                 </div>
               );
@@ -2162,7 +2162,7 @@ export default function DeadPerimeter() {
                     {s.civilian && s.state !== 'dead' && <span style={{ color: '#88ddff', fontSize: '9px', marginLeft: '2px' }}>{t('· civ')}</span>}
                     {s.veteran && s.state !== 'dead' && <span style={{ color: '#ffd54a', fontSize: '9px', marginLeft: '2px' }}>{t('· vet')}</span>}
                   </div>
-                  <div style={{ fontSize: '9px', color: C.txt }}>{WPN[s.weapon]?.name} · {t('Lane')} {t('FMB')[s.lane || 0]}</div>
+                  <div style={{ fontSize: '9px', color: C.txt }}>{t(WPN[s.weapon]?.name)} · {t('Lane')} {t('FMB')[s.lane || 0]}</div>
                   {s.state !== 'dead' && (() => {
                     const L = s.level || 1, x0 = xpForLevel(L), x1 = xpForLevel(L + 1);
                     const pct = L >= 10 ? 1 : Math.max(0, Math.min(1, ((s.xp || 0) - x0) / (x1 - x0)));
@@ -2360,7 +2360,7 @@ export default function DeadPerimeter() {
                 <select value={armPick[key] ?? ''} onChange={e => setArmPick({ ...armPick, [key]: e.target.value === '' ? undefined : +e.target.value })}
                   style={{ background: '#0c140a', color: C.txt, border: `1px solid ${C.uib}`, fontSize: '9px', fontFamily: 'monospace' }}>
                   <option value="">{t('— soldier —')}</option>
-                  {list.map(([s, i]) => <option key={s.id} value={i}>{s.name} ({WPN[s.weapon]?.name})</option>)}
+                  {list.map(([s, i]) => <option key={s.id} value={i}>{s.name} ({t(WPN[s.weapon]?.name)})</option>)}
                 </select>
               );
               return (
@@ -2535,7 +2535,7 @@ export default function DeadPerimeter() {
                           {r.civilian && <span style={{ color: '#88ddff', fontSize: '8px', marginLeft: '2px' }}>{t('· civ')}</span>}
                           {r.veteran && <span style={{ color: '#ffd54a', fontSize: '8px', marginLeft: '2px' }}>{t('· vet')}</span>}
                         </div>
-                        <div style={{ fontSize: '9px', color: C.txt }}>{WPN[r.weapon]?.name}</div>
+                        <div style={{ fontSize: '9px', color: C.txt }}>{t(WPN[r.weapon]?.name)}</div>
                         <div style={{ fontSize: '8px', color: C.txt, opacity: 0.6, marginTop: '2px' }}>{t('standby')}</div>
                         <button
                           style={{ ...btn('#1a3028', '#338866'), fontSize: '8px', padding: '2px 6px', marginTop: '3px', marginRight: 0 }}

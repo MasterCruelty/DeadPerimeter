@@ -92,8 +92,10 @@ export function dHUD(ctx, gs, now, muted) {
   // ── Selection hint
   ctx.fillStyle = 'rgba(184,204,170,0.55)'; ctx.font = '8px monospace';
   const sel = gs.selectedSoldierId ? (gs.soldiers.find(s => s.id === gs.selectedSoldierId) || {}).name : null;
-  ctx.fillText(sel ? t('▸ {name} SELECTED', { name: sel.toUpperCase() }) : t('CLICK LANE → MOVE SQUAD'), 640, 16);
-  ctx.fillText(t('1-9 SELECT · ←/→ PAN · F SPEED'), 640, 29);
+  // Squeezed into the 160 px before the speed button (translations vary).
+  const fit = (str, y) => { ctx.save(); const w = ctx.measureText(str).width; if (w > 160) { ctx.translate(640, y); ctx.scale(160 / w, 1); ctx.fillText(str, 0, 0); } else ctx.fillText(str, 640, y); ctx.restore(); };
+  fit(sel ? t('▸ {name} SELECTED', { name: sel.toUpperCase() }) : t('CLICK LANE → MOVE SQUAD'), 16);
+  fit(t('1-9 SELECT · ←/→ PAN · F SPEED'), 29);
 
   // ── Speed toggle (fast-forward)
   const fast = (gs.speed || 1) > 1;

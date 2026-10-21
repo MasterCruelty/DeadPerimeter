@@ -45,7 +45,7 @@ export default function CompactPanel({ gs, sortiesPerDay, onChange }) {
             {stockFor(gs).map(it => {
               const price = priceOf(gs, it);
               const ok = canAfford(gs, price) && (!it.gun || c.guns > 0) && (!envoy || slotsLeft > 0);
-              const label = it.gun ? `🔫 ${WPN[it.gun].name}` : `📦 ${fmt(it.give)}`;
+              const label = it.gun ? `🔫 ${t(WPN[it.gun].name)}` : `📦 ${fmt(it.give)}`;
               return (
                 <button key={it.id} disabled={!ok}
                   style={{ background: '#2a2410', color: C.txt, border: `1px solid ${COMPACT.color}`, padding: '3px 8px', fontSize: '9px', fontFamily: 'monospace', cursor: ok ? 'pointer' : 'default', opacity: ok ? 1 : 0.5 }}
