@@ -2,6 +2,7 @@ import { C, CW, CH, WX, WORLD_W, laneY, laneSc, zoomOf } from '../constants.js';
 import { BALANCE, waveClearAmmoFor } from '../data/difficulty.js';
 import { WAVE_MODS } from '../data/waveMods.js';
 import { dSiegeEventBanner } from './siegeEvents.js';
+import { t } from '../i18n/index.js';
 
 export function dSquadMarker(ctx, target, lane, now) {
   if (target === null || lane === null) return;
@@ -54,18 +55,18 @@ export function dHUD(ctx, gs, now, muted) {
 
   // ── Day / wave + wave progress
   ctx.fillStyle = C.acc; ctx.font = 'bold 13px monospace'; ctx.textAlign = 'left';
-  ctx.fillText(`DAY ${gs.day} · WAVE ${gs.wave}/${BALANCE.maxWaves}`, 12, 17);
+  ctx.fillText(t('DAY {d} · WAVE {w}/{max}', { d: gs.day, w: gs.wave, max: BALANCE.maxWaves }), 12, 17);
   const total = Math.max(1, gs.waveTotal || 1);
   const left = waveRemaining(gs);
   bar(ctx, 12, 24, 170, 6, 1 - left / total, gs.isHumanWave ? '#cc5544' : '#8a9a5a');
   ctx.fillStyle = C.txt; ctx.font = '8px monospace';
-  ctx.fillText(gs.waveComplete ? 'CLEARED' : `${left} HOSTILE${left === 1 ? '' : 'S'} LEFT`, 186, 31);
+  ctx.fillText(gs.waveComplete ? t('CLEARED') : (left === 1 ? t('{n} HOSTILE LEFT', { n: left }) : t('{n} HOSTILES LEFT', { n: left })), 186, 31);
 
   // ── Wall integrity
   const wp = gs.baseHp / (gs.baseMaxHp || 1);
   const wcol = wp > 0.6 ? C.acc : wp > 0.3 ? C.wrn : C.dng;
   ctx.fillStyle = C.txt; ctx.font = '8px monospace';
-  ctx.fillText('WALL', 296, 14);
+  ctx.fillText(t('WALL'), 296, 14);
   ctx.fillStyle = wcol; ctx.font = 'bold 10px monospace';
   ctx.fillText(`${Math.max(0, Math.round(gs.baseHp))}/${gs.baseMaxHp}`, 326, 14);
   bar(ctx, 296, 20, 120, 8, wp, wcol);
@@ -91,8 +92,8 @@ export function dHUD(ctx, gs, now, muted) {
   // ── Selection hint
   ctx.fillStyle = 'rgba(184,204,170,0.55)'; ctx.font = '8px monospace';
   const sel = gs.selectedSoldierId ? (gs.soldiers.find(s => s.id === gs.selectedSoldierId) || {}).name : null;
-  ctx.fillText(sel ? `▸ ${sel.toUpperCase()} SELECTED` : 'CLICK LANE → MOVE SQUAD', 640, 16);
-  ctx.fillText('1-9 SELECT · ←/→ PAN · F SPEED', 640, 29);
+  ctx.fillText(sel ? t('▸ {name} SELECTED', { name: sel.toUpperCase() }) : t('CLICK LANE → MOVE SQUAD'), 640, 16);
+  ctx.fillText(t('1-9 SELECT · ←/→ PAN · F SPEED'), 640, 29);
 
   // ── Speed toggle (fast-forward)
   const fast = (gs.speed || 1) > 1;
@@ -118,7 +119,7 @@ export function dHUD(ctx, gs, now, muted) {
     ctx.fillStyle = 'rgba(80,20,20,0.85)'; ctx.fillRect(12, 44, 200, 18);
     ctx.strokeStyle = C.dng; ctx.lineWidth = 1; ctx.strokeRect(12.5, 44.5, 199, 17);
     ctx.fillStyle = C.dng; ctx.font = 'bold 11px monospace'; ctx.textAlign = 'center';
-    ctx.fillText('⚠ HOSTILE SURVIVORS ⚠', 112, 57); ctx.textAlign = 'left';
+    ctx.fillText(t('⚠ HOSTILE SURVIVORS ⚠'), 112, 57); ctx.textAlign = 'left';
   }
 
   // Wave condition tag (beside the human-wave banner when both apply).
@@ -126,10 +127,10 @@ export function dHUD(ctx, gs, now, muted) {
   if (md) {
     const tx = gs.isHumanWave ? 220 : 12;
     ctx.font = 'bold 10px monospace';
-    const tw = ctx.measureText(`${md.icon} ${md.name}`).width + 16;
+    const tw = ctx.measureText(`${md.icon} ${t(md.name)}`).width + 16;
     ctx.fillStyle = 'rgba(14,14,10,0.85)'; ctx.fillRect(tx, 44, tw, 18);
     ctx.strokeStyle = md.color; ctx.lineWidth = 1; ctx.strokeRect(tx + 0.5, 44.5, tw - 1, 17);
-    ctx.fillStyle = md.color; ctx.fillText(`${md.icon} ${md.name}`, tx + 8, 57);
+    ctx.fillStyle = md.color; ctx.fillText(`${md.icon} ${t(md.name)}`, tx + 8, 57);
   }
   // Mini-boss health bar (top centre).
   const boss = gs.boss && gs.boss.state !== 'dead' ? gs.boss : null;
@@ -137,7 +138,7 @@ export function dHUD(ctx, gs, now, muted) {
     const bw = 300, bx = (CW - bw) / 2, by = 88;
     ctx.fillStyle = 'rgba(20,4,2,0.85)'; ctx.fillRect(bx - 6, by - 16, bw + 12, 30);
     ctx.fillStyle = '#ff5533'; ctx.font = 'bold 11px monospace'; ctx.textAlign = 'center';
-    ctx.fillText(`☠ ${boss.bossName} ☠`, CW / 2, by - 4);
+    ctx.fillText(`☠ ${t(boss.bossName)} ☠`, CW / 2, by - 4);
     ctx.textAlign = 'left';
     bar(ctx, bx, by + 1, bw, 7, boss.hp / boss.maxHp, boss.hurtTimer > 0 ? '#ffaa66' : '#cc3322');
   }
@@ -161,9 +162,9 @@ export function dHUD(ctx, gs, now, muted) {
       ctx.strokeStyle = C.acc; ctx.lineWidth = 2;
       ctx.strokeRect(CW / 2 - 182, CH / 2 - 40, 364, 72);
       ctx.fillStyle = C.acc; ctx.font = 'bold 26px monospace'; ctx.textAlign = 'center';
-      ctx.fillText('✦ WAVE CLEARED ✦', CW / 2, CH / 2 + 4);
+      ctx.fillText(t('✦ WAVE CLEARED ✦'), CW / 2, CH / 2 + 4);
       ctx.fillStyle = C.txt; ctx.font = '10px monospace';
-      ctx.fillText(`+${waveClearAmmoFor(gs.wave)} ammo · returning to command`, CW / 2, CH / 2 + 22);
+      ctx.fillText(t('+{n} ammo · returning to command', { n: waveClearAmmoFor(gs.wave) }), CW / 2, CH / 2 + 22);
       ctx.textAlign = 'left'; ctx.restore();
     }
   }

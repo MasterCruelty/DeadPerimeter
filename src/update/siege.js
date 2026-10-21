@@ -16,6 +16,7 @@ import { tickSiegeEvent, settleSiegeEvent } from './siegeEvents.js';
 import { cityDayTick } from '../data/city.js';
 import { compactDayTick } from './faction.js';
 import { hasUnlock } from './quests.js';
+import { t } from '../i18n/index.js';
 
 // Visibility conditions (fog / night) shrink every friendly weapon range.
 const modRange = gs => (gs.waveMod && WAVE_MODS[gs.waveMod] && WAVE_MODS[gs.waveMod].rangeMul) || 1;
@@ -108,8 +109,8 @@ export function update(gs, now, dt) {
       if (z.boss) {
         gs.boss = z; gs.shakeTimer = 500;
         gs.soundQ.push({ t: 'roar', x: z.x });
-        pushRadio(gs, 'baseHit', { line: `${z.bossName} incoming, middle lane! Focus fire!`, urgent: true, cooldown: 0 });
-        gs.effects.push({ type: 'txt', x: z.x - 200, y: laneY(1) - 110, v: `☠ ${z.bossName} ☠`, col: '#ff5533', at: now, dur: 2600 });
+        pushRadio(gs, 'baseHit', { line: '{boss} incoming, middle lane! Focus fire!', params: { boss: t(z.bossName) }, urgent: true, cooldown: 0 });
+        gs.effects.push({ type: 'txt', x: z.x - 200, y: laneY(1) - 110, v: `☠ ${t(z.bossName)} ☠`, col: '#ff5533', at: now, dur: 2600 });
       } else if (z.type === 'brute') gs.soundQ.push({ t: 'roar', x: z.x });
     }
     gs.zombiesSpawned++;
@@ -310,7 +311,7 @@ export function update(gs, now, dt) {
           gs.resources.sniperAmmo -= refill;
           s.state = 'reload'; s.reloadStart = now; s.ammo = refill;
           if (!s.reloadTriggered) { s.reloadTriggered = true; gs.soundQ.push({ t: 'reload', w: s.weapon, dur: effRl(gs, s, w) / (gs.speed || 1) }); pushRadio(gs, 'reload', { speaker: s }); }
-          gs.effects.push({ type: 'txt', x: s.x + 30, y: GY - 160, v: 'RELOAD!', col: C.wrn, at: now, dur: 800 });
+          gs.effects.push({ type: 'txt', x: s.x + 30, y: GY - 160, v: t('RELOAD!'), col: C.wrn, at: now, dur: 800 });
         } else {
           // Out of sniper ammo — descend
           s.onRoof = false;
@@ -319,7 +320,7 @@ export function update(gs, now, dt) {
           s.weapon = 'pistol'; s.maxAmmo = WPN.pistol.ammo;
           s.ammo = Math.min(WPN.pistol.ammo, gs.resources.ammo);
           gs.resources.ammo = Math.max(0, gs.resources.ammo - s.ammo);
-          gs.effects.push({ type: 'txt', x: WX / 2, y: GY - 150, v: 'DESCENDING!', col: C.dng, at: now, dur: 1400 });
+          gs.effects.push({ type: 'txt', x: WX / 2, y: GY - 150, v: t('DESCENDING!'), col: C.dng, at: now, dur: 1400 });
         }
         return;
       }
@@ -421,7 +422,7 @@ export function update(gs, now, dt) {
           gs.effects.push({ type: 'slash', x: meleeTgt.x + s.facing * 10, y: laneY(meleeTgt.lane) - 28, at: now, dur: 230 });
           gs.effects.push({ type: 'txt', x: meleeTgt.x, y: laneY(meleeTgt.lane) - 58, v: `-${ms.dmg}`, col: '#ffcc44', at: now, dur: 600 });
           const broke = wearMelee(s);
-          if (broke) gs.effects.push({ type: 'txt', x: s.x, y: laneY(s.lane) - 84, v: `${MELEE[broke].name.toUpperCase()} BROKE`, col: C.dng, at: now, dur: 1200 });
+          if (broke) gs.effects.push({ type: 'txt', x: s.x, y: laneY(s.lane) - 84, v: t('{w} BROKE', { w: t(MELEE[broke].name).toUpperCase() }), col: C.dng, at: now, dur: 1200 });
           if (meleeTgt.hp <= 0) killTarget(gs, meleeTgt, now, s);
         }
       } else { s.knifeTimer = 0; }
@@ -455,12 +456,12 @@ export function update(gs, now, dt) {
           s.state = 'reload'; s.reloadStart = now; gs.resources.ammo -= refill; s.ammo = refill;
           s.knifeReady = false;
           if (!s.reloadTriggered) { s.reloadTriggered = true; gs.soundQ.push({ t: 'reload', w: s.weapon, dur: effRl(gs, s, w) / (gs.speed || 1) }); pushRadio(gs, 'reload', { speaker: s }); }
-          gs.effects.push({ type: 'txt', x: s.x, y: laneY(s.lane) - 80, v: 'RELOAD!', col: C.wrn, at: now, dur: 800 });
+          gs.effects.push({ type: 'txt', x: s.x, y: laneY(s.lane) - 80, v: t('RELOAD!'), col: C.wrn, at: now, dur: 800 });
         } else {
           // Empty stash too — soldier holsters firearm and the knife
           // becomes their permanent ready-stance until ammo arrives.
           s.knifeReady = true;
-          gs.effects.push({ type: 'txt', x: s.x, y: laneY(s.lane) - 80, v: 'DRY!', col: C.dng, at: now, dur: 900 });
+          gs.effects.push({ type: 'txt', x: s.x, y: laneY(s.lane) - 80, v: t('DRY!'), col: C.dng, at: now, dur: 900 });
         }
       }
     } else if (now - s.lastShot > w.rate * 0.4) s.state = 'idle';
@@ -684,7 +685,7 @@ function killTarget(gs, target, now, shooter) {
   if (shooter) {
     const ups = addXp(shooter, target.boss ? BOSS_XP : (KILL_XP[target.type] || 4));
     if (ups) {
-      gs.effects.push({ type: 'txt', x: shooter.x, y: (shooter.onRoof ? GY - 200 : laneY(shooter.lane) - 92), v: `★ ${shooter.name.toUpperCase()} LV ${shooter.level}`, col: '#ffd54a', at: now, dur: 1800 });
+      gs.effects.push({ type: 'txt', x: shooter.x, y: (shooter.onRoof ? GY - 200 : laneY(shooter.lane) - 92), v: t('★ {name} LV {lv}', { name: shooter.name.toUpperCase(), lv: shooter.level }), col: '#ffd54a', at: now, dur: 1800 });
       gs.soundQ.push({ t: 'pickup' });
     }
   }
@@ -699,8 +700,8 @@ function killTarget(gs, target, now, shooter) {
       gs.boss = null; gs.shakeTimer = 600;
       gs.resources.materials = Math.min(999, (gs.resources.materials || 0) + 15);
       gs.resources.ammo = Math.min(999, gs.resources.ammo + 30);
-      gs.effects.push({ type: 'txt', x: target.x, y: laneY(target.lane) - 90, v: '+15 🔧  +30 AMMO', col: '#ffd54a', at: now, dur: 1800 });
-      pushRadio(gs, 'kill', { line: `${target.bossName} is down!`, cooldown: 0, speaker: shooter || undefined });
+      gs.effects.push({ type: 'txt', x: target.x, y: laneY(target.lane) - 90, v: t('+15 🔧  +30 AMMO'), col: '#ffd54a', at: now, dur: 1800 });
+      pushRadio(gs, 'kill', { line: '{boss} is down!', params: { boss: t(target.bossName) }, cooldown: 0, speaker: shooter || undefined });
     }
   } else {
     // Human
@@ -716,7 +717,7 @@ function killTarget(gs, target, now, shooter) {
     gs.effects.push({
       type: 'txt',
       x: target.x, y: laneY(target.lane) - 70,
-      v: `+${drop} AMMO`, col: '#ffd54a',
+      v: t('+{n} AMMO', { n: drop }), col: '#ffd54a',
       at: now, dur: 1200,
     });
   }

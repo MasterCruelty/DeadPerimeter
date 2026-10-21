@@ -2,6 +2,8 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 
 import { C, CW, CH, GY, WX, WORLD_W, DPR, laneY, clickToLane, ZOOM_FY, zoomOf, clampCam } from './constants.js';
 import { setZoom } from './update/zoom.js';
+import { t, onLangChange } from './i18n/index.js';
+import LangSelect from './ui/LangSelect.jsx';
 import { leaveRoomIfInside } from './update/rooms.js';
 import { WPN, wbase, ammoPool, MELEE } from './data/weapons.js';
 import { stashGear, ensureArmory, magSize } from './entities/gear.js';
@@ -19,7 +21,7 @@ import { dWaveCondition } from './render/weather.js';
 import CityMap from './ui/CityMap.jsx';
 import CompactPanel from './ui/CompactPanel.jsx';
 import { raidDue, raidLaunched, assaultOutcome } from './update/faction.js';
-import { ensureQuests, refreshOffers, acceptJob, declineJob, deliverJob, canDeliver, completeAfterSortie, jobGoal, jobText, sortiesPerDay, healCost, turretMaterials, NPC_LIST } from './update/quests.js';
+import { ensureQuests, refreshOffers, acceptJob, declineJob, deliverJob, canDeliver, completeAfterSortie, locName, sortiesPerDay, healCost, turretMaterials, NPC_LIST } from './update/quests.js';
 import { MAX_ACTIVE, FORT_UNLOCKS, STORY } from './data/quests.js';
 import { cityDests, ensureCity, applyCityVisit } from './data/city.js';
 import { rollSiegeEvent } from './update/siegeEvents.js';
@@ -67,11 +69,35 @@ import { VACCINE_SCENARIOS } from './data/vaccineMission.js';
 function fmtAgo(ts) {
   if (!ts) return '';
   const m = Math.floor((Date.now() - ts) / 60000);
-  if (m < 1) return 'just now';
-  if (m < 60) return `${m} min ago`;
+  if (m < 1) return t('just now');
+  if (m < 60) return t('{m} min ago', { m });
   const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h ago`;
-  return `${Math.floor(h / 24)}d ago`;
+  if (h < 24) return t('{h}h ago', { h });
+  return t('{d}d ago', { d: Math.floor(h / 24) });
+}
+
+// ── Display-time translation helpers (i18n). The stored values stay in
+// English; these only build what the player reads.
+// "+5 food, +3 ammo, a weapon + M4A1" (quest reward text, composed in
+// update/quests.js and kept in the journal) with the resource words
+// translated.
+const tReward = s => (s ? s.replace(/\+(\d+) ([A-Za-z]+)/g, (_, n, k) => `+${n} ${t(k)}`).replace('a weapon', t('a weapon')) : s);
+// Destination names: "Northgate Compound (ruins)" is composed in data/city.js.
+const tDestName = name => {
+  if (!name) return name;
+  const r = /^(.*) \(ruins\)$/.exec(name);
+  return r ? t('{name} (ruins)', { name: t(r[1]) }) : t(name);
+};
+// Job offer text with its {loc} filled in (mirrors jobText).
+const tJobText = job => t(job.offer || '', { loc: job.loc ? t(locName(job.loc)) : '' });
+// Short objective line (mirrors jobGoal in update/quests.js).
+function tJobGoal(job) {
+  const loc = job.loc ? t(locName(job.loc)) : '';
+  if (job.kind === 'fetch') return t('Recover the {item} — {loc}', { item: t(job.item), loc });
+  if (job.kind === 'rescue') return t('Bring {person} home — {loc}', { person: job.person, loc });
+  if (job.kind === 'clear') return t('Clear {loc} (infestation < {pct}%)', { loc, pct: Math.round(job.below * 100) });
+  if (job.kind === 'deliver') return t('Hand over {list}', { list: Object.entries(job.need).map(([k, v]) => `${v} ${t(k)}`).join(', ') });
+  return t(job.title);
 }
 
 // Composition of the upcoming wave for the command-center intel line.
@@ -149,6 +175,10 @@ export default function DeadPerimeter() {
   const placementRef = useRef(null);           // active build-placement, if any: { kind, validRange, mouseWorldX }
   const inputRef = useRef({ left: false, right: false, shoot: false });
   const pausedRef = useRef(false);
+  // Re-render the whole UI when the language changes (the canvas reads
+  // t() every frame on its own).
+  const [, setLangTick] = useState(0);
+  useEffect(() => onLangChange(() => setLangTick(n => n + 1)), []);
   const [scr, setScr] = useState('menu'), [ui, setUi] = useState(null), [muted, setMuted] = useState(false);
   const [paused, setPaused] = useState(false);
   const [hasSave, setHasSave] = useState(false);
@@ -1355,7 +1385,7 @@ export default function DeadPerimeter() {
           ctx.fillRect(CW - 92, CH / 2 - 22, 86, 44);
           ctx.strokeStyle = C.acc; ctx.strokeRect(CW - 91.5, CH / 2 - 22, 86, 44);
           ctx.fillStyle = C.acc; ctx.font = 'bold 11px monospace'; ctx.textAlign = 'right';
-          ctx.fillText('PERIMETER ▶', CW - 12, CH / 2 - 5);
+          ctx.fillText(t('PERIMETER ▶'), CW - 12, CH / 2 - 5);
           ctx.fillStyle = '#88ee99'; ctx.font = '9px monospace';
           ctx.fillText(`${Math.round(WORLD_W - CW - camX)}px`, CW - 12, CH / 2 + 8);
         }
@@ -1364,9 +1394,9 @@ export default function DeadPerimeter() {
         ctx.fillStyle = 'rgba(10, 16, 8, 0.92)';
         ctx.fillRect(0, 0, CW, 36);
         ctx.fillStyle = C.acc; ctx.font = 'bold 13px monospace'; ctx.textAlign = 'center';
-        ctx.fillText(`PLACE ${pl.kind === 'barricade' ? '🪵 BARRICADE' : '🛠 MG TURRET'} — click in green zone`, CW / 2, 18);
+        ctx.fillText(t('PLACE {what} — click in green zone', { what: pl.kind === 'barricade' ? t('🪵 BARRICADE') : t('🛠 MG TURRET') }), CW / 2, 18);
         ctx.fillStyle = C.txt; ctx.font = '10px monospace';
-        ctx.fillText('move cursor freely · [ESC] or right-click to cancel', CW / 2, 31);
+        ctx.fillText(t('move cursor freely · [ESC] or right-click to cancel'), CW / 2, 31);
         ctx.textAlign = 'left';
         ctx.restore();
         return;
@@ -1415,14 +1445,14 @@ export default function DeadPerimeter() {
           hctx.fillStyle = 'rgba(6,14,6,0.95)'; hctx.fillRect(CW / 2 - 190, CH / 2 - 80, 380, 150);
           hctx.strokeStyle = C.acc; hctx.lineWidth = 1; hctx.strokeRect(CW / 2 - 189.5, CH / 2 - 79.5, 379, 149);
           hctx.fillStyle = C.acc; hctx.font = 'bold 28px monospace'; hctx.textAlign = 'center';
-          hctx.fillText('⏸ SORTIE PAUSED', CW / 2, CH / 2 - 38);
+          hctx.fillText(t('⏸ SORTIE PAUSED'), CW / 2, CH / 2 - 38);
           hctx.fillStyle = C.txt; hctx.font = '11px monospace';
-          hctx.fillText('Esc — resume', CW / 2, CH / 2 - 12);
+          hctx.fillText(t('Esc — resume'), CW / 2, CH / 2 - 12);
           hctx.fillStyle = 'rgba(184,204,170,0.65)'; hctx.font = '10px monospace';
-          hctx.fillText('A/D or ←/→ move · Space / mouse hold: fire', CW / 2, CH / 2 + 10);
-          hctx.fillText('hold fire while moving back = backpedal shooting', CW / 2, CH / 2 + 26);
-          hctx.fillText('W: jump / climb ladder · S: climb down / drop', CW / 2, CH / 2 + 42);
-          hctx.fillText('stand by ★ containers to search them', CW / 2, CH / 2 + 58);
+          hctx.fillText(t('A/D or ←/→ move · Space / mouse hold: fire'), CW / 2, CH / 2 + 10);
+          hctx.fillText(t('hold fire while moving back = backpedal shooting'), CW / 2, CH / 2 + 26);
+          hctx.fillText(t('W: jump / climb ladder · S: climb down / drop'), CW / 2, CH / 2 + 42);
+          hctx.fillText(t('stand by ★ containers to search them'), CW / 2, CH / 2 + 58);
           hctx.textAlign = 'left';
         }
         hctx.restore();
@@ -1524,12 +1554,12 @@ export default function DeadPerimeter() {
             hctx.fillStyle = 'rgba(6,14,6,0.95)'; hctx.fillRect(CW / 2 - 170, CH / 2 - 70, 340, 130);
             hctx.strokeStyle = C.acc; hctx.lineWidth = 1; hctx.strokeRect(CW / 2 - 169.5, CH / 2 - 69.5, 339, 129);
             hctx.fillStyle = C.acc; hctx.font = 'bold 30px monospace'; hctx.textAlign = 'center';
-            hctx.fillText('⏸ PAUSED', CW / 2, CH / 2 - 26);
+            hctx.fillText(t('⏸ PAUSED'), CW / 2, CH / 2 - 26);
             hctx.fillStyle = C.txt; hctx.font = '11px monospace';
-            hctx.fillText('Esc — resume', CW / 2, CH / 2 + 2);
+            hctx.fillText(t('Esc — resume'), CW / 2, CH / 2 + 2);
             hctx.fillStyle = 'rgba(184,204,170,0.6)'; hctx.font = '10px monospace';
-            hctx.fillText('click lane: move · 1-9: select soldier', CW / 2, CH / 2 + 22);
-            hctx.fillText('←/→ or radar: pan · F: 2× speed · wheel or +/−: zoom', CW / 2, CH / 2 + 38);
+            hctx.fillText(t('click lane: move · 1-9: select soldier'), CW / 2, CH / 2 + 22);
+            hctx.fillText(t('←/→ or radar: pan · F: 2× speed · wheel or +/−: zoom'), CW / 2, CH / 2 + 38);
             hctx.textAlign = 'left';
           }
           ctx.restore();
@@ -1671,18 +1701,18 @@ export default function DeadPerimeter() {
       <div style={panel}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <div>
-            <div style={h1}>🗺 EXPEDITION</div>
+            <div style={h1}>{t('🗺 EXPEDITION')}</div>
             <div style={{ color: C.txt, opacity: 0.5, fontSize: '10px', marginTop: '3px' }}>
-              DAY {gs?.day} — {sortiesLeft}/{sortiesPerDay(gs)} sorties left before nightfall
+              {t('DAY {day} — {left}/{max} sorties left before nightfall', { day: gs?.day, left: sortiesLeft, max: sortiesPerDay(gs) })}
             </div>
           </div>
-          <div style={{ color: C.dng, fontWeight: 'bold', fontSize: '20px' }}>WAVE {gs?.wave}/{BALANCE.maxWaves}</div>
+          <div style={{ color: C.dng, fontWeight: 'bold', fontSize: '20px' }}>{t('WAVE {n}/{max}', { n: gs?.wave, max: BALANCE.maxWaves })}</div>
         </div>
         <hr style={hr} />
 
         {expPhase === null && (
           <>
-            <div style={h2}>CHOOSE PARTY (max {BALANCE.maxExpeditionParty})</div>
+            <div style={h2}>{t('CHOOSE PARTY (max {n})', { n: BALANCE.maxExpeditionParty })}</div>
             <div style={row}>{gs?.soldiers?.map((s, i) => {
               if (s.state === 'dead') return null;
               const picked = expSoldierIdxs.includes(i);
@@ -1696,7 +1726,7 @@ export default function DeadPerimeter() {
                 </div>
               );
             })}</div>
-            <div style={h2}>CHOOSE DESTINATION</div>
+            <div style={h2}>{t('CHOOSE DESTINATION')}</div>
             {gs && <CityMap city={ensureCity(gsRef.current || gs)} dests={expDests} selected={expDestIdx} onPick={pickDest} day={gs.day} jobs={ensureQuests(gsRef.current || gs).active} />}
             {gs && expDestIdx !== null && expDests[expDestIdx] && expDests[expDestIdx].locId === 'compound' && (
               <CompactPanel gs={gsRef.current || gs} sortiesPerDay={sortiesPerDay(gsRef.current || gs)}
@@ -1705,7 +1735,7 @@ export default function DeadPerimeter() {
             {/* Loadout selector — how many magazines each soldier carries */}
             <div style={{ marginTop: '10px', background: 'rgba(8,16,8,0.7)', border: `1px solid ${C.uib}`, padding: '8px 12px' }}>
               <div style={{ fontSize: '11px', color: C.txt, marginBottom: '6px', letterSpacing: '.04em' }}>
-                LOADOUT — magazines per soldier
+                {t('LOADOUT — magazines per soldier')}
               </div>
               <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap' }}>
                 {[1, 2, 3, 4].map(n => (
@@ -1716,16 +1746,16 @@ export default function DeadPerimeter() {
                       fontSize: '11px', padding: '4px 14px',
                     }}
                     onClick={() => { setMagsPerSoldier(n); magsRef.current = n; }}
-                  >{n} MAG{n > 1 ? 'S' : ''}</button>
+                  >{n > 1 ? t('{n} MAGS', { n }) : t('{n} MAG', { n })}</button>
                 ))}
               </div>
               <div style={{ fontSize: '9px', marginTop: '6px', color: sortieAmmoCovered ? C.txt : C.dng, opacity: 0.9 }}>
-                Stash cost:{' '}
+                {t('Stash cost:')}{' '}
                 {sortieAmmoCost.ammo > 0       && <>🔫 {sortieAmmoCost.ammo}{sortieAmmoCost.sniperAmmo > 0 ? '  ·  ' : ''}</>}
                 {sortieAmmoCost.sniperAmmo > 0 && <>🎯 {sortieAmmoCost.sniperAmmo}</>}
-                {(sortieAmmoCost.ammo + sortieAmmoCost.sniperAmmo) === 0 && <span style={{ opacity: 0.5 }}>(pick a party first)</span>}
+                {(sortieAmmoCost.ammo + sortieAmmoCost.sniperAmmo) === 0 && <span style={{ opacity: 0.5 }}>{t('(pick a party first)')}</span>}
                 {!sortieAmmoCovered && (sortieAmmoCost.ammo + sortieAmmoCost.sniperAmmo) > 0 && (
-                  <span style={{ marginLeft: '8px' }}>⚠ stash short — soldiers will go in light</span>
+                  <span style={{ marginLeft: '8px' }}>{t('⚠ stash short — soldiers will go in light')}</span>
                 )}
               </div>
             </div>
@@ -1734,14 +1764,14 @@ export default function DeadPerimeter() {
                 style={btn('#1a3a18')}
                 disabled={!partyValid || expDestIdx === null || !canSortie || !rationsOk || !slotsOk}
                 onClick={playMission}
-              >{expDestIdx !== null && expDests[expDestIdx] && expDests[expDestIdx].faction ? '⚔ ASSAULT THE COMPOUND' : '🎮 LAUNCH SORTIE'}</button>
-              {rationsOk && !slotsOk && <span style={{ alignSelf: 'center', fontSize: '10px', color: C.dng }}>Too far for today: this trip takes the whole day (2 sorties)</span>}
-              {!rationsOk && <span style={{ alignSelf: 'center', fontSize: '10px', color: C.dng }}>Not enough food for the trip: need {rationsNeed} 🥫</span>}
+              >{expDestIdx !== null && expDests[expDestIdx] && expDests[expDestIdx].faction ? t('⚔ ASSAULT THE COMPOUND') : t('🎮 LAUNCH SORTIE')}</button>
+              {rationsOk && !slotsOk && <span style={{ alignSelf: 'center', fontSize: '10px', color: C.dng }}>{t('Too far for today: this trip takes the whole day (2 sorties)')}</span>}
+              {!rationsOk && <span style={{ alignSelf: 'center', fontSize: '10px', color: C.dng }}>{t('Not enough food for the trip: need {n} 🥫', { n: rationsNeed })}</span>}
             </div>
             <div style={{ fontSize: '9px', color: C.txt, opacity: 0.5, marginTop: '8px', lineHeight: '1.5' }}>
-              You control the first picked soldier; the others follow as AI (auto-shoot in range, knife on dry mag). Lead death = mission failed — but a surviving follower takes point. When a soldier burns through every magazine they holster the firearm and switch to a knife.
-              {!expeditionsUnlocked && <><br /><b style={{ color: C.dng }}>LOCKED</b>: expeditions unlock from wave 2 onward.</>}
-              {expeditionsUnlocked && sortiesLeft <= 0 && <><br /><b style={{ color: C.dng }}>NIGHTFALL</b>: no more sorties today — survive the next wave to dispatch again.</>}
+              {t('You control the first picked soldier; the others follow as AI (auto-shoot in range, knife on dry mag). Lead death = mission failed — but a surviving follower takes point. When a soldier burns through every magazine they holster the firearm and switch to a knife.')}
+              {!expeditionsUnlocked && <><br /><b style={{ color: C.dng }}>{t('LOCKED')}</b>: {t('expeditions unlock from wave 2 onward.')}</>}
+              {expeditionsUnlocked && sortiesLeft <= 0 && <><br /><b style={{ color: C.dng }}>{t('NIGHTFALL')}</b>: {t('no more sorties today — survive the next wave to dispatch again.')}</>}
             </div>
           </>
         )}
@@ -1749,18 +1779,18 @@ export default function DeadPerimeter() {
         {(expPhase === 'running' || expPhase === 'done') && (
           <div style={{ background: 'rgba(4,12,4,0.9)', border: `1px solid ${C.uib}`, padding: '14px 16px', minHeight: '180px' }}>
             <div style={{ fontSize: '10px', color: C.txt, opacity: 0.5, marginBottom: '10px', letterSpacing: '.05em' }}>
-              {expResult?.destName?.toUpperCase()} — MISSION LOG
+              {tDestName(expResult?.destName)?.toUpperCase()} — {t('MISSION LOG')}
             </div>
             {expEvents.slice(0, expVisible).map((ev, i) => (
               <div key={i} style={{ display: 'flex', gap: '10px', alignItems: 'flex-start', marginBottom: '8px', opacity: i < expVisible - 1 ? 0.7 : 1, transition: 'opacity 0.3s' }}>
                 <span style={{ fontSize: '14px', flexShrink: 0 }}>{ev.icon}</span>
-                <span style={{ fontSize: '12px', color: ev.col, lineHeight: '1.5' }}>{ev.text}</span>
+                <span style={{ fontSize: '12px', color: ev.col, lineHeight: '1.5' }}>{t(ev.text)}</span>
               </div>
             ))}
             {expPhase === 'running' && (
               <div style={{ display: 'flex', gap: '4px', marginTop: '8px' }}>
                 {[0, 1, 2].map(i => (<div key={i} style={{ width: '6px', height: '6px', borderRadius: '50%', background: C.uib, opacity: 0.3 + i * 0.3 }} />))}
-                <span style={{ fontSize: '10px', color: C.txt, opacity: 0.5, marginLeft: '6px' }}>transmitting...</span>
+                <span style={{ fontSize: '10px', color: C.txt, opacity: 0.5, marginLeft: '6px' }}>{t('transmitting...')}</span>
               </div>
             )}
           </div>
@@ -1769,7 +1799,7 @@ export default function DeadPerimeter() {
         {expPhase === 'done' && expResult && (
           <div style={{ background: expResult.outcome === 'success' ? 'rgba(10,40,10,0.9)' : expResult.outcome === 'injured' ? 'rgba(50,35,8,0.9)' : 'rgba(50,8,8,0.9)', border: `1px solid ${expResult.outcome === 'success' ? C.acc : expResult.outcome === 'injured' ? C.wrn : C.dng}`, padding: '10px 14px', marginTop: '10px' }}>
             <div style={{ fontWeight: 'bold', fontSize: '13px', color: expResult.outcome === 'success' ? C.acc : expResult.outcome === 'injured' ? C.wrn : C.dng }}>
-              {expResult.outcome === 'success' ? '✦ MISSION SUCCESS' : expResult.outcome === 'injured' ? '⚠ RETURNED INJURED' : '✖ SOLDIER LOST'}
+              {expResult.outcome === 'success' ? t('✦ MISSION SUCCESS') : expResult.outcome === 'injured' ? t('⚠ RETURNED INJURED') : t('✖ SOLDIER LOST')}
             </div>
             {Object.keys(expResult.reward || {}).length > 0 && (() => {
               // Split positive recoveries from the foodCost line so the
@@ -1780,28 +1810,28 @@ export default function DeadPerimeter() {
                 <>
                   {Object.keys(gained).length > 0 && (
                     <div style={{ fontSize: '11px', color: C.acc, marginTop: '5px' }}>
-                      Recovered: {Object.entries(gained).map(([k, v]) => `${k} +${v}`).join('  ·  ')}
+                      {t('Recovered:')} {Object.entries(gained).map(([k, v]) => `${t(k)} +${v}`).join('  ·  ')}
                     </div>
                   )}
                   {gear && gear.length > 0 && (
-                    <div style={{ fontSize: '11px', color: '#ffd54a', marginTop: '3px' }}>🔫 To the armory: <b>{gear.join(', ')}</b></div>
+                    <div style={{ fontSize: '11px', color: '#ffd54a', marginTop: '3px' }}>{t('🔫 To the armory:')} <b>{gear.map(g => t(g)).join(', ')}</b></div>
                   )}
                   {levelUps && levelUps.length > 0 && (
-                    <div style={{ fontSize: '11px', color: '#ffd54a', marginTop: '3px' }}>★ Level up: {levelUps.join(' · ')}</div>
+                    <div style={{ fontSize: '11px', color: '#ffd54a', marginTop: '3px' }}>{t('★ Level up:')} {levelUps.join(' · ')}</div>
                   )}
                   {lootLost && (
                     <div style={{ fontSize: '11px', color: C.dng, marginTop: '3px' }}>
-                      Nobody made it back — the loot is lost: {Object.entries(lootLost).map(([k, v]) => `${k} ${v}`).join(' · ')}
+                      {t('Nobody made it back — the loot is lost:')} {Object.entries(lootLost).map(([k, v]) => `${t(k)} ${v}`).join(' · ')}
                     </div>
                   )}
                   {returnedAmmo > 0 && (
                     <div style={{ fontSize: '11px', color: C.txt, marginTop: '3px' }}>
-                      Unused magazines back in the stash: +{returnedAmmo} rounds
+                      {t('Unused magazines back in the stash: +{n} rounds', { n: returnedAmmo })}
                     </div>
                   )}
                   {foodCost > 0 && (
                     <div style={{ fontSize: '11px', color: C.wrn, marginTop: '3px' }}>
-                      Eaten on the road: −{foodCost} 🥫
+                      {t('Eaten on the road: −{n} 🥫', { n: foodCost })}
                     </div>
                   )}
                 </>
@@ -1809,31 +1839,31 @@ export default function DeadPerimeter() {
             })()}
             {expResult.compact && (
               <div style={{ fontSize: '12px', color: expResult.compact.fallen ? '#ffd54a' : C.dng, marginTop: '5px', fontWeight: 'bold' }}>
-                🏴 {expResult.compact.line}
+                🏴 {t(expResult.compact.line)}
               </div>
             )}
             {(expResult.quests || []).map(q => (
               <div key={q.id} style={{ fontSize: '11px', color: '#ffd54a', marginTop: '5px', borderLeft: '2px solid #ffd54a', paddingLeft: '6px' }}>
-                📋 <b>JOB DONE — {q.title}</b>{q.reward ? ` · ${q.reward}` : ''}{q.unlock ? ` · 🏗 ${q.unlock} unlocked` : ''}
-                <div style={{ color: C.txt, fontStyle: 'italic', opacity: 0.85 }}>“{q.line}”</div>
+                📋 <b>{t('JOB DONE — {title}', { title: t(q.title) })}</b>{q.reward ? ` · ${tReward(q.reward)}` : ''}{q.unlock ? ` · ${t('🏗 {name} unlocked', { name: t(q.unlock) })}` : ''}
+                <div style={{ color: C.txt, fontStyle: 'italic', opacity: 0.85 }}>“{t(q.line)}”</div>
               </div>
             ))}
             {expResult.discovered && expResult.discovered.length > 0 && (
               <div style={{ fontSize: '11px', color: '#ffd54a', marginTop: '4px' }}>
-                📍 Scouted new locations: <b>{expResult.discovered.join(', ')}</b>
+                {t('📍 Scouted new locations:')} <b>{expResult.discovered.map(n => t(n)).join(', ')}</b>
               </div>
             )}
             {expResult.recruit && (
               <div style={{ fontSize: '11px', color: '#88ddff', marginTop: '4px' }}>
-                👤 <b>{expResult.recruit.name}</b> rescued — reporting for duty ({expResult.recruit.weapon})
+                👤 <b>{expResult.recruit.name}</b> {t('rescued — reporting for duty ({weapon})', { weapon: expResult.recruit.weapon })}
               </div>
             )}
           </div>
         )}
 
         <hr style={hr} />
-        <button style={btn()} onClick={() => { resetExp(); setScr('management'); }}>← BACK TO COMMAND</button>
-        {expPhase !== 'running' && <button style={btn('#1a1a3e', '#4444aa')} onClick={startWave}>⚔ DEPLOY</button>}
+        <button style={btn()} onClick={() => { resetExp(); setScr('management'); }}>{t('← BACK TO COMMAND')}</button>
+        {expPhase !== 'running' && <button style={btn('#1a1a3e', '#4444aa')} onClick={startWave}>{t('⚔ DEPLOY')}</button>}
       </div>
     </div>
   );
@@ -1849,7 +1879,7 @@ export default function DeadPerimeter() {
         </div>
         {scr === 'siege' && (
           <div style={{ display: 'flex', gap: '7px', marginTop: '7px', flexWrap: 'wrap', justifyContent: 'center', alignItems: 'center', width: '100%', maxWidth: CW }}>
-            <button style={ctrlBtn} onClick={() => moveSquad('retreat')}>◀ RETREAT</button>
+            <button style={ctrlBtn} onClick={() => moveSquad('retreat')}>{t('◀ RETREAT')}</button>
             {(() => {
               // Hotkey numbers follow the same order as the 1-9 keys:
               // living, non-rooftop soldiers in roster order.
@@ -1871,27 +1901,27 @@ export default function DeadPerimeter() {
                       cursor: s.onRoof ? 'default' : 'pointer',
                       userSelect: 'none',
                     }}
-                    title={s.onRoof ? 'Rooftop sniper — cannot be moved' : `${isSel ? 'Click to deselect' : 'Click to select & move'}${hk ? ` (key ${hk})` : ''}`}
+                    title={s.onRoof ? t('Rooftop sniper — cannot be moved') : `${isSel ? t('Click to deselect') : t('Click to select & move')}${hk ? ` ${t('(key {k})', { k: hk })}` : ''}`}
                   >
                     <div style={{ display: 'flex', alignItems: 'baseline', gap: '4px' }}>
                       {hk > 0 && hk < 10 && <span style={{ color: '#7a8a6a', fontSize: '8px' }}>{hk}</span>}
                       <span style={{ color: s.ammo === 0 ? C.dng : isSel ? '#fff' : C.acc, fontWeight: 'bold', fontSize: '10px' }}>{s.name}</span>
-                      <span style={{ color: '#7a7a6a', fontSize: '8px' }}>{s.onRoof ? '▲' : 'FMB'[s.lane || 0]}</span>
+                      <span style={{ color: '#7a7a6a', fontSize: '8px' }}>{s.onRoof ? '▲' : t('FMB')[s.lane || 0]}</span>
                       <span style={{ color: s.ammo === 0 ? C.dng : C.txt, fontSize: '9px', marginLeft: 'auto' }}>{s.ammo}/{s.maxAmmo}</span>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '2px' }}>
                       <div style={{ flex: 1, height: '3px', background: '#1a1a1a' }}><div style={{ height: '3px', width: `${hpPct * 100}%`, background: hpCol }} /></div>
-                      <span style={{ color: '#8a9a7a', fontSize: '7px', letterSpacing: '.04em' }}>{stateLbl}</span>
+                      <span style={{ color: '#8a9a7a', fontSize: '7px', letterSpacing: '.04em' }}>{t(stateLbl)}</span>
                     </div>
                   </div>
                 );
               });
             })()}
-            <button style={ctrlBtn} onClick={() => moveSquad('advance')}>ADVANCE ▶</button>
-            <button style={mbtn} onClick={togglePause}>{paused ? '▶ RESUME' : '⏸ PAUSE'}</button>
-            <button style={{ ...mbtn, color: fastOn ? C.wrn : C.txt, borderColor: fastOn ? C.wrn : C.uib }} onClick={toggleSpeed} title="Fast-forward (F)">{fastOn ? '▶▶ 2×' : '▶ 1×'}</button>
-            <button style={mbtn} onClick={() => { const G = gsRef.current; if (G) setZoom(G, zoomOf(G) / 1.25); }} title="Zoom out (− or mouse wheel)">🔍−</button>
-            <button style={mbtn} onClick={() => { const G = gsRef.current; if (G) setZoom(G, zoomOf(G) * 1.25); }} title="Zoom in (+ or mouse wheel)">🔍+</button>
+            <button style={ctrlBtn} onClick={() => moveSquad('advance')}>{t('ADVANCE ▶')}</button>
+            <button style={mbtn} onClick={togglePause}>{paused ? t('▶ RESUME') : t('⏸ PAUSE')}</button>
+            <button style={{ ...mbtn, color: fastOn ? C.wrn : C.txt, borderColor: fastOn ? C.wrn : C.uib }} onClick={toggleSpeed} title={t('Fast-forward (F)')}>{fastOn ? '▶▶ 2×' : '▶ 1×'}</button>
+            <button style={mbtn} onClick={() => { const G = gsRef.current; if (G) setZoom(G, zoomOf(G) / 1.25); }} title={t('Zoom out (− or mouse wheel)')}>🔍−</button>
+            <button style={mbtn} onClick={() => { const G = gsRef.current; if (G) setZoom(G, zoomOf(G) * 1.25); }} title={t('Zoom in (+ or mouse wheel)')}>🔍+</button>
             <button style={mbtn} onClick={toggleMute}>{muted ? '🔇' : '🔊'}</button>
           </div>
         )}
@@ -1899,11 +1929,11 @@ export default function DeadPerimeter() {
           <div style={{ display: 'flex', gap: '8px', marginTop: '8px', flexWrap: 'wrap', justifyContent: 'center', alignItems: 'center', width: '100%', maxWidth: CW }}>
             {missionRef.current && missionRef.current.state === 'active' ? (
               <>
-                <span style={{ color: '#888', fontSize: '10px' }}>A/D move · SPACE or hold mouse: fire · W jump/climb · S down · E enter/exit rooms · Esc pause</span>
+                <span style={{ color: '#888', fontSize: '10px' }}>{t('A/D move · SPACE or hold mouse: fire · W jump/climb · S down · E enter/exit rooms · Esc pause')}</span>
                 {missionRef.current.objective === 'explore' && (
-                  <button style={mbtn} onClick={() => { if (missionRef.current) missionRef.current.inputInteract = true; }} title="Enter / leave a room (E)">🚪 E</button>
+                  <button style={mbtn} onClick={() => { if (missionRef.current) missionRef.current.inputInteract = true; }} title={t('Enter / leave a room (E)')}>🚪 E</button>
                 )}
-                <button style={mbtn} onClick={togglePause}>{paused ? '▶ RESUME' : '⏸ PAUSE'}</button>
+                <button style={mbtn} onClick={togglePause}>{paused ? t('▶ RESUME') : t('⏸ PAUSE')}</button>
                 <button style={mbtn} onClick={toggleMute}>{muted ? '🔇' : '🔊'}</button>
               </>
             ) : vaccineRef.current ? (() => {
@@ -1912,18 +1942,18 @@ export default function DeadPerimeter() {
               const isLast = camp.currentIndex >= VACCINE_SCENARIOS.length - 1;
               const won = m && m.state === 'won';
               const label = won
-                ? (isLast ? '✦ COMPLETE EXTRACTION ✦' : `→ ADVANCE TO ${(VACCINE_SCENARIOS[camp.currentIndex + 1].name).toUpperCase()}`)
-                : '✦ END CAMPAIGN ✦';
+                ? (isLast ? t('✦ COMPLETE EXTRACTION ✦') : t('→ ADVANCE TO {name}', { name: t(VACCINE_SCENARIOS[camp.currentIndex + 1].name).toUpperCase() }))
+                : t('✦ END CAMPAIGN ✦');
               return <button style={btn(won ? '#1a3a18' : '#3a1818')} onClick={advanceOrFinishVaccine}>{label}</button>;
             })() : (
-              <button style={btn('#1a3a18')} onClick={finalizeMission}>✦ RETURN TO BASE ✦</button>
+              <button style={btn('#1a3a18')} onClick={finalizeMission}>{t('✦ RETURN TO BASE ✦')}</button>
             )}
           </div>
         )}
         {scr === 'evac' && (
           <div style={{ display: 'flex', gap: '8px', marginTop: '8px', flexWrap: 'wrap', justifyContent: 'center', alignItems: 'center', width: '100%', maxWidth: CW }}>
-            <span style={{ color: '#88ddff', fontSize: '11px' }}>🚁 Helicopter evac in progress…</span>
-            <button style={mbtn} onClick={skipEvac}>⏩ SKIP</button>
+            <span style={{ color: '#88ddff', fontSize: '11px' }}>{t('🚁 Helicopter evac in progress…')}</span>
+            <button style={mbtn} onClick={skipEvac}>{t('⏩ SKIP')}</button>
           </div>
         )}
       </div>
@@ -1984,7 +2014,8 @@ export default function DeadPerimeter() {
                   {keyRow('Space / Esc / click', 'skip')}
                 </div>
               )}
-              <div style={{ color: '#4a5a40', fontSize: '9px', marginTop: '14px', letterSpacing: '.05em' }}>🔊 click once to enable audio · auto-saves between waves</div>
+              <div style={{ marginTop: '14px' }}><LangSelect /></div>
+              <div style={{ color: '#4a5a40', fontSize: '9px', marginTop: '10px', letterSpacing: '.05em' }}>🔊 click once to enable audio · auto-saves between waves</div>
             </div>
           </div>
         );
@@ -1998,6 +2029,7 @@ export default function DeadPerimeter() {
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '5px' }}>
                 <div style={{ color: C.dng, fontWeight: 'bold', fontSize: '20px' }}>WAVE {gs?.wave || 1}/{BALANCE.maxWaves}</div>
                 <div style={{ display: 'flex', gap: '6px' }}>
+                  <LangSelect compact />
                   <button style={mbtn} onClick={toggleMute}>{muted ? '🔇 MUTED' : '🔊 SOUND'}</button>
                 </div>
               </div>

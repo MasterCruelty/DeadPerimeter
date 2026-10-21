@@ -17,6 +17,7 @@ import { dRadioSubtitle } from '../render/hud.js';
 import { setupMissionExtras, tickMissionExtras, bulletHitsSide } from './missionExtras.js';
 import { dMissionExtras, dMissionExtrasHUD } from '../render/missionExtras.js';
 import { pushRadio } from '../audio/radio.js';
+import { t } from '../i18n/index.js';
 
 // Hurt-callout helper (same logic as siege): fires once when a party
 // member's HP drops below 35% of max, resets above 60%.
@@ -58,7 +59,7 @@ function promoteLeadOnDeath(m, now) {
   heir.forkLane = oldLead.forkLane || 0;
   heir._laneY   = oldLead._laneY   || 0;
   m.soldier = heir;
-  m.effects.push({ type: 'txt', x: heir.x, y: MGY - 90, v: `LEAD DOWN — ${heir.name.toUpperCase()} TAKING POINT`, col: '#ff8844', at: now, dur: 2600 });
+  m.effects.push({ type: 'txt', x: heir.x, y: MGY - 90, v: t('LEAD DOWN — {name} TAKING POINT', { name: heir.name.toUpperCase() }), col: '#ff8844', at: now, dur: 2600 });
   pushRadio(m, 'advance', { line: "I've got point!", urgent: true, speaker: heir });
   return true;
 }
@@ -658,7 +659,7 @@ function meleeHit(m, who, tgt, now) {
   m.effects.push({ type: 'slash', x: tgt.x + who.facing * 10, y: MGY - 28 + (tgt.standingY || 0), at: now, dur: 230 });
   m.effects.push({ type: 'txt', x: tgt.x, y: MGY - 58 + (tgt.standingY || 0), v: `-${ms.dmg}`, col: '#ffcc44', at: now, dur: 600 });
   const broke = wearMelee(who);
-  if (broke) m.effects.push({ type: 'txt', x: who.x, y: MGY - 90, v: `${MELEE[broke].name.toUpperCase()} BROKE`, col: C.dng, at: now, dur: 1200 });
+  if (broke) m.effects.push({ type: 'txt', x: who.x, y: MGY - 90, v: t('{w} BROKE', { w: t(MELEE[broke].name).toUpperCase() }), col: C.dng, at: now, dur: 1200 });
   if (tgt.hp <= 0) {
     tgt.hp = 0; tgt.state = 'dead'; tgt.deadAt = now;
     m.soundQ.push({ t: 'zdie', zt: tgt.type, x: tgt.x }); m.killedCount++;
@@ -752,7 +753,7 @@ export function updateMission(m, now, dt) {
     if (m._vaccineScenarioName) {
       m.effects.push({
         type: 'txt', x: m.soldier.x, y: MGY - 140,
-        v: m._vaccineScenarioName.toUpperCase(),
+        v: t(m._vaccineScenarioName).toUpperCase(),
         col: '#ffcc44', at: now, dur: 3200,
       });
     }
@@ -774,7 +775,7 @@ export function updateMission(m, now, dt) {
       m._vaccineCarrierId = null;
       m.effects.push({
         type: 'txt', x: dropX, y: MGY - 60,
-        v: '💉 VACCINE DROPPED — RECOVER IT',
+        v: t('💉 VACCINE DROPPED — RECOVER IT'),
         col: '#ff8844', at: now, dur: 2600,
       });
     }
@@ -995,7 +996,7 @@ export function updateMission(m, now, dt) {
       // Trip on contact with any party member
       if (aliveParty(m).some(p => Math.abs(p.x - r.x) < 32)) {
         r.state = 'following';
-        m.effects.push({ type: 'txt', x: r.x, y: MGY - 70, v: `${r.name} JOINED`, col: '#88ddff', at: now, dur: 1100 });
+        m.effects.push({ type: 'txt', x: r.x, y: MGY - 70, v: t('{name} JOINED', { name: r.name }), col: '#88ddff', at: now, dur: 1100 });
       }
     } else if (r.state === 'following') {
       // Stay ~70 px behind the lead's facing
@@ -1228,7 +1229,7 @@ export function updateMission(m, now, dt) {
     if (!m.defendStartedAt && Math.abs(s.x - m.defendAnchor) < 32) {
       m.defendStartedAt = now;
       m.defendNextSpawn = now + 800;
-      m.effects.push({ type: 'txt', x: s.x, y: MGY - 80, v: 'HOLD POSITION!', col: '#ff8800', at: now, dur: 1800 });
+      m.effects.push({ type: 'txt', x: s.x, y: MGY - 80, v: t('HOLD POSITION!'), col: '#ff8800', at: now, dur: 1800 });
     }
     if (m.defendStartedAt) {
       const elapsed = now - m.defendStartedAt;
@@ -1276,13 +1277,13 @@ export function updateMission(m, now, dt) {
         m.activatedCount++;
         m.effects.push({
           type: 'txt', x: m.defendAnchor, y: MGY - 120,
-          v: '⚠ BRUTE INBOUND — FOCUS FIRE',
+          v: t('⚠ BRUTE INBOUND — FOCUS FIRE'),
           col: '#ff3322', at: now, dur: 3600,
         });
         // Screen-shake feel via a follow-up callout 2.5 s later
         m.effects.push({
           type: 'txt', x: m.defendAnchor, y: MGY - 96,
-          v: 'HEAVY ON THE STAIRS', col: '#ff8844',
+          v: t('HEAVY ON THE STAIRS'), col: '#ff8844',
           at: now + 800, dur: 2400,
         });
       }
@@ -1303,7 +1304,7 @@ export function updateMission(m, now, dt) {
           soldierEmbarked: { [m.soldier.id]: false },
         };
         (m.followers || []).forEach(f => { m.extraction.soldierEmbarked[f.id] = false; });
-        m.effects.push({ type: 'txt', x: s.x, y: MGY - 100, v: 'EXTRACTION INBOUND', col: '#88ddff', at: now, dur: 2400 });
+        m.effects.push({ type: 'txt', x: s.x, y: MGY - 100, v: t('EXTRACTION INBOUND'), col: '#88ddff', at: now, dur: 2400 });
         pushRadio(m, 'evacIn', { line: 'Convoy rolling in!', speaker: m.soldier });
       }
     }
@@ -1320,7 +1321,7 @@ export function updateMission(m, now, dt) {
         e.x = e.stopX;
         e.phase = 'boarding';
         e.boardStart = now;
-        m.effects.push({ type: 'txt', x: s.x, y: MGY - 90, v: 'BOARD UP!', col: '#88ee99', at: now, dur: 1800 });
+        m.effects.push({ type: 'txt', x: s.x, y: MGY - 90, v: t('BOARD UP!'), col: '#88ee99', at: now, dur: 1800 });
         pushRadio(m, 'evacBoard', { line: 'Mount up! Move move move!', urgent: true, speaker: m.soldier });
       }
     } else if (e.phase === 'boarding') {
@@ -1502,7 +1503,7 @@ export function updateMission(m, now, dt) {
     aliveParty(m).forEach(p => {
       if (Math.abs(p.x - h.x) > radius) return;
       p.hp -= h.dmg; p.hurtTimer = 320;
-      m.effects.push({ type: 'txt', x: p.x, y: MGY - 70, v: `MINE -${h.dmg}`, col: '#ff4400', at: now, dur: 1200 });
+      m.effects.push({ type: 'txt', x: p.x, y: MGY - 70, v: t('MINE -{n}', { n: h.dmg }), col: '#ff4400', at: now, dur: 1200 });
       if (p.hp <= 0) {
         p.hp = 0; p.state = 'dead';
         if (p.id === s.id) promoteLeadOnDeath(m, now);
@@ -1613,7 +1614,7 @@ export function updateMission(m, now, dt) {
         m.killedCount++;
         if (b.src) b.src._kills = (b.src._kills || 0) + 1;
         if (humanHit.colonel) {
-          m.effects.push({ type: 'txt', x: humanHit.x, y: MGY - 110, v: '★ COL. VOSS DOWN', col: '#ffd54a', at: now, dur: 2600 });
+          m.effects.push({ type: 'txt', x: humanHit.x, y: MGY - 110, v: t('★ COL. VOSS DOWN'), col: '#ffd54a', at: now, dur: 2600 });
           pushRadio(m, 'kill', { line: 'The colonel is down! Their line is breaking!', speaker: m.soldier, cooldown: 0 });
         }
         missionKillChatter(m, m.soldier);
@@ -1651,7 +1652,7 @@ export function updateMission(m, now, dt) {
         if (b.src) b.src._kills = (b.src._kills || 0) + 1;
         m.soundQ.push({ t: 'zdie', zt: hit.type, x: hit.x });
         if (hit.type === 'brute') {
-          m.effects.push({ type: 'txt', x: hit.x, y: MGY - 110, v: '☠ BRUTE DOWN', col: '#ffcc44', at: now, dur: 2400 });
+          m.effects.push({ type: 'txt', x: hit.x, y: MGY - 110, v: t('☠ BRUTE DOWN'), col: '#ffcc44', at: now, dur: 2400 });
           pushRadio(m, 'kill', { line: 'Big one is down!', speaker: m.soldier, cooldown: 0 });
         }
         m.killedCount++;
@@ -1712,7 +1713,7 @@ export function updateMission(m, now, dt) {
       m.effects.push({
         type: 'txt',
         x: o.x, y: MGY - 70,
-        v: `+${value} ${type}`,
+        v: t('+{n} {res}', { n: value, res: t(type) }),
         col: type === 'ammo' || type === 'sniperAmmo' || type === 'turretAmmo' ? '#88ddff' : C.acc,
         at: now, dur: 1200,
       });
@@ -1740,19 +1741,19 @@ export function updateMission(m, now, dt) {
       p.collected = true;
       if (p.type === 'civilian') {
         m.collected.civilian = true;
-        m.effects.push({ type: 'txt', x: p.x, y: MGY - 70, v: 'CIVILIAN!', col: '#88ddff', at: now, dur: 1000 });
+        m.effects.push({ type: 'txt', x: p.x, y: MGY - 70, v: t('CIVILIAN!'), col: '#88ddff', at: now, dur: 1000 });
       } else if (p.type === 'lostSoldier') {
         m.collected.lostSoldier = true;
-        m.effects.push({ type: 'txt', x: p.x, y: MGY - 70, v: 'LOST SOLDIER!', col: '#ffd54a', at: now, dur: 1200 });
+        m.effects.push({ type: 'txt', x: p.x, y: MGY - 70, v: t('LOST SOLDIER!'), col: '#ffd54a', at: now, dur: 1200 });
       } else if (p.type === 'quest') {
         (m.collected.quests || (m.collected.quests = [])).push(p.questId);
         m.soundQ.push({ t: 'pickup', x: p.x });
-        m.effects.push({ type: 'txt', x: p.x, y: MGY - 96 + (p.standingY || 0), v: `📋 ${p.label.toUpperCase()} — BRING IT HOME`, col: '#ffd54a', at: now, dur: 2400 });
-        pushRadio(m, 'kill', { line: `Got the ${p.label.toLowerCase()}. Back to the van!`, speaker: grabber, cooldown: 0 });
+        m.effects.push({ type: 'txt', x: p.x, y: MGY - 96 + (p.standingY || 0), v: t('📋 {item} — BRING IT HOME', { item: t(p.label).toUpperCase() }), col: '#ffd54a', at: now, dur: 2400 });
+        pushRadio(m, 'kill', { line: 'Got the {item}. Back to the van!', params: { item: t(p.label).toLowerCase() }, speaker: grabber, cooldown: 0 });
       } else if (p.type === 'gear') {
         (m.collected.gear || (m.collected.gear = [])).push(p.item);
         m.soundQ.push({ t: 'pickup', x: p.x });
-        m.effects.push({ type: 'txt', x: p.x, y: MGY - 80 + (p.standingY || 0), v: `${gearIcon(p.item)} ${gearName(p.item).toUpperCase()}!`, col: '#ffd54a', at: now, dur: 1800 });
+        m.effects.push({ type: 'txt', x: p.x, y: MGY - 80 + (p.standingY || 0), v: `${gearIcon(p.item)} ${t(gearName(p.item)).toUpperCase()}!`, col: '#ffd54a', at: now, dur: 1800 });
       } else if (p.type === 'vaccine') {
         // Vaccine sample (hospital scenario): stamp the carrier so
         // the renderer can draw the vial above their head, and so
@@ -1761,10 +1762,10 @@ export function updateMission(m, now, dt) {
         m._vaccineCollected = true;
         m._vaccineCarrierId = grabber.id;
         m._vaccineDropped = false;
-        m.effects.push({ type: 'txt', x: p.x, y: MGY - 70, v: '💉 VACCINE SECURED', col: '#88ff88', at: now, dur: 1800 });
+        m.effects.push({ type: 'txt', x: p.x, y: MGY - 70, v: t('💉 VACCINE SECURED'), col: '#88ff88', at: now, dur: 1800 });
       } else {
         m.collected[p.type] += p.value;
-        m.effects.push({ type: 'txt', x: p.x, y: MGY - 70, v: `+${p.value} ${p.type}`, col: C.acc, at: now, dur: 900 });
+        m.effects.push({ type: 'txt', x: p.x, y: MGY - 70, v: t('+{n} {res}', { n: p.value, res: t(p.type) }), col: C.acc, at: now, dur: 900 });
       }
     }
   });
@@ -1794,7 +1795,7 @@ export function updateMission(m, now, dt) {
         const left = need - m.killedCount;
         m.effects.push({
           type: 'txt', x: s.x, y: MGY - 70,
-          v: left > 0 ? `${left} HOSTILE${left === 1 ? '' : 'S'} LEFT` : 'BRUTE BLOCKS THE EXIT',
+          v: left > 0 ? (left === 1 ? t('{n} HOSTILE LEFT', { n: left }) : t('{n} HOSTILES LEFT', { n: left })) : t('BRUTE BLOCKS THE EXIT'),
           col: '#cc3333', at: now, dur: 1400,
         });
       }
@@ -2052,7 +2053,7 @@ function dExtractionAPC(ctx, e, now) {
   // Boarding-phase prompt above the truck
   if (e.phase === 'boarding') {
     ctx.fillStyle = '#88ee99'; ctx.font = 'bold 11px monospace'; ctx.textAlign = 'center';
-    ctx.fillText('◀ BOARD UP', x + 10, y - 64 + bob);
+    ctx.fillText(t('◀ BOARD UP'), x + 10, y - 64 + bob);
     ctx.textAlign = 'left';
   }
 }
@@ -2266,7 +2267,7 @@ function dProp(ctx, p) {
     ctx.fillStyle = '#1a1410'; ctx.fillRect(x - 18, py, 36, 28);
     ctx.fillStyle = '#9a8868'; ctx.fillRect(x - 16, py + 2, 32, 24);
     ctx.fillStyle = '#1a1410'; ctx.font = 'bold 6px monospace'; ctx.textAlign = 'center';
-    ctx.fillText('WANTED', x, py + 11);
+    ctx.fillText(t('WANTED'), x, py + 11);
     ctx.fillStyle = '#3a2818'; ctx.fillRect(x - 10, py + 14, 20, 8);
     ctx.textAlign = 'left';
   } else if (p.type === 'wall-flag') {
@@ -2283,7 +2284,7 @@ function dProp(ctx, p) {
     ctx.fillStyle = '#1a0a0a'; ctx.fillRect(x - 18, py, 36, 14);
     ctx.fillStyle = '#dd3322'; ctx.fillRect(x - 16, py + 2, 32, 10);
     ctx.fillStyle = '#fff'; ctx.font = 'bold 8px monospace'; ctx.textAlign = 'center';
-    ctx.fillText('EXIT', x, py + 10);
+    ctx.fillText(t('EXIT'), x, py + 10);
     ctx.fillStyle = 'rgba(220,50,30,0.20)';
     ctx.beginPath(); ctx.arc(x, py + 7, 22, 0, Math.PI * 2); ctx.fill();
     ctx.textAlign = 'left';
@@ -2323,7 +2324,7 @@ function dObstacle(ctx, o) {
       ctx.fillStyle = '#36321e'; ctx.fillRect(x - 14, MGY - 20, 28, 20);
       ctx.fillStyle = '#1a1814'; ctx.fillRect(x - 14, MGY - 20, 28, 3);
       ctx.fillStyle = '#cc9900'; ctx.font = 'bold 7px monospace'; ctx.textAlign = 'center';
-      ctx.fillText('AMMO', x, MGY - 8); ctx.textAlign = 'left';
+      ctx.fillText(t('AMMO'), x, MGY - 8); ctx.textAlign = 'left';
       ctx.fillStyle = '#1a1814'; ctx.fillRect(x - 14, MGY - 4, 28, 2);
       break;
     }
@@ -2419,7 +2420,7 @@ function dObstacle(ctx, o) {
       ctx.fillStyle = '#7a6a48'; ctx.fillRect(x - 14, MGY - 16, 28, 16);
       ctx.fillStyle = '#5a4a30'; ctx.fillRect(x - 14, MGY - 16, 28, 3);
       ctx.fillStyle = '#cc8800'; ctx.font = 'bold 6px monospace'; ctx.textAlign = 'center';
-      ctx.fillText('EVIDENCE', x, MGY - 6); ctx.textAlign = 'left';
+      ctx.fillText(t('EVIDENCE'), x, MGY - 6); ctx.textAlign = 'left';
       break;
     }
     // ── Indoor: Gun Shop ────────────────────────────────────
@@ -2599,7 +2600,7 @@ function dDoorway(ctx, x, indoor) {
   ctx.fillStyle = '#1a1410';
   ctx.fillRect(fx + 6, fy - 26, doorW - 12, 14);
   ctx.fillStyle = '#cc8800'; ctx.font = 'bold 8px monospace'; ctx.textAlign = 'center';
-  ctx.fillText('ENTER', x, fy - 16);
+  ctx.fillText(t('ENTER'), x, fy - 16);
   ctx.textAlign = 'left';
   // Hinge bolts on the sign
   ctx.fillStyle = '#2a2018'; ctx.fillRect(fx + 8, fy - 24, 2, 2); ctx.fillRect(fx + doorW - 10, fy - 24, 2, 2);
@@ -2676,7 +2677,7 @@ export function dMissionWorld(ctx, m, now) {
     ctx.fillStyle = '#cc8800';
     ctx.fillRect(f.startX - 18, MGY - 88, 36, 18);
     ctx.fillStyle = '#fff'; ctx.font = 'bold 7px monospace'; ctx.textAlign = 'center';
-    ctx.fillText('FORK', f.startX, MGY - 78);
+    ctx.fillText(t('FORK'), f.startX, MGY - 78);
     ctx.fillText('↑W ↓S', f.startX, MGY - 71);
     ctx.textAlign = 'left';
   }
@@ -2708,7 +2709,7 @@ export function dMissionWorld(ctx, m, now) {
       dObstacle(ctx, o);
       ctx.restore();
       ctx.fillStyle = 'rgba(120,120,110,0.6)'; ctx.font = '7px monospace'; ctx.textAlign = 'center';
-      ctx.fillText('(empty)', o.x, MGY - 28);
+      ctx.fillText(t('(empty)'), o.x, MGY - 28);
       ctx.textAlign = 'left';
     } else {
       dObstacle(ctx, o);
@@ -2926,14 +2927,14 @@ export function dMissionWorld(ctx, m, now) {
     ctx.moveTo(ax + 1, MGY - 68); ctx.lineTo(ax + 26, MGY - 60); ctx.lineTo(ax + 1, MGY - 52);
     ctx.closePath(); ctx.fill();
     ctx.fillStyle = C.acc; ctx.font = 'bold 10px monospace'; ctx.textAlign = 'center';
-    ctx.fillText('★ LAST STAND ★', ax, MGY - 80); ctx.textAlign = 'left';
+    ctx.fillText(t('★ LAST STAND ★'), ax, MGY - 80); ctx.textAlign = 'left';
   } else if (m.objective !== 'explore') {   // explore: you leave by the van
     const goalX = MISSION_W - 30;
     const pulse = 0.6 + 0.4 * Math.sin(now / 300);
     ctx.fillStyle = `rgba(114,188,64,${pulse * 0.4})`;
     ctx.fillRect(goalX - 3, MGY - 120, 6, 120);
     ctx.fillStyle = C.acc; ctx.font = 'bold 11px monospace';
-    ctx.fillText('★ GOAL ★', goalX - 26, MGY - 128);
+    ctx.fillText(t('★ GOAL ★'), goalX - 26, MGY - 128);
   }
 
   ctx.restore();
@@ -2955,15 +2956,15 @@ export function dMissionHUD(ctx, m, now) {
   // ── Destination + objective (truncated so it never runs into the bar)
   const riskCol = m.dest.risk === 'HIGH' ? '#dd4444' : m.dest.risk === 'MED' ? C.wrn : C.acc;
   ctx.font = 'bold 12px monospace'; ctx.fillStyle = C.acc; ctx.textAlign = 'left';
-  let title = `${m.dest.icon ? m.dest.icon + ' ' : ''}${m.dest.name.toUpperCase()}`;
+  let title = `${m.dest.icon ? m.dest.icon + ' ' : ''}${t(m.dest.name).toUpperCase()}`;
   while (ctx.measureText(title).width > 196 && title.length > 4) title = title.slice(0, -2) + '…';
   ctx.fillText(title, 12, 17);
   ctx.font = '9px monospace';
-  ctx.fillStyle = riskCol; ctx.fillText(`${m.dest.risk || ''}`, 12, 32);
+  ctx.fillStyle = riskCol; ctx.fillText(t(m.dest.risk || ''), 12, 32);
   ctx.fillStyle = C.txt;
-  ctx.fillText(m.objective === 'defend' ? '· HOLD THE FLAG'
-    : m.room ? `· ${roomKind(m.room.door).name.toUpperCase()} · E AT THE EXIT`
-    : m.objective === 'explore' ? '· EXPLORE · BACK TO VAN TO LEAVE' : '· REACH THE EXIT', 48, 32);
+  ctx.fillText(m.objective === 'defend' ? t('· HOLD THE FLAG')
+    : m.room ? t('· {room} · E AT THE EXIT', { room: t(roomKind(m.room.door).name).toUpperCase() })
+    : m.objective === 'explore' ? t('· EXPLORE · BACK TO VAN TO LEAVE') : t('· REACH THE EXIT'), 48, 32);
 
   // ── Route bar with markers (entrance, fork, defend flag, exit, party, boss)
   const px = 226, pw = 340, ph = 8, py = 11;
@@ -3016,20 +3017,20 @@ export function dMissionHUD(ctx, m, now) {
     const down = troops.filter(h => h.state === 'dead').length;
     const voss = troops.some(h => h.colonel && h.state === 'dead');
     ctx.fillStyle = voss || down >= Math.ceil(troops.length * 0.8) ? C.acc : '#d8b060';
-    ctx.fillText(`🏴 GARRISON ${down}/${troops.length}${voss ? ' · VOSS DOWN' : ''}`, px, 33);
+    ctx.fillText(t('🏴 GARRISON {a}/{b}', { a: down, b: troops.length }) + (voss ? t(' · VOSS DOWN') : ''), px, 33);
   } else if (m.objective === 'explore') {
     ctx.fillStyle = C.txt;
-    ctx.fillText(`☠ KILLS ${m.killedCount || 0}`, px, 33);
-  } else ctx.fillText(`HOSTILES ${cleared}/${need || 0}`, px, 33);
+    ctx.fillText(t('☠ KILLS {n}', { n: m.killedCount || 0 }), px, 33);
+  } else ctx.fillText(t('HOSTILES {a}/{b}', { a: cleared, b: need || 0 }), px, 33);
   const total = (m.rescuables || []).length;
   if (total > 0) {
     const following = (m.rescuables || []).filter(r => r.state === 'following' && r.hp > 0).length;
     ctx.fillStyle = '#88ddff';
-    ctx.fillText(`👤 RESCUE ${following}/${total}`, px + 110, 33);
+    ctx.fillText(t('👤 RESCUE {a}/{b}', { a: following, b: total }), px + 110, 33);
   }
   if (m._vaccineCampaign) {
     ctx.fillStyle = m._vaccineCollected && !m._vaccineDropped ? '#88ff88' : m._vaccineDropped ? '#ff8844' : 'rgba(184,204,170,0.6)';
-    ctx.fillText(m._vaccineCollected ? (m._vaccineDropped ? '💉 VIAL DROPPED' : '💉 VIAL SECURED') : '💉 VIAL —', px + 222, 33);
+    ctx.fillText(m._vaccineCollected ? (m._vaccineDropped ? t('💉 VIAL DROPPED') : t('💉 VIAL SECURED')) : t('💉 VIAL —'), px + 222, 33);
   }
 
   // ── Lead status: HP + ammo + spare magazines
@@ -3048,9 +3049,9 @@ export function dMissionHUD(ctx, m, now) {
   ctx.fillText(`${Math.max(0, Math.round(s.hp))}`, 754, 14);
   const knife = s.ammo <= 0 && (s.magsLeft || 0) <= 0;
   ctx.fillStyle = knife ? C.dng : s.ammo <= 4 ? C.wrn : C.acc; ctx.font = 'bold 10px monospace';
-  ctx.fillText(knife ? '🔪 KNIFE' : s.state === 'reload' ? 'RELOADING…' : `AMMO ${s.ammo}/${s.maxAmmo}`, 590, 31);
+  ctx.fillText(knife ? t('🔪 KNIFE') : s.state === 'reload' ? t('RELOADING…') : t('AMMO {a}/{b}', { a: s.ammo, b: s.maxAmmo }), 590, 31);
   ctx.fillStyle = (s.magsLeft || 0) === 0 ? C.dng : C.txt; ctx.font = '9px monospace';
-  ctx.fillText(`MAGS ${'▮'.repeat(Math.min(6, s.magsLeft || 0))}${(s.magsLeft || 0) === 0 ? '0' : ''}`, 690, 31);
+  ctx.fillText(`${t('MAGS')} ${'▮'.repeat(Math.min(6, s.magsLeft || 0))}${(s.magsLeft || 0) === 0 ? '0' : ''}`, 690, 31);
 
   // ── Loot collected this sortie
   ctx.font = '10px monospace';
@@ -3091,7 +3092,7 @@ export function dMissionHUD(ctx, m, now) {
     ctx.fillStyle = '#2a0808'; ctx.fillRect(bx, by + 9, bw, 6);
     ctx.fillStyle = '#dd3322'; ctx.fillRect(bx, by + 9, bw * Math.max(0, boss.hp / boss.maxHp), 6);
     ctx.fillStyle = '#ffb0a0'; ctx.font = 'bold 9px monospace'; ctx.textAlign = 'center';
-    ctx.fillText('☠ BRUTE', CW_ / 2, by + 7); ctx.textAlign = 'left';
+    ctx.fillText(t('☠ BRUTE'), CW_ / 2, by + 7); ctx.textAlign = 'left';
   }
 
   // Defend timer overlay (under the HUD so it never covers the route bar)
@@ -3103,7 +3104,7 @@ export function dMissionHUD(ctx, m, now) {
       ctx.fillStyle = 'rgba(0,0,0,0.78)'; ctx.fillRect(CW_ / 2 - 80, ty, 160, 24);
       ctx.strokeStyle = '#ff8800'; ctx.lineWidth = 1; ctx.strokeRect(CW_ / 2 - 79.5, ty + 0.5, 159, 23);
       ctx.fillStyle = '#ff8800'; ctx.font = 'bold 13px monospace'; ctx.textAlign = 'center';
-      ctx.fillText(m.extraction ? '🚚 EXTRACTION' : `⌛ DEFEND ${left}s`, CW_ / 2, ty + 16); ctx.textAlign = 'left';
+      ctx.fillText(m.extraction ? t('🚚 EXTRACTION') : t('⌛ DEFEND {s}s', { s: left }), CW_ / 2, ty + 16); ctx.textAlign = 'left';
       const p = 1 - left / total;
       ctx.fillStyle = '#1a1a1a'; ctx.fillRect(CW_ / 2 - 78, ty + 20, 156, 3);
       ctx.fillStyle = '#ff8800'; ctx.fillRect(CW_ / 2 - 78, ty + 20, 156 * p, 3);
@@ -3111,15 +3112,15 @@ export function dMissionHUD(ctx, m, now) {
       ctx.fillStyle = 'rgba(0,0,0,0.78)'; ctx.fillRect(CW_ / 2 - 110, ty, 220, 22);
       ctx.strokeStyle = '#ff8800'; ctx.lineWidth = 1; ctx.strokeRect(CW_ / 2 - 109.5, ty + 0.5, 219, 21);
       ctx.fillStyle = '#ff8800'; ctx.font = 'bold 11px monospace'; ctx.textAlign = 'center';
-      ctx.fillText('REACH THE DEFEND FLAG →', CW_ / 2, ty + 15); ctx.textAlign = 'left';
+      ctx.fillText(t('REACH THE DEFEND FLAG →'), CW_ / 2, ty + 15); ctx.textAlign = 'left';
     }
   }
 
   ctx.fillStyle = 'rgba(160,170,120,0.55)'; ctx.font = '9px monospace';
   ctx.fillText(
     m.fork && m.soldier.x >= m.fork.startX - 80 && m.soldier.x <= m.fork.endX
-      ? 'A/D MOVE · SPACE FIRE · W/S SWITCH ROAD · ESC PAUSE'
-      : 'A/D MOVE · SPACE FIRE (hold = strafe) · W JUMP/CLIMB · S DOWN · ESC PAUSE',
+      ? t('A/D MOVE · SPACE FIRE · W/S SWITCH ROAD · ESC PAUSE')
+      : t('A/D MOVE · SPACE FIRE (hold = strafe) · W JUMP/CLIMB · S DOWN · ESC PAUSE'),
     12, CH - 12,
   );
 
@@ -3128,15 +3129,15 @@ export function dMissionHUD(ctx, m, now) {
     ctx.fillStyle = `rgba(0,0,0,${f * 0.7})`; ctx.fillRect(0, 0, CW_, CH);
     ctx.fillStyle = m.state === 'won' ? C.acc : C.dng;
     ctx.font = 'bold 36px monospace'; ctx.textAlign = 'center';
-    ctx.fillText(m.state === 'won' ? '★ MISSION SUCCESS ★' : '✖ MISSION FAILED', CW_ / 2, CH / 2 - 20);
+    ctx.fillText(m.state === 'won' ? t('★ MISSION SUCCESS ★') : t('✖ MISSION FAILED'), CW_ / 2, CH / 2 - 20);
     ctx.font = '12px monospace'; ctx.fillStyle = C.txt;
-    ctx.fillText(m.state === 'won' ? 'Returning to Fort Omega...' : `${m.soldier.name} did not return.`, CW_ / 2, CH / 2 + 10);
+    ctx.fillText(m.state === 'won' ? t('Returning to Fort Omega...') : t('{name} did not return.', { name: m.soldier.name }), CW_ / 2, CH / 2 + 10);
     // Debrief line: kills + haul (lost missions forfeit the haul).
     const haul = Object.entries(m.collected)
       .filter(([k, v]) => typeof v === 'number' && v > 0 && k !== 'rescuedCivs')
       .map(([k, v]) => `${objIcons[k] || k} ${v}`).join('   ');
     ctx.fillStyle = 'rgba(184,204,170,0.8)'; ctx.font = '11px monospace';
-    ctx.fillText(`☠ ${m.killedCount} kills${m.state === 'won' && haul ? '   ·   ' + haul : ''}`, CW_ / 2, CH / 2 + 34);
+    ctx.fillText(t('☠ {n} kills', { n: m.killedCount }) + (m.state === 'won' && haul ? '   ·   ' + haul : ''), CW_ / 2, CH / 2 + 34);
     ctx.textAlign = 'left';
   }
 
@@ -3151,16 +3152,16 @@ export function dMissionHUD(ctx, m, now) {
     ctx.fillStyle = 'rgba(10,18,10,0.96)'; ctx.fillRect(x, y, w, h);
     ctx.strokeStyle = C.acc; ctx.lineWidth = 2; ctx.strokeRect(x, y, w, h);
     ctx.fillStyle = C.acc; ctx.font = 'bold 14px monospace'; ctx.textAlign = 'center';
-    ctx.fillText('SURVIVOR CAMP — TRADE OFFER', CW_ / 2, y + 24);
+    ctx.fillText(t('SURVIVOR CAMP — TRADE OFFER'), CW_ / 2, y + 24);
     ctx.fillStyle = C.txt; ctx.font = '11px monospace';
-    ctx.fillText('"We can spare some supplies — but it\'s not free."', CW_ / 2, y + 46);
-    ctx.fillText(`They offer: ${offer.desc}`, CW_ / 2, y + 64);
+    ctx.fillText(t('"We can spare some supplies — but it\'s not free."'), CW_ / 2, y + 46);
+    ctx.fillText(t('They offer: {desc}', { desc: t(offer.desc) }), CW_ / 2, y + 64);
 
     const fmt = obj => Object.entries(obj).map(([k, v]) => `${v} ${objIcons[k] || k}`).join('   ');
     ctx.fillStyle = '#ff8855'; ctx.font = 'bold 12px monospace';
-    ctx.fillText(`YOU GIVE: ${fmt(offer.give)}`,  CW_ / 2, y + 92);
+    ctx.fillText(t('YOU GIVE: {list}', { list: fmt(offer.give) }),  CW_ / 2, y + 92);
     ctx.fillStyle = '#88ddff';
-    ctx.fillText(`YOU GET:  ${fmt(offer.get)}`,   CW_ / 2, y + 112);
+    ctx.fillText(t('YOU GET:  {list}', { list: fmt(offer.get) }),   CW_ / 2, y + 112);
 
     // Two buttons at the bottom
     const bw = 200, bh = 32, by = y + h - bh - 16;
@@ -3168,11 +3169,11 @@ export function dMissionHUD(ctx, m, now) {
     ctx.fillStyle = '#1a3a18'; ctx.fillRect(ax, by, bw, bh);
     ctx.strokeStyle = C.acc; ctx.strokeRect(ax, by, bw, bh);
     ctx.fillStyle = C.acc; ctx.font = 'bold 12px monospace';
-    ctx.fillText('✓ ACCEPT', ax + bw / 2, by + 21);
+    ctx.fillText(t('✓ ACCEPT'), ax + bw / 2, by + 21);
     ctx.fillStyle = '#3a1818'; ctx.fillRect(rx, by, bw, bh);
     ctx.strokeStyle = C.dng; ctx.strokeRect(rx, by, bw, bh);
     ctx.fillStyle = C.dng;
-    ctx.fillText('✖ REFUSE (fight)', rx + bw / 2, by + 21);
+    ctx.fillText(t('✖ REFUSE (fight)'), rx + bw / 2, by + 21);
     ctx.fillStyle = 'rgba(184,204,170,0.55)'; ctx.font = '9px monospace';
     ctx.fillText('[Y]', ax + bw / 2, by + bh + 11);
     ctx.fillText('[N]', rx + bw / 2, by + bh + 11);
@@ -3180,7 +3181,7 @@ export function dMissionHUD(ctx, m, now) {
 
     if (m.dialog._error) {
       ctx.fillStyle = C.dng; ctx.font = '10px monospace'; ctx.textAlign = 'center';
-      ctx.fillText(m.dialog._error, CW_ / 2, by - 8);
+      ctx.fillText(t(m.dialog._error), CW_ / 2, by - 8);
       ctx.textAlign = 'left';
     }
 

@@ -16,6 +16,7 @@ import { BIOMES } from '../data/biomes.js';
 import { pickupValue } from '../data/rewards.js';
 import { FOUND_GUNS, MELEE_FINDS } from '../data/weapons.js';
 import { MGY, setMissionWidth } from '../data/expeditions.js';
+import { t } from '../i18n/index.js';
 
 export const ROOM_W = 900;
 export const ROOM_EXIT_X = 70;
@@ -129,7 +130,7 @@ export function enterRoom(m, door, party, now) {
   hideFallen(m, true);
   const K = ROOM_KINDS[door.kind];
   m.soundQ.push({ t: 'thud', x: ROOM_EXIT_X });
-  m.effects.push({ type: 'txt', x: ROOM_EXIT_X + 120, y: MGY - 110, v: `🚪 ${K.name.toUpperCase()}${door.visited ? '' : ' — CHECK IT'}`, col: '#e8d8b0', at: now, dur: 1800 });
+  m.effects.push({ type: 'txt', x: ROOM_EXIT_X + 120, y: MGY - 110, v: `🚪 ${t(K.name).toUpperCase()}${door.visited ? '' : t(' — CHECK IT')}`, col: '#e8d8b0', at: now, dur: 1800 });
   door.visited = true;
 }
 
