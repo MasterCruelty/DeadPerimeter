@@ -23,6 +23,7 @@ import { pushRadio } from '../audio/radio.js';
 import { waveMul } from '../data/rewards.js';
 import { gearName } from '../entities/gear.js';
 import { streetSpot, segAt } from './cityMission.js';
+import { t } from '../i18n/index.js';
 export { MISSION_CONDS, SIDE_OBJ } from '../data/missionExtras.js';
 
 function mz(type, x, activated, extra = {}) {
@@ -122,7 +123,7 @@ export function bulletHitsSide(m, b, now) {
     const mats = Math.round(12 * k), meds = Math.round(5 * k);
     m.collected.materials += mats; m.collected.medicine += meds;
     m.soundQ.push({ t: 'explosion', x: sd.x });
-    m.effects.push({ type: 'txt', x: sd.x, y: MGY - 110, v: `NEST DESTROYED  +${mats} 🔧 +${meds} 💊`, col: '#ffcc44', at: now, dur: 2400 });
+    m.effects.push({ type: 'txt', x: sd.x, y: MGY - 110, v: t('NEST DESTROYED  +{m} 🔧 +{d} 💊', { m: mats, d: meds }), col: '#ffcc44', at: now, dur: 2400 });
     pushRadio(m, 'kill', { line: 'Nest is burning!', speaker: m.soldier, cooldown: 0 });
   }
   return true;
@@ -136,7 +137,7 @@ export function tickMissionExtras(m, now, dt, party) {
     m.alarm.triggered = true; m.alarm.at = now;
     m.soundQ.push({ t: 'siren' });
     pushRadio(m, 'baseHit', { line: 'Car alarm! Here they come!', urgent: true, speaker: lead, cooldown: 0 });
-    m.effects.push({ type: 'txt', x: m.alarm.x, y: MGY - 120, v: '🚨 CAR ALARM', col: '#ff9944', at: now, dur: 2200 });
+    m.effects.push({ type: 'txt', x: m.alarm.x, y: MGY - 120, v: t('🚨 CAR ALARM'), col: '#ff9944', at: now, dur: 2200 });
     const n = 3 + Math.floor(Math.random() * 3) + (m.dest.risk === 'HIGH' ? 1 : 0);
     const ahead = Array.from({ length: Math.ceil(n / 2) }, (_, i) => m.alarm.x + 420 + i * 40);
     const behind = Array.from({ length: Math.floor(n / 2) }, (_, i) => m.alarm.x - 420 - i * 40);
@@ -165,10 +166,10 @@ export function tickMissionExtras(m, now, dt, party) {
         if (Math.random() < 0.35) {
           const item = { kind: 'gun', w: Math.random() < 0.5 ? 'ak' : 'hunting' };
           (c.gear || (c.gear = [])).push(item);
-          m.effects.push({ type: 'txt', x: sd.x, y: MGY - 124, v: `🔫 ${gearName(item).toUpperCase()}!`, col: '#ffd54a', at: now, dur: 2600 });
+          m.effects.push({ type: 'txt', x: sd.x, y: MGY - 124, v: `🔫 ${t(gearName(item)).toUpperCase()}!`, col: '#ffd54a', at: now, dur: 2600 });
         }
         m.soundQ.push({ t: 'pickup', x: sd.x });
-        m.effects.push({ type: 'txt', x: sd.x, y: MGY - 100, v: `CACHE OPEN  +${got.ammo} 🔫 +${got.sniperAmmo} 🎯 +${got.turretAmmo} 🟠 +${got.medicine} 💊`, col: '#ffd54a', at: now, dur: 2600 });
+        m.effects.push({ type: 'txt', x: sd.x, y: MGY - 100, v: t('CACHE OPEN  +{a} 🔫 +{s} 🎯 +{tu} 🟠 +{m} 💊', { a: got.ammo, s: got.sniperAmmo, tu: got.turretAmmo, m: got.medicine }), col: '#ffd54a', at: now, dur: 2600 });
       }
     }
   } else if (sd.type === 'nest') {
@@ -190,7 +191,7 @@ export function tickMissionExtras(m, now, dt, party) {
     } else if (elapsed > sd.timeLimit) {
       r.hp = 0; r.state = 'dead';
       sd.state = 'failed'; sd.endedAt = now;
-      m.effects.push({ type: 'txt', x: r.x, y: MGY - 90, v: 'SOS SIGNAL LOST', col: '#ee5544', at: now, dur: 2400 });
+      m.effects.push({ type: 'txt', x: r.x, y: MGY - 90, v: t('SOS SIGNAL LOST'), col: '#ee5544', at: now, dur: 2400 });
       pushRadio(m, 'hurt', { line: 'SOS went quiet... we were too late.', speaker: lead, cooldown: 0 });
     }
   }

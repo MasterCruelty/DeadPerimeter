@@ -7,6 +7,7 @@ import { ZTP } from '../data/zombies.js';
 import { pushRadio } from '../audio/radio.js';
 import { dRadioSubtitle } from './hud.js';
 import { speakOrChatter } from '../audio/radioVoice.js';
+import { t } from '../i18n/index.js';
 
 // Sprite scaling + reuse helpers (mirrors the intro module's versions
 // so dSoldier / dZombie can be rendered at arbitrary scale + foot Y).
@@ -433,8 +434,8 @@ function dBreach(ctx, defeat, ph, now) {
   // Banner
   const a = Math.min(1, ph.t * 4) - Math.max(0, (ph.t - 0.8) * 5);
   ctx.globalAlpha = Math.max(0, a);
-  centerText(ctx, 'THE WALL IS BREACHED', 60, { size: 18, color: '#ff5544', shadow: 0.7 });
-  centerText(ctx, '— hostile contact at the gate —', 80, { size: 11, color: '#ffaa88' });
+  centerText(ctx, t('THE WALL IS BREACHED'), 60, { size: 18, color: '#ff5544', shadow: 0.7 });
+  centerText(ctx, t('— hostile contact at the gate —'), 80, { size: 11, color: '#ffaa88' });
   ctx.globalAlpha = 1;
 }
 
@@ -450,8 +451,8 @@ function dOverrun(ctx, defeat, ph, now) {
   }
   const a = Math.min(1, ph.t * 6) - Math.max(0, (ph.t - 0.85) * 7);
   ctx.globalAlpha = Math.max(0, a);
-  centerText(ctx, 'PERIMETER OVERRUN', 60, { size: 18, color: '#ff5544', shadow: 0.7 });
-  centerText(ctx, '— last positions, last bullets —', 80, { size: 11, color: '#ffaa88' });
+  centerText(ctx, t('PERIMETER OVERRUN'), 60, { size: 18, color: '#ff5544', shadow: 0.7 });
+  centerText(ctx, t('— last positions, last bullets —'), 80, { size: 11, color: '#ffaa88' });
   ctx.globalAlpha = 1;
 }
 
@@ -466,8 +467,8 @@ function dLastStand(ctx, defeat, ph, now) {
   ctx.fillStyle = `rgba(180,20,20,${pulse})`; ctx.fillRect(0, 0, CW, CH);
   const a = Math.min(1, ph.t * 6) - Math.max(0, (ph.t - 0.85) * 7);
   ctx.globalAlpha = Math.max(0, a);
-  centerText(ctx, 'LAST STAND', 60, { size: 18, color: '#ffaa44', shadow: 0.7 });
-  centerText(ctx, '— one rifle, one mag, one wall —', 80, { size: 11, color: '#ffcc88' });
+  centerText(ctx, t('LAST STAND'), 60, { size: 18, color: '#ffaa44', shadow: 0.7 });
+  centerText(ctx, t('— one rifle, one mag, one wall —'), 80, { size: 11, color: '#ffcc88' });
   ctx.globalAlpha = 1;
 }
 
@@ -513,16 +514,16 @@ function dSilence(ctx, defeat, ph, now) {
   ctx.globalAlpha = titleA;
   ctx.fillStyle = '#e8d0a0'; ctx.font = 'bold 42px monospace'; ctx.textAlign = 'center';
   ctx.shadowColor = '#cc2222'; ctx.shadowBlur = 18;
-  ctx.fillText('FORT OMEGA HAS FALLEN', CW / 2, 130);
+  ctx.fillText(t('FORT OMEGA HAS FALLEN'), CW / 2, 130);
   ctx.shadowBlur = 0;
   ctx.fillStyle = '#cc6644'; ctx.font = '11px monospace';
   ctx.fillText('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', CW / 2, 150);
   ctx.textAlign = 'left';
 
   ctx.globalAlpha = sub1A;
-  centerText(ctx, 'THEY HELD UNTIL THE LAST ROUND',  178, { size: 13, color: '#ccc6b0', shadow: 0.5 });
+  centerText(ctx, t('THEY HELD UNTIL THE LAST ROUND'),  178, { size: 13, color: '#ccc6b0', shadow: 0.5 });
   ctx.globalAlpha = sub2A;
-  centerText(ctx, '— no relief ever came —',         206, { size: 11, color: '#cc9988', weight: 'normal' });
+  centerText(ctx, t('— no relief ever came —'),         206, { size: 11, color: '#cc9988', weight: 'normal' });
   ctx.globalAlpha = 1;
 }
 
@@ -579,19 +580,19 @@ function dCommandRoom(ctx, defeat, ph, now) {
   ctx.fillText('FORT OMEGA', fx + 12, fy + 3);
   // Map label
   ctx.fillStyle = '#22cc44'; ctx.font = 'bold 10px monospace';
-  ctx.fillText('SECTOR 7-W  /  TACTICAL OVERLAY', mx + 8, my - 6);
+  ctx.fillText(t('SECTOR 7-W  /  TACTICAL OVERLAY'), mx + 8, my - 6);
   // Other outpost labels (already dark by now)
   ctx.fillStyle = '#553030'; ctx.font = '8px monospace';
-  ctx.fillText('SITE BRAVO — LOST', mx + 200, my + 60);
-  ctx.fillText('SITE ECHO — LOST', mx + 200, my + 84);
-  ctx.fillText('SITE NOVA — LOST',  mx + 200, my + 108);
+  ctx.fillText(t('SITE BRAVO — LOST'), mx + 200, my + 60);
+  ctx.fillText(t('SITE ECHO — LOST'), mx + 200, my + 84);
+  ctx.fillText(t('SITE NOVA — LOST'),  mx + 200, my + 108);
 
   // Right console panel: comms terminal
   const px = mx + mw + 20, py = my, pw = CW - px - 60, ph_ = mh;
   ctx.fillStyle = '#0a0e0a'; ctx.fillRect(px, py, pw, ph_);
   ctx.strokeStyle = '#22441c'; ctx.lineWidth = 2; ctx.strokeRect(px + 0.5, py + 0.5, pw - 1, ph_ - 1);
   ctx.fillStyle = '#22cc44'; ctx.font = 'bold 11px monospace';
-  ctx.fillText('COMMS', px + 8, py + 16);
+  ctx.fillText(t('COMMS'), px + 8, py + 16);
   // Waveform animation (alive while a line is being voiced)
   const speakLine = COMMAND_LINES.slice().reverse().find(l => local >= l.at && local < l.at + 4000);
   const speaking = !!speakLine;
@@ -612,7 +613,7 @@ function dCommandRoom(ctx, defeat, ph, now) {
   let logY = py + 84;
   COMMAND_LINES.forEach(l => {
     if (local < l.at) return;
-    const txt = `> ${l.text}`;
+    const txt = `> ${t(l.text)}`;
     const a = Math.min(1, (local - l.at) / 800);
     ctx.globalAlpha = a;
     // Soft wrap
@@ -650,7 +651,7 @@ function dCommandRoom(ctx, defeat, ph, now) {
 
   // Header band on the top letterbox
   ctx.fillStyle = '#22cc44'; ctx.font = 'bold 11px monospace'; ctx.textAlign = 'center';
-  ctx.fillText('CENTRAL COMMAND  /  OPERATIONS ROOM', CW / 2, 15);
+  ctx.fillText(t('CENTRAL COMMAND  /  OPERATIONS ROOM'), CW / 2, 15);
   ctx.textAlign = 'left';
 
   // Title that lands at the end
@@ -660,9 +661,9 @@ function dCommandRoom(ctx, defeat, ph, now) {
     ctx.fillStyle = 'rgba(0,0,0,0.78)';
     ctx.fillRect(60, CH - 110, CW - 120, 60);
     ctx.fillStyle = '#e8d0a0'; ctx.font = 'bold 18px monospace'; ctx.textAlign = 'center';
-    ctx.fillText('SECTOR 7-W — DARK', CW / 2, CH - 84);
+    ctx.fillText(t('SECTOR 7-W — DARK'), CW / 2, CH - 84);
     ctx.fillStyle = '#cc6644'; ctx.font = '11px monospace';
-    ctx.fillText('all units, all callsigns, no contact', CW / 2, CH - 66);
+    ctx.fillText(t('all units, all callsigns, no contact'), CW / 2, CH - 66);
     ctx.textAlign = 'left';
     ctx.globalAlpha = 1;
   }
@@ -710,7 +711,7 @@ export function dDefeatScene(ctx, defeat, now) {
   ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(CW - 96, 28, 80, 22);
   ctx.strokeStyle = C.uib; ctx.strokeRect(CW - 96, 28, 80, 22);
   ctx.fillStyle = C.acc; ctx.font = 'bold 11px monospace'; ctx.textAlign = 'center';
-  ctx.fillText('SKIP →', CW - 56, 43); ctx.textAlign = 'left';
+  ctx.fillText(t('SKIP →'), CW - 56, 43); ctx.textAlign = 'left';
   defeat._skipBtn = { x: CW - 96, y: 28, w: 80, h: 22 };
 
   // Radio subtitle for the defender voice lines.

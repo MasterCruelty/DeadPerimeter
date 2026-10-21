@@ -1,13 +1,14 @@
 // Job board logic (data in data/quests.js): offers, accepting, mission
 // hooks (quest items / people placed at the target location), completion
 // and rewards, and the fort upgrades unlocked by the main story.
-import { NPCS, STORY, MAX_ACTIVE, FORT_UNLOCKS, SIDE_THANKS, sideJob } from '../data/quests.js';
+import { NPCS, STORY, MAX_ACTIVE, FORT_UNLOCKS, SIDE_THANKS, sideJob, withArticle, FETCH_OFFER, CLEAR_OFFER, DELIVER_OFFER } from '../data/quests.js';
 import { LOCATIONS, ensureCity } from '../data/city.js';
 import { BALANCE } from '../data/difficulty.js';
 import { FOUND_GUNS, WPN } from '../data/weapons.js';
 import { stashGear } from '../entities/gear.js';
 import { mkSoldier } from '../entities/soldier.js';
 import { addXp } from '../data/progression.js';
+import { t } from '../i18n/index.js';
 
 export function ensureQuests(gs) {
   if (!gs.quests) gs.quests = {};
@@ -27,16 +28,33 @@ export const sortiesPerDay = gs => BALANCE.expeditionsPerDay + (hasUnlock(gs, 'r
 export const healCost = gs => (hasUnlock(gs, 'infirmary') ? 3 : 5);
 export const turretMaterials = gs => Math.round(BALANCE.turretCostMaterials * (hasUnlock(gs, 'generator') ? 0.6 : 1));
 
+// English name (ids and saves); tLocName for display.
 export const locName = id => (LOCATIONS.find(l => l.id === id) || {}).name || id;
-export const jobText = job => (job.offer || '').replace('{loc}', job.loc ? locName(job.loc) : '');
+const tLocName = id => t(locName(id));
+
+// Everything below returns display text in the current language. Saved
+// jobs keep their English fields; side-job offers are rebuilt from the
+// job's kind / item / location, so offers stored by older versions
+// (already filled in English) display translated too.
+export const jobTitle = job => t(job.title);
+const isSide = job => !job.story && !STORY.some(s => s.id === job.id);
+export function jobText(job) {
+  const side = isSide(job);
+  if (side && job.kind === 'fetch' && job.item) return t(FETCH_OFFER, { item: t(withArticle(job.item)), loc: tLocName(job.loc) });
+  if (side && job.kind === 'clear') return t(CLEAR_OFFER, { loc: tLocName(job.loc) });
+  if (side && job.kind === 'deliver') return t(DELIVER_OFFER);
+  return t(job.offer || '').replace('{loc}', job.loc ? tLocName(job.loc) : '');
+}
+
+const resList = b => Object.entries(b || {}).map(([k, v]) => `${v} ${t(k)}`).join(', ');
 
 // Short objective line for HUDs and lists.
 export function jobGoal(job) {
-  if (job.kind === 'fetch') return `Recover the ${job.item} — ${locName(job.loc)}`;
-  if (job.kind === 'rescue') return `Bring ${job.person} home — ${locName(job.loc)}`;
-  if (job.kind === 'clear') return `Clear ${locName(job.loc)} (infestation < ${Math.round(job.below * 100)}%)`;
-  if (job.kind === 'deliver') return `Hand over ${Object.entries(job.need).map(([k, v]) => `${v} ${k}`).join(', ')}`;
-  return job.title;
+  if (job.kind === 'fetch') return t('Recover the {item} — {loc}', { item: t(job.item), loc: tLocName(job.loc) });
+  if (job.kind === 'rescue') return t('Bring {person} home — {loc}', { person: t(job.person), loc: tLocName(job.loc) });
+  if (job.kind === 'clear') return t('Clear {loc} (infestation < {pct}%)', { loc: tLocName(job.loc), pct: Math.round(job.below * 100) });
+  if (job.kind === 'deliver') return t('Hand over {list}', { list: resList(job.need) });
+  return t(job.title);
 }
 
 // Fill empty offer slots (called whenever the command center opens).
@@ -80,8 +98,19 @@ export const jobsAt = (gs, locId) => ensureQuests(gs).active
   .filter(j => j.loc === locId && (j.kind === 'fetch' || j.kind === 'rescue'))
   .map(j => ({ id: j.id, kind: j.kind, item: j.item, person: j.person }));
 
-const rewardText = r => Object.entries(r || {}).filter(([k, v]) => v && k !== 'xp' && k !== 'gear')
-  .map(([k, v]) => `+${v} ${k}`).concat(r && r.gear ? ['a weapon'] : []).join(', ');
+// "+12 medicine, a weapon" (translated). `tr` = false gives the English
+// text stored in the journal for older readers of the save.
+export const rewardText = (r, tr = t) => Object.entries(r || {}).filter(([k, v]) => v && k !== 'xp' && k !== 'gear')
+  .map(([k, v]) => `+${v} ${tr ? tr(k) : k}`).concat(r && r.gear ? [tr ? tr('a weapon') : 'a weapon'] : []).join(', ');
+const gunText = (w, tr = t) => (w && WPN[w] ? ` + ${tr ? tr(WPN[w].name) : WPN[w].name}` : '');
+// Offer card reward line: fort upgrade or resources.
+export const offerReward = job => (job.unlock && FORT_UNLOCKS[job.unlock]
+  ? `🏗 ${t(FORT_UNLOCKS[job.unlock].name)} — ${t(FORT_UNLOCKS[job.unlock].desc)}`
+  : rewardText(job.reward));
+// Journal entry text (entries from older saves only have the English).
+export const logTitle = e => t(e.title);
+export const logReward = e => (e.res ? rewardText(e.res) + gunText(e.gun) : t(e.reward));
+export const unlockName = k => (k && FORT_UNLOCKS[k] ? t(FORT_UNLOCKS[k].name) : null);
 
 function grant(gs, job) {
   const q = ensureQuests(gs);
@@ -93,10 +122,10 @@ function grant(gs, job) {
     if (k === 'xp' || k === 'gear' || typeof v !== 'number') return;
     gs.resources[k] = Math.min(caps[k] || 999, (gs.resources[k] || 0) + v);
   });
-  let extra = '';
+  let gun = null;
   if (r.gear) {
-    const w = FOUND_GUNS[Math.floor(Math.random() * FOUND_GUNS.length)];
-    stashGear(gs, { kind: 'gun', w }); extra = ` + ${WPN[w].name}`;
+    gun = FOUND_GUNS[Math.floor(Math.random() * FOUND_GUNS.length)];
+    stashGear(gs, { kind: 'gun', w: gun });
   }
   const xp = r.xp || job.xp || 0;
   if (xp) gs.soldiers.forEach(s => { if (s.state !== 'dead') addXp(s, Math.round(xp / 2)); });
@@ -123,12 +152,16 @@ function grant(gs, job) {
   }
   if (!job.story) q.nextSide[job.npc] = (gs.day || 1) + 1;
   // Journal entry (newest first, capped).
-  q.log.unshift({ day: gs.day || 1, npc: job.npc, title: job.title, story: !!job.story, reward: rewardText(r) + extra, unlock: job.unlock || null });
+  // `reward` keeps the English text; `res` / `gun` let logReward
+  // rebuild it in the current language.
+  q.log.unshift({ day: gs.day || 1, npc: job.npc, title: job.title, story: !!job.story,
+    reward: rewardText(r, false) + gunText(gun, false), res: r, gun, unlock: job.unlock || null });
   if (q.log.length > 30) q.log.length = 30;
+  // Shown right away (sortie report / fort note): translated text.
   return {
-    id: job.id, npc: job.npc, title: job.title,
-    line: job.done || (SIDE_THANKS[job.npc] || ['Good work out there.'])[Math.floor(Math.random() * 3)],
-    reward: rewardText(r) + extra, unlock: job.unlock ? FORT_UNLOCKS[job.unlock].name : null,
+    id: job.id, npc: job.npc, title: t(job.title),
+    line: t(job.done || (SIDE_THANKS[job.npc] || ['Good work out there.'])[Math.floor(Math.random() * 3)]),
+    reward: rewardText(r) + gunText(gun), unlock: unlockName(job.unlock),
   };
 }
 

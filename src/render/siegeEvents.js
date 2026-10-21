@@ -5,6 +5,7 @@ import { drawSoldierBody } from './actors/people.js';
 import { dContactShadow } from './background.js';
 import { dCrate } from './transmission.js';
 import { crateLeft } from '../update/siegeEvents.js';
+import { t } from '../i18n/index.js';
 
 function marker(ctx, x, y, label, col, now) {
   const b = Math.sin(now / 160) * 3;
@@ -43,7 +44,7 @@ export function dSiegeEvent(ctx, gs, now) {
   ctx.save(); ctx.translate(ev.x, y); ctx.scale(sc, sc);
   dCrate(ctx, 0, 0, ev.landed ? 0 : 1, now);
   ctx.restore();
-  if (ev.landed) marker(ctx, ev.x, y - 14 * sc, 'SUPPLIES', '#ffd54a', now);
+  if (ev.landed) marker(ctx, ev.x, y - 14 * sc, t('SUPPLIES'), '#ffd54a', now);
 }
 
 // Screen-space banner under the HUD bar.
@@ -53,12 +54,12 @@ export function dSiegeEventBanner(ctx, gs, now) {
   const age = now - (ev.endedAt || now);
   if (ev.state !== 'active' && age > 3500) return;
   let text, col;
-  if (ev.state === 'done') { text = ev.type === 'survivor' ? `✔ ${ev.name.toUpperCase()} IS SAFE` : '✔ SUPPLIES RECOVERED'; col = '#88ee99'; }
-  else if (ev.state === 'failed') { text = ev.type === 'survivor' ? `✖ ${ev.name.toUpperCase()} DIDN'T MAKE IT` : '✖ CRATE LOST'; col = '#ee6655'; }
-  else if (ev.type === 'survivor') { text = `🧍 SURVIVOR INBOUND · LANE ${ev.lane + 1} · COVER ${ev.name.toUpperCase()}`; col = '#88ee99'; }
+  if (ev.state === 'done') { text = ev.type === 'survivor' ? t('✔ {name} IS SAFE', { name: ev.name.toUpperCase() }) : t('✔ SUPPLIES RECOVERED'); col = '#88ee99'; }
+  else if (ev.state === 'failed') { text = ev.type === 'survivor' ? t("✖ {name} DIDN'T MAKE IT", { name: ev.name.toUpperCase() }) : t('✖ CRATE LOST'); col = '#ee6655'; }
+  else if (ev.type === 'survivor') { text = t('🧍 SURVIVOR INBOUND · LANE {lane} · COVER {name}', { lane: ev.lane + 1, name: ev.name.toUpperCase() }); col = '#88ee99'; }
   else {
     const left = crateLeft(ev, now);
-    text = left === null ? '📦 SUPPLY DROP INCOMING' : `📦 RECOVER THE CRATE · MOVE A SOLDIER TO IT · ${left}s`;
+    text = left === null ? t('📦 SUPPLY DROP INCOMING') : t('📦 RECOVER THE CRATE · MOVE A SOLDIER TO IT · {s}s', { s: left });
     col = '#ffd54a';
   }
   // Direction hint when the target is off-screen.

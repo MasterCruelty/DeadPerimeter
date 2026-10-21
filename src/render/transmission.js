@@ -2,6 +2,7 @@ import { CW, CH, GY, WX } from '../constants.js';
 import { dBg } from './background.js';
 import { dBase } from './base.js';
 import { dHelicopter } from './evac.js';
+import { t as tr } from '../i18n/index.js';
 
 // Returns the line that should be visible at offsetMs, or null.
 function currentLine(t, offsetMs) {
@@ -118,9 +119,9 @@ export function dTransmissionScene(ctx, t, now) {
   ctx.fillStyle = 'rgba(4,12,6,0.88)'; ctx.fillRect(0, 26, CW, 54);
   ctx.fillStyle = '#22cc44'; ctx.fillRect(0, 26, CW, 1.5); ctx.fillRect(0, 79, CW, 1.5);
   ctx.fillStyle = '#22cc44'; ctx.font = 'bold 18px monospace'; ctx.textAlign = 'center';
-  ctx.fillText(t.data.title, CW / 2, 52);
+  ctx.fillText(tr(t.data.title), CW / 2, 52);
   ctx.fillStyle = '#88ee99'; ctx.font = '11px monospace';
-  ctx.fillText(`${t.data.sender} · DAY ${t.wave} · ENCRYPTED`, CW / 2, 70);
+  ctx.fillText(tr('{sender} · DAY {n} · ENCRYPTED', { sender: tr(t.data.sender), n: t.wave }), CW / 2, 70);
   if (Math.floor(off / 500) % 2 === 0) {
     ctx.fillStyle = '#dd2222';
     ctx.beginPath(); ctx.arc(CW - 60, 48, 5, 0, Math.PI * 2); ctx.fill();
@@ -164,19 +165,19 @@ export function dTransmissionScene(ctx, t, now) {
   if (typeof t.data.dropAt === 'number' && off >= t.data.dropAt) {
     const landed = off >= (t.data.landAt ?? t.data.dropAt + 4000);
     ctx.fillStyle = landed ? '#88ee99' : '#ffcc66'; ctx.font = 'bold 10px monospace';
-    ctx.fillText(landed ? '◆ CRATE ON THE GROUND' : '◇ SUPPLY DROP INBOUND', px + 8, py + ph + 16);
+    ctx.fillText(landed ? tr('◆ CRATE ON THE GROUND') : tr('◇ SUPPLY DROP INBOUND'), px + 8, py + ph + 16);
   }
 
   // Subtitle band
   if (line) {
     ctx.font = '14px monospace'; ctx.textAlign = 'center';
-    const wrapped = wrapTwo(ctx, line.text, CW - 120);
+    const wrapped = wrapTwo(ctx, tr(line.text), CW - 120);
     const bandH = 32 + wrapped.length * 18;
     const by = CH - 110 - (wrapped.length - 1) * 18;
     ctx.fillStyle = 'rgba(0,0,0,0.8)'; ctx.fillRect(40, by, CW - 80, bandH);
     ctx.strokeStyle = '#22cc44'; ctx.lineWidth = 1; ctx.strokeRect(40.5, by + 0.5, CW - 81, bandH - 1);
     ctx.fillStyle = '#ff8866'; ctx.font = 'bold 10px monospace';
-    ctx.fillText(`◯ ${line.speaker}`, CW / 2, by + 14);
+    ctx.fillText(`◯ ${tr(line.speaker)}`, CW / 2, by + 14);
     ctx.fillStyle = '#fff'; ctx.font = '13px monospace';
     // Typewriter reveal, like text coming over the wire.
     const chars = Math.floor(since / 28);
@@ -193,6 +194,6 @@ export function dTransmissionScene(ctx, t, now) {
   ctx.fillStyle = '#0a1410'; ctx.fillRect(40, CH - 26, CW - 80, 4);
   ctx.fillStyle = '#22cc44'; ctx.fillRect(40, CH - 26, (CW - 80) * t01, 4);
   ctx.fillStyle = '#9a9'; ctx.font = '10px monospace'; ctx.textAlign = 'center';
-  ctx.fillText('[SPACE / TAP] to skip', CW / 2, CH - 12);
+  ctx.fillText(tr('[SPACE / TAP] to skip'), CW / 2, CH - 12);
   ctx.textAlign = 'left';
 }

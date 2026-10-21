@@ -5,6 +5,7 @@ import { WPN, FOUND_GUNS } from '../data/weapons.js';
 import { COMPACT, COMPACT_STOCK, STANDING_PER_BUY, tierOf, discountOf, mkCompact } from '../data/faction.js';
 import { stashGear } from '../entities/gear.js';
 import { ensureCity } from '../data/city.js';
+import { t } from '../i18n/index.js';
 
 export function ensureCompact(gs) {
   if (!gs.compact) gs.compact = mkCompact();
@@ -111,11 +112,11 @@ export function assaultOutcome(gs, m) {
     c.status = 'destroyed'; c.guns = 0; c.treasury = { materials: 0, food: 0, medicine: 0, ammo: 0 };
     const st = ensureCity(gs).locs[COMPACT.locId];
     if (st) { st.infest = 0.15; st.loot = 0.1; }
-    return { fallen: true, line: `${COMPACT.name} is finished. Their armory is ours.` };
+    return { fallen: true, line: t('{name} is finished. Their armory is ours.', { name: COMPACT.name }) };
   }
   c.status = 'hostile';
   c.nextRaidDay = gs.day + 1;
-  return { fallen: false, line: `${COMPACT.name} survived the attack. Expect them at the wall.` };
+  return { fallen: false, line: t('{name} survived the attack. Expect them at the wall.', { name: COMPACT.name }) };
 }
 
 // Hostile Compact: every few days a raid replaces the wave's enemies.

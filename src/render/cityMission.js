@@ -5,6 +5,7 @@ import { C } from '../constants.js';
 import { MGY } from '../data/expeditions.js';
 import { VAN_X, leaveProgress } from '../update/cityMission.js';
 import { dRoomsWorld } from './rooms.js';
+import { t } from '../i18n/index.js';
 
 function dVan(ctx, x, now, lit) {
   const y = MGY;
@@ -74,7 +75,7 @@ function dBarricade(ctx, s, now) {
   }
   const b = Math.sin(now / 220) * 2;
   ctx.font = 'bold 9px monospace'; ctx.textAlign = 'center';
-  ctx.fillStyle = '#ff9a6a'; ctx.fillText(s.force > 0 ? 'TEARING DOWN…' : '⛓ BARRICADE', x, y - 106 + b);
+  ctx.fillStyle = '#ff9a6a'; ctx.fillText(s.force > 0 ? t('TEARING DOWN…') : t('⛓ BARRICADE'), x, y - 106 + b);
   ctx.textAlign = 'left';
 }
 
@@ -90,7 +91,7 @@ export function dCityWorld(ctx, m, now) {
     const b = Math.sin(now / 240) * 2;
     ctx.font = 'bold 9px monospace'; ctx.textAlign = 'center';
     ctx.fillStyle = p > 0 ? '#88ee99' : 'rgba(200,220,180,0.8)';
-    ctx.fillText(p > 0 ? 'LOADING UP…' : '🚐 LEAVE HERE', VAN_X, MGY - 62 + b);
+    ctx.fillText(p > 0 ? t('LOADING UP…') : t('🚐 LEAVE HERE'), VAN_X, MGY - 62 + b);
     if (p > 0) {
       ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(VAN_X - 30, MGY - 56, 60, 5);
       ctx.fillStyle = '#88ee99'; ctx.fillRect(VAN_X - 30, MGY - 56, 60 * p, 5);

@@ -11,6 +11,7 @@ import { WX, rng, laneY } from '../constants.js';
 import { BALANCE } from '../data/difficulty.js';
 import { mkZombie } from '../entities/zombie.js';
 import { pushRadio } from '../audio/radio.js';
+import { t } from '../i18n/index.js';
 
 const SURVIVOR_NAMES = ['Lena', 'Marco', 'Rosa', 'Ivan', 'Jun', 'Sami', 'Nora', 'Teo', 'Ada', 'Omar'];
 const CRATE_LIFE = 26000;
@@ -41,7 +42,7 @@ function startEvent(gs, ev, now) {
         gs.zombies.push(z); gs.zombiesSpawned++;
       }
     }
-    pushRadio(gs, 'deploy', { line: `Survivor running for the gate, lane ${ev.lane + 1}! Cover them!`, urgent: true, cooldown: 0 });
+    pushRadio(gs, 'deploy', { line: 'Survivor running for the gate, lane {lane}! Cover them!', params: { lane: ev.lane + 1 }, urgent: true, cooldown: 0 });
   } else {
     ev.x = WX + rng(320, 640); ev.dropY = -320; ev.landed = false;
     if (ev.rich) gs.lastRichCrate = gs.wave;   // the cooldown starts when it actually flies in
@@ -50,9 +51,9 @@ function startEvent(gs, ev, now) {
   }
 }
 
-function finish(gs, ev, ok, now, line) {
+function finish(gs, ev, ok, now, line, params) {
   ev.state = ok ? 'done' : 'failed'; ev.endedAt = now;
-  pushRadio(gs, ok ? 'kill' : 'hurt', { line, cooldown: 0, urgent: !ok });
+  pushRadio(gs, ok ? 'kill' : 'hurt', { line, params, cooldown: 0, urgent: !ok });
 }
 
 export function tickSiegeEvent(gs, now, dt) {
@@ -65,13 +66,13 @@ export function tickSiegeEvent(gs, now, dt) {
     // Any walking dead touching them in their lane chews on them.
     const biters = gs.zombies.filter(z => z.state !== 'dead' && z.lane === ev.lane && Math.abs(z.x - ev.x) < 26);
     if (biters.length) { ev.hp -= biters.length * 0.012 * dt; ev.hurtAt = now; }
-    if (ev.hp <= 0) { finish(gs, ev, false, now, `We lost ${ev.name}...`); return; }
+    if (ev.hp <= 0) { finish(gs, ev, false, now, 'We lost {name}...', { name: ev.name }); return; }
     if (ev.x <= WX + 30) {
       if (!Array.isArray(gs.reserve)) gs.reserve = [];
       if (gs.reserve.length < BALANCE.maxReserveSoldiers) gs.reserve.push({ name: ev.name, weapon: 'pistol', civilian: true, hp: Math.max(20, Math.round(ev.hp * 1.5)) });
       gs.score += 150;
-      gs.effects.push({ type: 'txt', x: WX + 40, y: laneY(ev.lane) - 70, v: `+ ${ev.name} JOINS THE RESERVE`, col: '#88ee99', at: now, dur: 2200 });
-      finish(gs, ev, true, now, `${ev.name} is inside! Good work!`);
+      gs.effects.push({ type: 'txt', x: WX + 40, y: laneY(ev.lane) - 70, v: t('+ {name} JOINS THE RESERVE', { name: ev.name }), col: '#88ee99', at: now, dur: 2200 });
+      finish(gs, ev, true, now, '{name} is inside! Good work!', { name: ev.name });
     }
     return;
   }
@@ -98,7 +99,7 @@ export function tickSiegeEvent(gs, now, dt) {
     gs.soundQ.push({ t: 'pickup', x: ev.x });
     const icon = { ammo: '🔫', medicine: '💊', materials: '🔧', turretAmmo: '🟠', sniperAmmo: '🎯' };
     gs.effects.push({ type: 'txt', x: ev.x, y: laneY(ev.lane) - 70, v: loot.map(([k, v]) => `+${v} ${icon[k]}`).join('  '), col: '#ffd54a', at: now, dur: 2000 });
-    finish(gs, ev, true, now, `${s.name}: got the crate!`);
+    finish(gs, ev, true, now, '{name}: got the crate!', { name: s.name });
   } else if (now - ev.landedAt > CRATE_LIFE) {
     finish(gs, ev, false, now, 'Crate is lost. They overran it.');
   }

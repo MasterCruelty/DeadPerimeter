@@ -2,6 +2,7 @@
 // back walls, the inside of each kind of room, and the "E" prompts.
 import { MGY } from '../data/expeditions.js';
 import { ROOM_KINDS, ROOM_EXIT_X, ROOM_W, doorAt } from '../update/rooms.js';
+import { t } from '../i18n/index.js';
 
 // Small deterministic rng for per-room decor.
 const rng = seed => { let a = seed | 0; return () => { a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; };
@@ -21,7 +22,7 @@ function prompt(ctx, x, y, text, now) {
 // ── Street side ────────────────────────────────────────────────────
 function plaqueText(d) {
   const K = ROOM_KINDS[d.kind];
-  return d.kind === 'apartment' || d.kind === 'office' ? `${K.label} ${d.num}` : K.label;
+  return d.kind === 'apartment' || d.kind === 'office' ? `${t(K.label)} ${d.num}` : t(K.label);
 }
 
 export function dRoomDoor(ctx, d, now) {
@@ -156,7 +157,7 @@ function decorStorage(ctx, r) {
   ctx.fillStyle = '#4a6a7a'; ctx.fillRect(372, MGY - 70, 76, 34); ctx.fillStyle = 'rgba(255,255,255,0.15)'; ctx.fillRect(372, MGY - 70, 76, 4);
   // Sign
   ctx.fillStyle = '#d8d0b8'; ctx.fillRect(360, 90, 110, 28); ctx.fillStyle = '#b02020'; ctx.font = 'bold 9px monospace'; ctx.textAlign = 'center';
-  ctx.fillText('NO SMOKING', 415, 104); ctx.fillStyle = '#333'; ctx.font = '7px monospace'; ctx.fillText('STAFF ONLY', 415, 114); ctx.textAlign = 'left';
+  ctx.fillText(t('NO SMOKING'), 415, 104); ctx.fillStyle = '#333'; ctx.font = '7px monospace'; ctx.fillText(t('STAFF ONLY'), 415, 114); ctx.textAlign = 'left';
 }
 
 function decorOffice(ctx, r) {
@@ -231,7 +232,7 @@ function decorArmory(ctx, r) {
   ctx.fillStyle = '#4a5a32'; ctx.fillRect(720, MGY - 40, 60, 40); ctx.fillRect(728, MGY - 72, 46, 32);
   ctx.fillStyle = '#d8d0b0'; ctx.font = 'bold 7px monospace'; ctx.fillText('7.62', 738, MGY - 18);
   ctx.fillStyle = '#d8d0b8'; ctx.fillRect(560, 170, 150, 18); ctx.fillStyle = '#b02020'; ctx.font = 'bold 8px monospace'; ctx.textAlign = 'center';
-  ctx.fillText('AUTHORIZED ONLY', 635, 182); ctx.textAlign = 'left';
+  ctx.fillText(t('AUTHORIZED ONLY'), 635, 182); ctx.textAlign = 'left';
 }
 
 const DECOR = { apartment: decorApartment, storage: decorStorage, office: decorOffice, clinic: decorClinic, lockers: decorLockers, armory: decorArmory };
@@ -271,17 +272,17 @@ export function dRoomDecor(ctx, m) {
   ctx.fillStyle = 'rgba(160,180,210,0.12)'; ctx.fillRect(x - 17, top, 34, 64);           // the street outside
   ctx.fillStyle = K.door; ctx.beginPath(); ctx.moveTo(x - 17, top); ctx.lineTo(x - 6, top + 4); ctx.lineTo(x - 6, MGY - 3); ctx.lineTo(x - 17, MGY); ctx.closePath(); ctx.fill();
   ctx.fillStyle = '#0c3a18'; ctx.fillRect(x - 18, top - 22, 36, 12);
-  ctx.fillStyle = '#5aff88'; ctx.font = 'bold 8px monospace'; ctx.textAlign = 'center'; ctx.fillText('EXIT', x, top - 13); ctx.textAlign = 'left';
+  ctx.fillStyle = '#5aff88'; ctx.font = 'bold 8px monospace'; ctx.textAlign = 'center'; ctx.fillText(t('EXIT'), x, top - 13); ctx.textAlign = 'left';
 }
 
 // Street doors + the "E" prompt (camera space, after the world).
 export function dRoomsWorld(ctx, m, now) {
   if (m.room) {
-    if (doorAt(m) === 'exit') prompt(ctx, ROOM_EXIT_X + 40, MGY - 96, 'BACK TO THE STREET', now);
+    if (doorAt(m) === 'exit') prompt(ctx, ROOM_EXIT_X + 40, MGY - 96, t('BACK TO THE STREET'), now);
     return;
   }
   const near = doorAt(m);
-  if (near) prompt(ctx, near.x, MGY - 96, `ENTER · ${ROOM_KINDS[near.kind].name.toUpperCase()}`, now);
+  if (near) prompt(ctx, near.x, MGY - 96, t('ENTER · {room}', { room: t(ROOM_KINDS[near.kind].name).toUpperCase() }), now);
 }
 
 export function dRoomDoors(ctx, m, now) {

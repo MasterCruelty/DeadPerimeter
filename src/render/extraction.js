@@ -4,6 +4,7 @@ import { dHelicopter } from './evac.js';
 import { dZombie } from './zombie.js';
 import { ZTP } from '../data/zombies.js';
 import { drawSoldierBody } from './actors/people.js';
+import { t as tr } from '../i18n/index.js';
 
 // Ending cinematic, played after the vaccine campaign and before the
 // stats screen. Depends on the outcome tier:
@@ -294,9 +295,9 @@ export function dExtractionScene(ctx, e, now) {
   if (off < 4200) {
     ctx.globalAlpha = Math.min(1, off / 500, (4200 - off) / 600);
     ctx.fillStyle = '#d8d8c8'; ctx.font = 'bold 13px monospace'; ctx.textAlign = 'left';
-    ctx.fillText(e.tier === 'failure' ? 'HIGHWAY 17 · 05:41' : 'LZ BRAVO · ROOFTOP · 05:52', 24, 58);
+    ctx.fillText(e.tier === 'failure' ? tr('HIGHWAY 17 · 05:41') : tr('LZ BRAVO · ROOFTOP · 05:52'), 24, 58);
     ctx.fillStyle = '#9a9a8a'; ctx.font = '10px monospace';
-    ctx.fillText(`DAY ${e.day} · OPERATION VACCINE`, 24, 74);
+    ctx.fillText(tr('DAY {day} · OPERATION VACCINE', { day: e.day }), 24, 74);
     ctx.globalAlpha = 1;
   }
 
@@ -307,12 +308,12 @@ export function dExtractionScene(ctx, e, now) {
     const since = off - cur.at;
     const col = cur.speaker === 'Command' ? '#ff9a70' : cur.speaker === 'Omega' ? '#8aff8a' : '#9ad0ff';
     ctx.font = '13px monospace';
-    const lines = wrap(ctx, cur.text, CW - 160);
+    const lines = wrap(ctx, tr(cur.text), CW - 160);
     const bh = 30 + lines.length * 18, by = CH - 46 - bh;
     ctx.fillStyle = 'rgba(0,0,0,0.72)'; ctx.fillRect(60, by, CW - 120, bh);
     ctx.strokeStyle = col; ctx.lineWidth = 1; ctx.strokeRect(60.5, by + 0.5, CW - 121, bh - 1);
     ctx.textAlign = 'center'; ctx.fillStyle = col; ctx.font = 'bold 10px monospace';
-    ctx.fillText(`◉ ${cur.speaker.toUpperCase()}`, CW / 2, by + 15);
+    ctx.fillText(`◉ ${tr(cur.speaker).toUpperCase()}`, CW / 2, by + 15);
     ctx.fillStyle = '#f0f0e8'; ctx.font = '13px monospace';
     let left = Math.floor(since / 28);
     lines.forEach((ln, i) => { ctx.fillText(ln.slice(0, Math.max(0, left)), CW / 2, by + 34 + i * 18); left -= ln.length + 1; });
@@ -325,12 +326,12 @@ export function dExtractionScene(ctx, e, now) {
     ctx.fillStyle = `rgba(0,0,0,${0.82 * a})`; ctx.fillRect(0, 0, CW, CH);
     ctx.globalAlpha = a; ctx.textAlign = 'center';
     ctx.fillStyle = card.color; ctx.font = 'bold 34px monospace';
-    ctx.fillText(card.title, CW / 2, CH / 2 - 14);
+    ctx.fillText(tr(card.title), CW / 2, CH / 2 - 14);
     ctx.fillStyle = '#c8c8b8'; ctx.font = '13px monospace';
-    ctx.fillText(card.sub, CW / 2, CH / 2 + 14);
+    ctx.fillText(tr(card.sub), CW / 2, CH / 2 + 14);
     const a2 = Math.min(1, Math.max(0, (off - CARD_AT - 1200) / 900));
     ctx.globalAlpha = a2; ctx.fillStyle = '#8a8a7a'; ctx.font = '11px monospace';
-    ctx.fillText(`FORT OMEGA · 30 WAVES HELD · ${e.survivors} SURVIVOR${e.survivors === 1 ? '' : 'S'}`, CW / 2, CH / 2 + 44);
+    ctx.fillText(e.survivors === 1 ? tr('FORT OMEGA · 30 WAVES HELD · {n} SURVIVOR', { n: e.survivors }) : tr('FORT OMEGA · 30 WAVES HELD · {n} SURVIVORS', { n: e.survivors }), CW / 2, CH / 2 + 44);
     ctx.globalAlpha = 1;
   }
 
@@ -339,7 +340,7 @@ export function dExtractionScene(ctx, e, now) {
   ctx.fillStyle = '#14141c'; ctx.fillRect(40, CH - 22, CW - 80, 3);
   ctx.fillStyle = (CARDS[e.tier] || CARDS.gold).color; ctx.fillRect(40, CH - 22, (CW - 80) * t01, 3);
   ctx.fillStyle = '#888'; ctx.font = '10px monospace'; ctx.textAlign = 'center';
-  ctx.fillText('[SPACE / TAP] to continue', CW / 2, CH - 8);
+  ctx.fillText(tr('[SPACE / TAP] to continue'), CW / 2, CH - 8);
   ctx.textAlign = 'left';
   ctx.restore();
 }

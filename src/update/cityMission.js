@@ -18,6 +18,7 @@ import { setupAssault } from './faction.js';
 import { MISSION_W, MGY } from '../data/expeditions.js';
 import { pushRadio } from '../audio/radio.js';
 import { placeRoomDoors, tickRooms } from './rooms.js';
+import { t } from '../i18n/index.js';
 
 export const VAN_X = 96;
 const LEAVE_MS = 1600;
@@ -221,12 +222,12 @@ export function onContainerSearched(m, o, now) {
   if ((gunBox && Math.random() < 0.12) || (meleeBox && Math.random() < 0.1)) {
     const item = gunBox ? { kind: 'gun', w: FOUND_GUNS[Math.floor(Math.random() * FOUND_GUNS.length)] } : { kind: 'melee', type: MELEE_FINDS[Math.floor(Math.random() * MELEE_FINDS.length)] };
     (m.collected.gear || (m.collected.gear = [])).push(item);
-    m.effects.push({ type: 'txt', x: o.x, y: MGY - 100, v: `${gearIcon(item)} ${gearName(item).toUpperCase()}!`, col: '#ffd54a', at: now, dur: 2000 });
+    m.effects.push({ type: 'txt', x: o.x, y: MGY - 100, v: `${gearIcon(item)} ${t(gearName(item)).toUpperCase()}!`, col: '#ffd54a', at: now, dur: 2000 });
   }
   if (!o.hasKey) return;
   o.hasKey = false; m.keys = (m.keys || 0) + 1;
   m.soundQ.push({ t: 'pickup', x: o.x });
-  m.effects.push({ type: 'txt', x: o.x, y: MGY - 90, v: '✂ BOLT CUTTERS', col: '#ffd54a', at: now, dur: 2200 });
+  m.effects.push({ type: 'txt', x: o.x, y: MGY - 90, v: t('✂ BOLT CUTTERS'), col: '#ffd54a', at: now, dur: 2200 });
   pushRadio(m, 'kill', { line: 'Bolt cutters. That chained barricade will not hold now.', speaker: m.soldier, cooldown: 0 });
 }
 
@@ -247,7 +248,7 @@ export function tickCity(m, now, dt, party) {
     if (m.keys > 0) {
       m.keys--; s.locked = false;
       m.soundQ.push({ t: 'reload', w: 'pistol', dur: 300 });
-      m.effects.push({ type: 'txt', x: s.x0, y: MGY - 100, v: '✂ CHAIN CUT', col: '#88ee99', at: now, dur: 1800 });
+      m.effects.push({ type: 'txt', x: s.x0, y: MGY - 100, v: t('✂ CHAIN CUT'), col: '#88ee99', at: now, dur: 1800 });
       return;
     }
     if (s.force === 0) {
@@ -260,7 +261,7 @@ export function tickCity(m, now, dt, party) {
     if (s.force >= 1) {
       s.locked = false;
       m.soundQ.push({ t: 'thud', x: s.x0 });
-      m.effects.push({ type: 'txt', x: s.x0, y: MGY - 100, v: 'BARRICADE DOWN', col: '#ffcc44', at: now, dur: 1800 });
+      m.effects.push({ type: 'txt', x: s.x0, y: MGY - 100, v: t('BARRICADE DOWN'), col: '#ffcc44', at: now, dur: 1800 });
     }
   });
 

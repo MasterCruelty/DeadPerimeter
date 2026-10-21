@@ -4,6 +4,7 @@ import { C } from '../constants.js';
 import { MGY } from '../data/expeditions.js';
 import { MISSION_CONDS, SIDE_OBJ } from '../data/missionExtras.js';
 import { sosLeft } from '../update/missionExtras.js';
+import { t } from '../i18n/index.js';
 
 function label(ctx, x, y, text, col, now) {
   const b = Math.sin(now / 200) * 2;
@@ -39,7 +40,7 @@ function dCache(ctx, sd, now) {
       ctx.strokeStyle = '#ffd54a'; ctx.lineWidth = 3;
       ctx.beginPath(); ctx.arc(x, y - 56, 11, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * sd.progress); ctx.stroke();
     }
-    label(ctx, x, y - 74, '🔒 CACHE', '#ffd54a', now);
+    label(ctx, x, y - 74, t('🔒 CACHE'), '#ffd54a', now);
   }
 }
 
@@ -77,7 +78,7 @@ function dNest(ctx, sd, now) {
   // HP bar
   ctx.fillStyle = '#1a1a1a'; ctx.fillRect(x - 30, y - 66, 60, 5);
   ctx.fillStyle = '#cc3355'; ctx.fillRect(x - 30, y - 66, 60 * Math.max(0, sd.hp / sd.maxHp), 5);
-  label(ctx, x, y - 74, '🪺 NEST', '#ff7799', now);
+  label(ctx, x, y - 74, t('🪺 NEST'), '#ff7799', now);
 }
 
 function dAlarmCar(ctx, al, now) {
@@ -120,7 +121,7 @@ export function dMissionExtrasHUD(ctx, m, now) {
   // Right-aligned under the bar (the left side holds the squad roster).
   const tags = [];
   const cd = m.cond && MISSION_CONDS[m.cond];
-  if (cd) tags.push([`${cd.icon} ${cd.name}`, cd.color]);
+  if (cd) tags.push([`${cd.icon} ${t(cd.name)}`, cd.color]);
   const sd = m.side;
   if (sd) {
     const o = SIDE_OBJ[sd.type];
@@ -130,14 +131,14 @@ export function dMissionExtrasHUD(ctx, m, now) {
     else if (sd.type === 'cache') st = `${Math.round(sd.progress * 100)}%`;
     else if (sd.type === 'nest') st = `${Math.max(0, Math.round(sd.hp / sd.maxHp * 100))}%`;
     else st = `${sosLeft(m, now)}s`;
-    tags.push([`★ ${o.icon} ${o.name} ${st}`, sd.state === 'done' ? C.acc : sd.state === 'failed' ? C.dng : '#ffd54a']);
+    tags.push([`★ ${o.icon} ${t(o.name)} ${st}`, sd.state === 'done' ? C.acc : sd.state === 'failed' ? C.dng : '#ffd54a']);
   }
   // Jobs from the fort that need something from this place.
   ((m.dest && m.dest.quests) || []).forEach(q => {
     const got = q.kind === 'fetch'
       ? (m.collected.quests || []).includes(q.id)
       : (m.rescuables || []).some(r => r.questId === q.id && r.state === 'following');
-    tags.push([`📋 ${q.kind === 'fetch' ? q.item : q.person}${got ? ' ✔ → VAN' : ''}`, got ? C.acc : '#ffd54a']);
+    tags.push([`📋 ${q.kind === 'fetch' ? t(q.item) : t(q.person)}${got ? t(' ✔ → VAN') : ''}`, got ? C.acc : '#ffd54a']);
   });
   ctx.font = 'bold 9px monospace';
   let x = 888;

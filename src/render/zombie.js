@@ -1,6 +1,7 @@
 import { C, laneY, laneSc } from '../constants.js';
 import { dContactShadow } from './background.js';
 import { drawZombieBody } from './actors/zombies.js';
+import { t } from '../i18n/index.js';
 
 export function dZombie(ctx, z, now) {
   const ly = laneY(z.lane), sc = laneSc(z.lane);
@@ -27,7 +28,7 @@ export function dZombie(ctx, z, now) {
     ctx.fillRect(z.x - w / 2, bary, w * (z.hp / z.maxHp), 4);
     if (z.type === 'brute') {
       ctx.fillStyle = '#cc4400'; ctx.font = 'bold 8px monospace'; ctx.textAlign = 'center';
-      ctx.fillText('★ BRUTE ★', z.x, bary - 4); ctx.textAlign = 'left';
+      ctx.fillText(t('★ BRUTE ★'), z.x, bary - 4); ctx.textAlign = 'left';
     }
   }
 }

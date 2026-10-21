@@ -75,7 +75,9 @@ const FETCH_ITEMS = {
   jun:   ['Car battery', 'Welding torch', 'Spare parts', 'Fuel can'],
 };
 // "a surgical kit", "an oxygen tank", "antibiotics", "body armor".
-const withArticle = item => {
+// The result is also the translation key for the item with its article
+// (the Italian article belongs to the translated noun).
+export const withArticle = item => {
   const l = item.toLowerCase();
   if (/s$/.test(l) || l === 'body armor') return l;
   return (/^[aeiou]/.test(l) ? 'an ' : 'a ') + l;
@@ -96,6 +98,12 @@ const REWARD_POOL = {
   jun:   ['materials', 'turretAmmo'],
 };
 
+// Side-job offer lines: templates filled (and translated) at display
+// time by update/quests.js jobText — {item} with its article, {loc}.
+export const FETCH_OFFER = 'I need {item} — try the {loc}.';
+export const CLEAR_OFFER = 'The {loc} is crawling. Clear it out so our runners can pass.';
+export const DELIVER_OFFER = 'We are short on the basics. Can the stash spare this?';
+
 export function sideJob(npc, gs, discoveredIds, rnd = Math.random) {
   const w = gs.wave || 1;
   const reward = res => {
@@ -111,15 +119,15 @@ export function sideJob(npc, gs, discoveredIds, rnd = Math.random) {
     const locs = FETCH_LOCS[npc];
     const loc = locs[Math.floor(rnd() * locs.length)];
     const item = FETCH_ITEMS[npc][Math.floor(rnd() * FETCH_ITEMS[npc].length)];
-    return { kind: 'fetch', loc, item, title: `${item} run`, offer: `I need ${withArticle(item)} — try the ${'{loc}'}.`, reward: reward(res), xp: 30 };
+    return { kind: 'fetch', loc, item, title: `${item} run`, offer: FETCH_OFFER, reward: reward(res), xp: 30 };
   }
   if (r < 0.75) {
     const hot = discoveredIds.filter(id => id !== 'compound' && (gs.city.locs[id].infest || 0) > 0.5);
     if (hot.length) {
       const loc = hot[Math.floor(rnd() * hot.length)];
-      return { kind: 'clear', loc, below: 0.35, title: 'Thin the herd', offer: `The ${'{loc}'} is crawling. Clear it out so our runners can pass.`, reward: reward(res), xp: 40 };
+      return { kind: 'clear', loc, below: 0.35, title: 'Thin the herd', offer: CLEAR_OFFER, reward: reward(res), xp: 40 };
     }
   }
   const need = DELIVER[npc][Math.floor(rnd() * DELIVER[npc].length)];
-  return { kind: 'deliver', need, title: 'Supplies', offer: 'We are short on the basics. Can the stash spare this?', reward: reward(res), xp: 20 };
+  return { kind: 'deliver', need, title: 'Supplies', offer: DELIVER_OFFER, reward: reward(res), xp: 20 };
 }

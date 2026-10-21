@@ -6,6 +6,7 @@ import { addXp } from '../data/progression.js';
 import { stashGear, gearName } from '../entities/gear.js';
 import { mkSoldier } from '../entities/soldier.js';
 import { recordDeath } from '../entities/gameState.js';
+import { t } from '../i18n/index.js';
 
 export function finishMission(m, gs) {
   // Write each party member's mission state back onto the original soldier
@@ -28,7 +29,7 @@ export function finishMission(m, gs) {
       orig.melee = mSol.melee ? { ...mSol.melee } : null;   // wear carries over
       // XP: own kills + bringing the sortie home.
       const ups = addXp(orig, (mSol._kills || 0) * 5 + (m.state === 'won' ? 20 : 0));
-      if (ups) levelUps.push(`${orig.name} → Lv ${orig.level}`);
+      if (ups) levelUps.push(t('{name} → Lv {lv}', { name: orig.name, lv: orig.level }));
       // Unused spare magazines go back into the stash (they used to
       // vanish, so every sortie burned its whole loadout).
       const spare = Math.max(0, mSol.magsLeft || 0) * (mSol.maxAmmo || 0);
