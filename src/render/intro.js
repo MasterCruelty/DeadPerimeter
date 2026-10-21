@@ -4,6 +4,7 @@ import { dSoldier } from './soldier.js';
 import { dBg } from './background.js';
 import { dZombie } from './zombie.js';
 import { ZTP } from '../data/zombies.js';
+import { t } from '../i18n/index.js';
 
 // ── Sprite-scaling helper ──────────────────────────────────────
 // Re-uses an in-game sprite (dSoldier / dZombie) at an arbitrary
@@ -126,7 +127,7 @@ function dSkipButton(ctx, intro) {
   ctx.fillRect(CW - 96, 28, 80, 22);
   ctx.strokeStyle = C.uib; ctx.lineWidth = 1; ctx.strokeRect(CW - 96, 28, 80, 22);
   ctx.fillStyle = C.acc; ctx.font = 'bold 11px monospace'; ctx.textAlign = 'center';
-  ctx.fillText('SKIP →', CW - 56, 43); ctx.textAlign = 'left';
+  ctx.fillText(t('SKIP →'), CW - 56, 43); ctx.textAlign = 'left';
   intro._skipBtn = { x: CW - 96, y: 28, w: 80, h: 22 };
 }
 
@@ -302,10 +303,10 @@ function dShotCafeDrinker(ctx, t, now) {
   ctx.fillStyle = `rgba(220,30,30,${0.6 + pulse * 0.35})`;
   ctx.fillRect(-12, -26, 24, 11);
   ctx.fillStyle = '#fff'; ctx.font = 'bold 4px monospace'; ctx.textAlign = 'center';
-  ctx.fillText('CITY ALERT', 0, -19);
+  ctx.fillText(t('CITY ALERT'), 0, -19);
   ctx.font = '3.5px monospace';
-  ctx.fillText('SHELTER IN', 0, -10);
-  ctx.fillText('PLACE NOW', 0, -4);
+  ctx.fillText(t('SHELTER IN'), 0, -10);
+  ctx.fillText(t('PLACE NOW'), 0, -4);
   // Camera bump
   ctx.fillStyle = '#0a0a0a';
   ctx.beginPath(); ctx.arc(0, -32, 2, 0, Math.PI * 2); ctx.fill();
@@ -415,8 +416,8 @@ function dShotCafeDrinker(ctx, t, now) {
   ctx.fillStyle = '#1a1a1a'; ctx.font = 'bold 6px monospace';
   ctx.fillText('NEW HAVEN HERALD', nx + 4, ny + 9);
   ctx.fillStyle = '#3a3328'; ctx.font = 'bold 9px monospace';
-  ctx.fillText('QUARANTINE', nx + 4, ny + 24);
-  ctx.fillText('EXTENDED', nx + 4, ny + 36);
+  ctx.fillText(t('QUARANTINE'), nx + 4, ny + 24);
+  ctx.fillText(t('EXTENDED'), nx + 4, ny + 36);
   ctx.fillStyle = '#5a5040';
   for (let i = 0; i < 3; i++) ctx.fillRect(nx + 4, ny + 44 + i * 6, 100 - (i * 18) % 30, 1);
 }
@@ -1234,7 +1235,7 @@ function _dShotBadgeFlash_unused(ctx, t, now) {
   ctx.font = 'bold 22px monospace';
   ctx.fillText('0451', bx, by + 22);
   ctx.font = 'bold 8px monospace';
-  ctx.fillText('NEW HAVEN POLICE', bx, by + 40);
+  ctx.fillText(t('NEW HAVEN POLICE'), bx, by + 40);
   ctx.textAlign = 'left';
 
   // Hand grip on pistol intruding from the right edge — close
@@ -3235,38 +3236,38 @@ function dBannerText(ctx, shot, elapsed, _now) {
   switch (shot.banner) {
     case 'normal':
       if (shot.draw === 'cafeDrinker') {
-        centerText(ctx, 'NEW HAVEN — POPULATION 2.4M', 56, { size: 16, shadow: 0.6 });
-        centerText(ctx, '03:17 LOCAL · MARCH 14',        76, { size: 11, color: '#88ccff' });
+        centerText(ctx, t('NEW HAVEN — POPULATION 2.4M'), 56, { size: 16, shadow: 0.6 });
+        centerText(ctx, t('03:17 LOCAL · MARCH 14'),        76, { size: 11, color: '#88ccff' });
       }
       break;
     case 'panic':
       if (shot.draw === 'familyFleeing') {
-        centerText(ctx, '⚠ OUTBREAK CONFIRMED', 56, { size: 18, color: '#ff5544', shadow: 0.7 });
-        centerText(ctx, 'CITY POLICE DISPATCHED · ALL UNITS', 76, { size: 11, color: '#ffaa88' });
+        centerText(ctx, t('⚠ OUTBREAK CONFIRMED'), 56, { size: 18, color: '#ff5544', shadow: 0.7 });
+        centerText(ctx, t('CITY POLICE DISPATCHED · ALL UNITS'), 76, { size: 11, color: '#ffaa88' });
       }
       break;
     case 'police':
       if (shot.draw === 'policeLine') {
-        centerText(ctx, 'NHPD — CONTAINMENT LINE',                                       56, { size: 16, color: '#88aaff', shadow: 0.7 });
-        centerText(ctx, '"Hold the perimeter. Civilians evacuate west."',                76, { size: 11, color: '#cce' });
+        centerText(ctx, t('NHPD — CONTAINMENT LINE'),                                       56, { size: 16, color: '#88aaff', shadow: 0.7 });
+        centerText(ctx, t('"Hold the perimeter. Civilians evacuate west."'),                76, { size: 11, color: '#cce' });
       } else if (shot.draw === 'copDragged') {
-        centerText(ctx, '"…command, this is 0451. We can\'t hold."', 56, { size: 13, color: '#cce', shadow: 0.5 });
-        centerText(ctx, '— containment line collapsing —',           76, { size: 11, color: '#ffaa88' });
+        centerText(ctx, t('"…command, this is 0451. We can\'t hold."'), 56, { size: 13, color: '#cce', shadow: 0.5 });
+        centerText(ctx, t('— containment line collapsing —'),           76, { size: 11, color: '#ffaa88' });
       }
       break;
     case 'collapse':
       if (shot.draw === 'streetDead') {
-        centerText(ctx, 'CITY LOST — EVACUATION FAILED',                  56, { size: 16, color: '#ff6644', shadow: 0.7 });
-        centerText(ctx, '0.3% OF CIVILIANS EXTRACTED · MILITARY FALLS BACK', 76, { size: 11, color: '#ffaa88' });
+        centerText(ctx, t('CITY LOST — EVACUATION FAILED'),                  56, { size: 16, color: '#ff6644', shadow: 0.7 });
+        centerText(ctx, t('0.3% OF CIVILIANS EXTRACTED · MILITARY FALLS BACK'), 76, { size: 11, color: '#ffaa88' });
       }
       break;
     case 'convoy':
       if (shot.draw === 'convoyWide') {
-        centerText(ctx, 'ARMY RESERVE — CONVOY OMEGA-7',           56, { size: 16, color: '#cce6cc', shadow: 0.6 });
-        centerText(ctx, 'EN ROUTE TO FORT OMEGA · ETA 02:14',      76, { size: 11, color: '#88cc88' });
+        centerText(ctx, t('ARMY RESERVE — CONVOY OMEGA-7'),           56, { size: 16, color: '#cce6cc', shadow: 0.6 });
+        centerText(ctx, t('EN ROUTE TO FORT OMEGA · ETA 02:14'),      76, { size: 11, color: '#88cc88' });
       } else if (shot.draw === 'convoyClose') {
-        centerText(ctx, '"All we have left, this is it."', 56, { size: 13, color: '#cce6cc', shadow: 0.5 });
-        centerText(ctx, '— last reinforcements inbound —',  76, { size: 11, color: '#88cc88' });
+        centerText(ctx, t('"All we have left, this is it."'), 56, { size: 13, color: '#cce6cc', shadow: 0.5 });
+        centerText(ctx, t('— last reinforcements inbound —'),  76, { size: 11, color: '#88cc88' });
       }
       break;
     case 'fortOmega':
@@ -3284,11 +3285,11 @@ function dBannerText(ctx, shot, elapsed, _now) {
         ctx.fillText('━━━━━━━━━━━━━━━━━━━━━━━━', CW / 2, 138);
         ctx.textAlign = 'left';
         ctx.globalAlpha = taglineA * alpha;
-        centerText(ctx, 'FORT OMEGA — THE LAST PERIMETER',     162, { size: 14, color: '#cce6ff', shadow: 0.5 });
-        centerText(ctx, '12 SOLDIERS · ONE WALL · NO RELIEF',  182, { size: 11, color: C.acc });
+        centerText(ctx, t('FORT OMEGA — THE LAST PERIMETER'),     162, { size: 14, color: '#cce6ff', shadow: 0.5 });
+        centerText(ctx, t('12 SOLDIERS · ONE WALL · NO RELIEF'),  182, { size: 11, color: C.acc });
         ctx.globalAlpha = subA * alpha;
-        centerText(ctx, 'DAY 1 · 23:47',                       210, { size: 11, color: '#88ccff' });
-        centerText(ctx, '— hold what you can —',               228, { size: 10, color: '#cce', weight: 'normal' });
+        centerText(ctx, t('DAY 1 · 23:47'),                       210, { size: 11, color: '#88ccff' });
+        centerText(ctx, t('— hold what you can —'),               228, { size: 10, color: '#cce', weight: 'normal' });
       }
       break;
   }

@@ -4,6 +4,7 @@ import { dBase } from './base.js';
 import { pushRadio } from '../audio/radio.js';
 import { dRadioSubtitle } from './hud.js';
 import { drawSoldierBody } from './actors/people.js';
+import { t as tr } from '../i18n/index.js';
 
 // Animation total duration in ms. Split into three phases.
 export const EVAC_DURATION = 5400;
@@ -357,10 +358,10 @@ export function dEvacScene(ctx, evac, now) {
   ctx.strokeStyle = C.uib; ctx.lineWidth = 1; ctx.strokeRect(0, 0, CW, 38);
   ctx.fillStyle = '#88ddff'; ctx.font = 'bold 13px monospace';
   const status = elapsed < PHASE_ARRIVE
-    ? '🚁 INBOUND — Stand clear of the LZ'
+    ? tr('🚁 INBOUND — Stand clear of the LZ')
     : elapsed < PHASE_BOARD
-      ? `🚁 BOARDING — ${civCount} civilian${civCount === 1 ? '' : 's'} extracting`
-      : '🚁 DEPARTING — Safe transit confirmed';
+      ? (civCount === 1 ? tr('🚁 BOARDING — {n} civilian extracting', { n: civCount }) : tr('🚁 BOARDING — {n} civilians extracting', { n: civCount }))
+      : tr('🚁 DEPARTING — Safe transit confirmed');
   ctx.fillText(status, 14, 24);
 
   // Reward tally on the right

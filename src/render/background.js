@@ -1,5 +1,6 @@
 import { C, CW, CH, GY, WX, LANES, WORLD_W, DPR } from '../constants.js';
 import { SIEGE_DECOR } from '../data/expeditions.js';
+import { t } from '../i18n/index.js';
 
 // Draws a single piece of siege scenery (cars, lampposts, rubble,
 // signs, craters, dried blood). All decoration sits on or near
@@ -402,9 +403,9 @@ export function dBg(ctx, camX = 0, now = 0) {
 
   // Lane labels (faint)
   ctx.fillStyle = 'rgba(80,80,60,0.28)'; ctx.font = '8px monospace';
-  ctx.fillText('FRONT', WX + 6, GY + 12);
-  ctx.fillText('MID',   WX + 6, GY + LANES[1].dy + 12);
-  ctx.fillText('BACK',  WX + 6, GY + LANES[2].dy + 12);
+  ctx.fillText(t('FRONT'), WX + 6, GY + 12);
+  ctx.fillText(t('MID'),   WX + 6, GY + LANES[1].dy + 12);
+  ctx.fillText(t('BACK'),  WX + 6, GY + LANES[2].dy + 12);
 }
 
 // Soft contact shadow under a character's feet. Grounds sprites so they
