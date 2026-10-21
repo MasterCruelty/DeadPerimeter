@@ -11,6 +11,7 @@
 // during siege / mission UI.
 
 import { speakOrChatter } from './radioVoice.js';
+import { t } from '../i18n/index.js';
 
 export const RADIO_LINES = {
   advance:   ['Moving up!',     'Pushing forward!', 'On the move!',  'Advancing!',         'Squad, forward!'],
@@ -41,7 +42,9 @@ const PITCHES = ['low', 'mid', 'high'];
 //               on the radio.
 //     pitch:    'low'|'mid'|'high'|number  override (skips speaker pitch)
 //     urgent:   boolean (louder + faster cadence)
-//     line:     explicit text override (skips the random pick)
+//     line:     explicit text override (skips the random pick); English,
+//               may hold {placeholders} filled from opts.params
+//     params:   values for the line's {placeholders}
 //     cooldown: minimum ms between any two pushes on this state (default 1300)
 //
 // Stores the chosen line on state.radioMsg = { text, at, dur } so
@@ -69,13 +72,13 @@ export function pushRadio(state, category, opts = {}) {
   // Prepend the speaker's name when one was provided so the subtitle
   // reads like a real radio callout ("Bravo: I'm hit!").
   const subtitle = opts.speaker && opts.speaker.name
-    ? `${opts.speaker.name}: ${text}`
-    : text;
+    ? `${opts.speaker.name}: ${t(text, opts.params)}`
+    : t(text, opts.params);
 
   state.radioMsg = { text: subtitle, at: now, dur: opts.dur || 2200, category };
   if (!state.soundQ) state.soundQ = [];
 
   // Prefer real TTS; procedural chatter when it's off or fails. Speak
   // the bare line (no "Bravo:" prefix) since the HUD shows the speaker.
-  speakOrChatter(text, { pitch, urgent: !!opts.urgent, voice: opts.speaker && opts.speaker.name }, state.soundQ);
+  speakOrChatter(text, { pitch, urgent: !!opts.urgent, voice: opts.speaker && opts.speaker.name, params: opts.params }, state.soundQ);
 }
