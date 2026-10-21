@@ -2359,24 +2359,24 @@ export default function DeadPerimeter() {
               const sel = (key, list) => (
                 <select value={armPick[key] ?? ''} onChange={e => setArmPick({ ...armPick, [key]: e.target.value === '' ? undefined : +e.target.value })}
                   style={{ background: '#0c140a', color: C.txt, border: `1px solid ${C.uib}`, fontSize: '9px', fontFamily: 'monospace' }}>
-                  <option value="">— soldier —</option>
+                  <option value="">{t('— soldier —')}</option>
                   {list.map(([s, i]) => <option key={s.id} value={i}>{s.name} ({WPN[s.weapon]?.name})</option>)}
                 </select>
               );
               return (
                 <>
                   <hr style={hr} />
-                  <div style={h2}>🔫 ARMORY</div>
-                  <div style={{ fontSize: '9px', color: C.txt, opacity: 0.55, marginBottom: '4px' }}>Weapons found on sorties or crafted. Equipping swaps the soldier&apos;s current one back into the armory.</div>
+                  <div style={h2}>{t('🔫 ARMORY')}</div>
+                  <div style={{ fontSize: '9px', color: C.txt, opacity: 0.55, marginBottom: '4px' }}>{t("Weapons found on sorties or crafted. Equipping swaps the soldier's current one back into the armory.")}</div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
                     {guns.map(([w, n]) => {
                       const W = WPN[w], key = 'g:' + w, target = armPick[key];
                       return (
                         <div key={key} style={{ ...card, display: 'flex', alignItems: 'center', gap: '8px', fontSize: '9px', padding: '4px 8px' }}>
                           <b style={{ color: C.acc, minWidth: '110px' }}>🔫 {W.name} ×{n}</b>
-                          <span style={{ flex: 1, opacity: 0.75 }}>DMG {W.dmg}{W.pel ? `×${W.pel}` : ''} · RNG {W.range} · MAG {W.ammo} · {Math.round(60000 / W.rate)} rpm{W.desc ? ` · ${W.desc}` : ''}</span>
+                          <span style={{ flex: 1, opacity: 0.75 }}>{t('DMG {dmg} · RNG {rng} · MAG {mag} · {rpm} rpm', { dmg: `${W.dmg}${W.pel ? `×${W.pel}` : ''}`, rng: W.range, mag: W.ammo, rpm: Math.round(60000 / W.rate) })}{W.desc ? ` · ${t(W.desc)}` : ''}</span>
                           {sel(key, pickable.filter(([s]) => !s.onRoof && s.weapon !== w))}
-                          <button style={{ ...btn('#1a3a18'), fontSize: '9px', padding: '2px 8px', marginTop: 0 }} disabled={target === undefined} onClick={() => { equipGun(target, w); setArmPick({ ...armPick, [key]: undefined }); }}>EQUIP</button>
+                          <button style={{ ...btn('#1a3a18'), fontSize: '9px', padding: '2px 8px', marginTop: 0 }} disabled={target === undefined} onClick={() => { equipGun(target, w); setArmPick({ ...armPick, [key]: undefined }); }}>{t('EQUIP')}</button>
                         </div>
                       );
                     })}
@@ -2384,10 +2384,10 @@ export default function DeadPerimeter() {
                       const M = MELEE[it.type], key = 'm:' + k, target = armPick[key];
                       return (
                         <div key={key} style={{ ...card, display: 'flex', alignItems: 'center', gap: '8px', fontSize: '9px', padding: '4px 8px' }}>
-                          <b style={{ color: C.acc, minWidth: '110px' }}>{M.icon} {M.name}</b>
-                          <span style={{ flex: 1, opacity: 0.75 }}>DMG {M.dmg} · {Math.round(60000 / M.rate)} swings/min · {Math.max(0, Math.round(it.dur))}/{M.dur} hits left</span>
+                          <b style={{ color: C.acc, minWidth: '110px' }}>{M.icon} {t(M.name)}</b>
+                          <span style={{ flex: 1, opacity: 0.75 }}>{t('DMG {dmg} · {n} swings/min · {left}/{max} hits left', { dmg: M.dmg, n: Math.round(60000 / M.rate), left: Math.max(0, Math.round(it.dur)), max: M.dur })}</span>
                           {sel(key, pickable)}
-                          <button style={{ ...btn('#1a3a18'), fontSize: '9px', padding: '2px 8px', marginTop: 0 }} disabled={target === undefined} onClick={() => { equipMelee(target, k); setArmPick({}); }}>EQUIP</button>
+                          <button style={{ ...btn('#1a3a18'), fontSize: '9px', padding: '2px 8px', marginTop: 0 }} disabled={target === undefined} onClick={() => { equipMelee(target, k); setArmPick({}); }}>{t('EQUIP')}</button>
                         </div>
                       );
                     })}
@@ -2398,15 +2398,15 @@ export default function DeadPerimeter() {
             {(gs?.workbench?.built || gs?.researchLab?.built) && (
               <>
                 <hr style={hr} />
-                <div style={h2}>🛠 WORKSHOP</div>
+                <div style={h2}>{t('🛠 WORKSHOP')}</div>
                 {gs.workbench?.built && (
                   <div style={{ marginBottom: '6px' }}>
-                    <div style={{ ...lbl, color: '#ffcc66' }}>🔨 CRAFTING BENCH</div>
+                    <div style={{ ...lbl, color: '#ffcc66' }}>{t('🔨 CRAFTING BENCH')}</div>
                     <div style={{ fontSize: '9px', color: C.txt, opacity: 0.55, marginBottom: '4px' }}>
-                      Convert raw materials into combat consumables.
+                      {t('Convert raw materials into combat consumables.')}
                       {getResearchEffect(gs, 'craftMultiplier', 1) > 1 && (
                         <span style={{ color: '#ffd54a', marginLeft: '6px' }}>
-                          · Improved Mags active (+{Math.round((getResearchEffect(gs, 'craftMultiplier', 1) - 1) * 100)}% yield)
+                          {t('· Improved Mags active (+{n}% yield)', { n: Math.round((getResearchEffect(gs, 'craftMultiplier', 1) - 1) * 100) })}
                         </span>
                       )}
                     </div>
@@ -2415,17 +2415,17 @@ export default function DeadPerimeter() {
                         const mul = getResearchEffect(gs, 'craftMultiplier', 1);
                         const canPay = Object.entries(r.cost).every(([k, v]) => (gs.resources[k] || 0) >= v);
                         const costLbl = Object.entries(r.cost).map(([k, v]) => `${resIcon(k)}${v}`).join(' ');
-                        const outLbl  = r.melee ? `${MELEE[r.melee].name}` : Object.entries(r.output).map(([k, v]) => `+${Math.max(1, Math.round(v * mul))}${resIcon(k)}`).join(' ');
+                        const outLbl  = r.melee ? t(MELEE[r.melee].name) : Object.entries(r.output).map(([k, v]) => `+${Math.max(1, Math.round(v * mul))}${resIcon(k)}`).join(' ');
                         return (
                           <button
                             key={r.id}
                             style={{ ...btn('#2a2410', '#aa8822'), fontSize: '9px', padding: '4px 8px', minWidth: '110px', textAlign: 'left' }}
                             disabled={!canPay}
                             onClick={() => craft(r.id)}
-                            title={`${r.name}: pay ${costLbl}, get ${outLbl}`}
+                            title={t('{name}: pay {cost}, get {out}', { name: t(r.name), cost: costLbl, out: outLbl })}
                           >
                             {r.icon} {outLbl}
-                            <div style={{ fontSize: '8px', opacity: 0.7, marginTop: '2px' }}>cost {costLbl}</div>
+                            <div style={{ fontSize: '8px', opacity: 0.7, marginTop: '2px' }}>{t('cost {cost}', { cost: costLbl })}</div>
                           </button>
                         );
                       })}
@@ -2437,21 +2437,21 @@ export default function DeadPerimeter() {
                   const completed = gs.research?.completed || [];
                   return (
                     <div>
-                      <div style={{ ...lbl, color: '#cc99ff' }}>🧪 RESEARCH LAB</div>
+                      <div style={{ ...lbl, color: '#cc99ff' }}>{t('🧪 RESEARCH LAB')}</div>
                       <div style={{ fontSize: '9px', color: C.txt, opacity: 0.55, marginBottom: '4px' }}>
-                        One node at a time. Progress ticks +1 per wave clear. Costs paid up-front; cancel forfeits the spend.
+                        {t('One node at a time. Progress ticks +1 per wave clear. Costs paid up-front; cancel forfeits the spend.')}
                       </div>
                       {active && (
                         <div style={{ background: 'rgba(40,20,60,0.6)', border: '1px solid #5a3a88', padding: '6px 10px', marginBottom: '6px' }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <div style={{ color: '#cc99ff', fontSize: '11px', fontWeight: 'bold' }}>⏳ {active.name}</div>
-                            <button style={{ ...btn('#2a1818', '#883333'), fontSize: '8px', padding: '2px 6px', marginRight: 0 }} onClick={cancelResearch}>CANCEL</button>
+                            <div style={{ color: '#cc99ff', fontSize: '11px', fontWeight: 'bold' }}>⏳ {t(active.name)}</div>
+                            <button style={{ ...btn('#2a1818', '#883333'), fontSize: '8px', padding: '2px 6px', marginRight: 0 }} onClick={cancelResearch}>{t('CANCEL')}</button>
                           </div>
-                          <div style={{ fontSize: '9px', color: C.txt, opacity: 0.7 }}>{active.desc}</div>
+                          <div style={{ fontSize: '9px', color: C.txt, opacity: 0.7 }}>{t(active.desc)}</div>
                           <div style={{ height: '4px', background: '#1a1a1a', marginTop: '4px' }}>
                             <div style={{ height: '4px', width: `${Math.min(100, (gs.research.progress / active.waves) * 100)}%`, background: '#aa66ff' }} />
                           </div>
-                          <div style={{ ...lbl, marginTop: '2px' }}>{gs.research.progress}/{active.waves} waves</div>
+                          <div style={{ ...lbl, marginTop: '2px' }}>{t('{n}/{max} waves', { n: gs.research.progress, max: active.waves })}</div>
                         </div>
                       )}
                       <div style={row}>
@@ -2472,17 +2472,17 @@ export default function DeadPerimeter() {
                               }}
                             >
                               <div style={{ color: done ? C.acc : '#cc99ff', fontSize: '11px', fontWeight: 'bold' }}>
-                                {done ? '✔ ' : ''}{r.name}
+                                {done ? '✔ ' : ''}{t(r.name)}
                               </div>
-                              <div style={{ fontSize: '9px', color: C.txt, opacity: 0.75, marginTop: '2px', lineHeight: '1.3' }}>{r.desc}</div>
-                              <div style={{ ...lbl, marginTop: '4px' }}>{r.waves} waves · {costLbl}</div>
+                              <div style={{ fontSize: '9px', color: C.txt, opacity: 0.75, marginTop: '2px', lineHeight: '1.3' }}>{t(r.desc)}</div>
+                              <div style={{ ...lbl, marginTop: '4px' }}>{t('{n} waves · {cost}', { n: r.waves, cost: costLbl })}</div>
                               {!done && (
                                 <button
                                   style={{ ...btn('#2a1838', '#7744aa'), fontSize: '9px', padding: '3px 8px', marginTop: '3px', marginRight: 0 }}
                                   disabled={!canPay}
                                   onClick={() => startResearch(r.id)}
-                                  title={active ? 'Another research is already running' : !canPay ? 'Not enough resources' : 'Begin research'}
-                                >▶ START</button>
+                                  title={active ? t('Another research is already running') : !canPay ? t('Not enough resources') : t('Begin research')}
+                                >{t('▶ START')}</button>
                               )}
                             </div>
                           );
@@ -2496,7 +2496,7 @@ export default function DeadPerimeter() {
             {reserveCount > 0 && (
               <>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div style={h2}>🛏 RESERVE ROSTER ({reserveCount}/{BALANCE.maxReserveSoldiers})</div>
+                  <div style={h2}>{t('🛏 RESERVE ROSTER ({n}/{max})', { n: reserveCount, max: BALANCE.maxReserveSoldiers })}</div>
                   {reserveCivCount > 0 && (
                     <button
                       style={{
@@ -2508,22 +2508,22 @@ export default function DeadPerimeter() {
                       disabled={!canEvac}
                       title={
                         reserveCivCount < BALANCE.evacMinReserve
-                          ? `Need ${BALANCE.evacMinReserve - reserveCivCount} more civilian${BALANCE.evacMinReserve - reserveCivCount === 1 ? '' : 's'} in reserve`
+                          ? t(BALANCE.evacMinReserve - reserveCivCount === 1 ? 'Need {n} more civilian in reserve' : 'Need {n} more civilians in reserve', { n: BALANCE.evacMinReserve - reserveCivCount })
                           : evacCooldownLeft > 0
-                            ? `Cool-down: ${evacCooldownLeft} more wave${evacCooldownLeft === 1 ? '' : 's'}`
-                            : `Airlift ${reserveCivCount} civilian${reserveCivCount === 1 ? '' : 's'}`
+                            ? t(evacCooldownLeft === 1 ? 'Cool-down: {n} more wave' : 'Cool-down: {n} more waves', { n: evacCooldownLeft })
+                            : t(reserveCivCount === 1 ? 'Airlift {n} civilian' : 'Airlift {n} civilians', { n: reserveCivCount })
                       }
                     >
-                      🚁 EVAC ({reserveCivCount}/{BALANCE.evacMinReserve})
-                      {reserveCivCount < BALANCE.evacMinReserve && ` — need ${BALANCE.evacMinReserve - reserveCivCount}`}
-                      {reserveCivCount >= BALANCE.evacMinReserve && evacCooldownLeft > 0 && ` — wait ${evacCooldownLeft}w`}
+                      {t('🚁 EVAC')} ({reserveCivCount}/{BALANCE.evacMinReserve})
+                      {reserveCivCount < BALANCE.evacMinReserve && ` — ${t('need {n}', { n: BALANCE.evacMinReserve - reserveCivCount })}`}
+                      {reserveCivCount >= BALANCE.evacMinReserve && evacCooldownLeft > 0 && ` — ${t('wait {n}w', { n: evacCooldownLeft })}`}
                     </button>
                   )}
                 </div>
                 <div style={{ fontSize: '9px', color: C.txt, opacity: 0.55, marginBottom: '6px' }}>
-                  Civilians and recruits at rest. Auto-promoted to active duty when a slot opens up after each wave.
-                  Helicopter evac unlocks at <b>{BALANCE.evacMinReserve} civilians</b> in reserve, then needs a {BALANCE.evacWaveCooldown}-wave cool-down between calls.
-                  Reward per civ: +{BALANCE.evacFoodPerCiv} food, +{BALANCE.evacMedicinePerCiv} med, +{BALANCE.evacSniperAmmoPerCiv} sniper ammo, +{BALANCE.evacMaterialsPerCiv} materials.
+                  {t('Civilians and recruits at rest. Auto-promoted to active duty when a slot opens up after each wave.')}
+                  {' '}{t('Helicopter evac unlocks at')} <b>{t('{n} civilians', { n: BALANCE.evacMinReserve })}</b> {t('in reserve, then needs a {n}-wave cool-down between calls.', { n: BALANCE.evacWaveCooldown })}
+                  {' '}{t('Reward per civ: +{food} food, +{med} med, +{sniper} sniper ammo, +{mat} materials.', { food: BALANCE.evacFoodPerCiv, med: BALANCE.evacMedicinePerCiv, sniper: BALANCE.evacSniperAmmoPerCiv, mat: BALANCE.evacMaterialsPerCiv })}
                 </div>
                 <div style={row}>
                   {gs.reserve.map((r, i) => {
@@ -2532,17 +2532,17 @@ export default function DeadPerimeter() {
                       <div key={i} style={{ ...card, minWidth: '110px', borderColor: '#1a3a52', background: 'rgba(12,20,30,0.85)' }}>
                         <div style={{ color: '#88ddff', fontWeight: 'bold', fontSize: '11px' }}>
                           {r.name}
-                          {r.civilian && <span style={{ color: '#88ddff', fontSize: '8px', marginLeft: '2px' }}>· civ</span>}
-                          {r.veteran && <span style={{ color: '#ffd54a', fontSize: '8px', marginLeft: '2px' }}>· vet</span>}
+                          {r.civilian && <span style={{ color: '#88ddff', fontSize: '8px', marginLeft: '2px' }}>{t('· civ')}</span>}
+                          {r.veteran && <span style={{ color: '#ffd54a', fontSize: '8px', marginLeft: '2px' }}>{t('· vet')}</span>}
                         </div>
                         <div style={{ fontSize: '9px', color: C.txt }}>{WPN[r.weapon]?.name}</div>
-                        <div style={{ fontSize: '8px', color: C.txt, opacity: 0.6, marginTop: '2px' }}>standby</div>
+                        <div style={{ fontSize: '8px', color: C.txt, opacity: 0.6, marginTop: '2px' }}>{t('standby')}</div>
                         <button
                           style={{ ...btn('#1a3028', '#338866'), fontSize: '8px', padding: '2px 6px', marginTop: '3px', marginRight: 0 }}
                           onClick={() => activateReserve(i)}
                           disabled={activeFull}
-                          title={activeFull ? 'Active squad full — bench someone first' : 'Promote to active duty'}
-                        >⚔ ACTIVATE</button>
+                          title={activeFull ? t('Active squad full — bench someone first') : t('Promote to active duty')}
+                        >{t('⚔ ACTIVATE')}</button>
                       </div>
                     );
                   })}
@@ -2551,20 +2551,20 @@ export default function DeadPerimeter() {
             )}
             {turretCount > 0 && (
               <>
-                <div style={h2}>🛠 MG TURRETS ({turretCount}/{BALANCE.maxTurrets})</div>
+                <div style={h2}>{t('🛠 MG TURRETS ({n}/{max})', { n: turretCount, max: BALANCE.maxTurrets })}</div>
                 <div style={{ fontSize: '9px', color: C.txt, opacity: 0.55, marginBottom: '6px' }}>
-                  Auto-fire at the closest hostile in range ({BALANCE.turretRange} px). 1 round / shot from the dedicated 🟠 MG pool.
-                  Earns +5 🟠 every wave you survive with a turret on the wall.
+                  {t('Auto-fire at the closest hostile in range ({n} px). 1 round / shot from the dedicated 🟠 MG pool.', { n: BALANCE.turretRange })}
+                  {' '}{t('Earns +5 🟠 every wave you survive with a turret on the wall.')}
                 </div>
               </>
             )}
             {(gs?.barricades?.length || 0) > 0 && (
               <>
-                <div style={h2}>🪵 BARRICADES ({gs.barricades.length}/{BALANCE.maxBarricades})</div>
+                <div style={h2}>{t('🪵 BARRICADES ({n}/{max})', { n: gs.barricades.length, max: BALANCE.maxBarricades })}</div>
                 <div style={row}>
                   {gs?.barricades?.map(b => (
                     <div key={b.id} style={{ ...card, minWidth: '90px' }}>
-                      <div style={{ color: C.wrn, fontSize: '9px' }}>ALL LANES @ x{Math.round(b.x)}</div>
+                      <div style={{ color: C.wrn, fontSize: '9px' }}>{t('ALL LANES @ x{n}', { n: Math.round(b.x) })}</div>
                       <div style={{ height: '3px', background: '#1a1a1a', marginTop: '3px' }}><div style={{ height: '3px', width: `${(b.hp / b.maxHp) * 100}%`, background: b.hp > 70 ? C.wrn : C.dng }} /></div>
                       <div style={{ ...lbl, marginTop: '2px' }}>{b.hp}/{b.maxHp} HP</div>
                     </div>
@@ -2572,27 +2572,27 @@ export default function DeadPerimeter() {
                 </div>
               </>
             )}
-            <div style={h2}>🏰 BASE {gs?.baseHp}/{gs?.baseMaxHp}</div>
+            <div style={h2}>{t('🏰 BASE {hp}/{max}', { hp: gs?.baseHp, max: gs?.baseMaxHp })}</div>
             <div style={{ height: '6px', background: '#1a1a1a', marginBottom: '14px' }}><div style={{ height: '6px', width: `${(gs?.baseHp || 0) / (gs?.baseMaxHp || 200) * 100}%`, background: (gs?.baseHp / gs?.baseMaxHp) > 0.6 ? C.acc : (gs?.baseHp / gs?.baseMaxHp) > 0.3 ? C.wrn : C.dng }} /></div>
             <hr style={hr} />
             <button
               style={btn('#1a1a3e', '#4444aa')}
               onClick={() => { resetExp(); setScr('expedition'); }}
               disabled={!canSortie}
-              title={!expeditionsUnlocked ? 'Unlocks after the first wave' : sortiesLeft <= 0 ? 'No sorties left today' : ''}
-            >🗺 EXPEDITION{
-              !expeditionsUnlocked ? ' — LOCKED'
+              title={!expeditionsUnlocked ? t('Unlocks after the first wave') : sortiesLeft <= 0 ? t('No sorties left today') : ''}
+            >{t('🗺 EXPEDITION')}{
+              !expeditionsUnlocked ? ` — ${t('LOCKED')}`
               : sortiesLeft > 0 ? ` (${sortiesLeft}/${sortiesPerDay(gs)})`
-              : ' — NIGHTFALL'
+              : ` — ${t('NIGHTFALL')}`
             }</button>
             {!expeditionsUnlocked && (
               <div style={{ fontSize: '9px', color: C.txt, opacity: 0.55, marginTop: '4px', lineHeight: '1.4' }}>
-                Expeditions unlock from <b>WAVE 2</b>. Survive the first wave to deploy sorties off-base.
+                {t('Expeditions unlock from')} <b>{t('WAVE {n}', { n: 2 })}</b>. {t('Survive the first wave to deploy sorties off-base.')}
               </div>
             )}
-            <button style={btn()} onClick={startWave} disabled={aliveSols.length === 0}>⚔ DEPLOY</button>
-            {aliveSols.length === 0 && <span style={{ color: C.dng, fontSize: '11px', marginLeft: '8px' }}>No soldiers available</span>}
-            {gs?.resources?.ammo < 30 && <div style={{ color: C.wrn, fontSize: '10px', marginTop: '6px' }}>⚠ Low ammo — soldiers may run dry mid-wave</div>}
+            <button style={btn()} onClick={startWave} disabled={aliveSols.length === 0}>{t('⚔ DEPLOY')}</button>
+            {aliveSols.length === 0 && <span style={{ color: C.dng, fontSize: '11px', marginLeft: '8px' }}>{t('No soldiers available')}</span>}
+            {gs?.resources?.ammo < 30 && <div style={{ color: C.wrn, fontSize: '10px', marginTop: '6px' }}>{t('⚠ Low ammo — soldiers may run dry mid-wave')}</div>}
           </div>
         </div>
       )}
@@ -2607,32 +2607,32 @@ export default function DeadPerimeter() {
           <div style={wrap}>
             <div style={{ ...panel, maxWidth: '660px' }}>
               <div style={{ textAlign: 'center', fontSize: '46px', marginBottom: '6px' }}>📡</div>
-              <div style={{ ...h1, color: '#88aaff', fontSize: '22px', textAlign: 'center' }}>FORT OMEGA — FINAL TRANSMISSION</div>
+              <div style={{ ...h1, color: '#88aaff', fontSize: '22px', textAlign: 'center' }}>{t('FORT OMEGA — FINAL TRANSMISSION')}</div>
               <hr style={hr} />
               <div style={{ color: C.txt, fontSize: '12px', lineHeight: '1.6', opacity: 0.9 }}>
-                Central Command, on the encrypted band:
+                {t('Central Command, on the encrypted band:')}
                 <div style={{ color: '#aaccff', marginTop: '8px', fontStyle: 'italic', paddingLeft: '12px', borderLeft: `2px solid ${C.uib}` }}>
-                  &ldquo;Fort Omega, this is Central. The vaccine sample at Memorial Hospital is the last working batch on the East Coast. We need it at LZ Bravo within the hour. Push down Highway 17, recover the vial, hold the rooftop for evac. Whoever&rsquo;s still standing &mdash; go.&rdquo;
+                  &ldquo;{t('Fort Omega, this is Central. The vaccine sample at Memorial Hospital is the last working batch on the East Coast. We need it at LZ Bravo within the hour. Push down Highway 17, recover the vial, hold the rooftop for evac. Whoever’s still standing — go.')}&rdquo;
                 </div>
                 <div style={{ marginTop: '12px' }}>
-                  Three legs:
+                  {t('Three legs:')}
                   <ol style={{ marginTop: '6px', paddingLeft: '18px', lineHeight: '1.7' }}>
                     {VACCINE_SCENARIOS.map(s => (
-                      <li key={s.name}><b style={{ color: s.riskColor }}>{s.icon} {s.name}</b> — <span style={{ opacity: 0.8 }}>{s.desc}</span></li>
+                      <li key={s.name}><b style={{ color: s.riskColor }}>{s.icon} {t(s.name)}</b> — <span style={{ opacity: 0.8 }}>{t(s.desc)}</span></li>
                     ))}
                   </ol>
                 </div>
               </div>
               <hr style={hr} />
               <div style={row}>
-                <div style={{ ...card, flex: 1, textAlign: 'center' }}><span style={lbl}>Going</span><div style={{ ...val, fontSize: '20px' }}>{total}</div></div>
-                <div style={{ ...card, flex: 1, textAlign: 'center' }}><span style={lbl}>Soldiers</span><div style={{ ...val, fontSize: '20px' }}>{aliveSquad}</div></div>
-                <div style={{ ...card, flex: 1, textAlign: 'center' }}><span style={lbl}>Civilians</span><div style={{ ...val, fontSize: '20px' }}>{inReserve}</div></div>
-                <div style={{ ...card, flex: 1, textAlign: 'center' }}><span style={lbl}>Mags / Soldier</span><div style={{ ...val, fontSize: '20px' }}>3</div></div>
+                <div style={{ ...card, flex: 1, textAlign: 'center' }}><span style={lbl}>{t('Going')}</span><div style={{ ...val, fontSize: '20px' }}>{total}</div></div>
+                <div style={{ ...card, flex: 1, textAlign: 'center' }}><span style={lbl}>{t('Soldiers')}</span><div style={{ ...val, fontSize: '20px' }}>{aliveSquad}</div></div>
+                <div style={{ ...card, flex: 1, textAlign: 'center' }}><span style={lbl}>{t('Civilians')}</span><div style={{ ...val, fontSize: '20px' }}>{inReserve}</div></div>
+                <div style={{ ...card, flex: 1, textAlign: 'center' }}><span style={lbl}>{t('Mags / Soldier')}</span><div style={{ ...val, fontSize: '20px' }}>3</div></div>
               </div>
               <hr style={hr} />
               <div style={{ textAlign: 'center' }}>
-                <button style={btn('#1a3a5a', '#4474aa')} onClick={startVaccineMission}>📡 DEPLOY — MOVE OUT</button>
+                <button style={btn('#1a3a5a', '#4474aa')} onClick={startVaccineMission}>{t('📡 DEPLOY — MOVE OUT')}</button>
               </div>
             </div>
           </div>
@@ -2643,7 +2643,7 @@ export default function DeadPerimeter() {
         <div style={wrap}>
           <div style={{ ...panel, textAlign: 'center', maxWidth: '620px' }}>
             <div style={{ fontSize: '48px', marginBottom: '6px' }}>💀</div>
-            <div style={{ ...h1, color: C.dng, fontSize: '22px' }}>FORT OMEGA FALLEN</div>
+            <div style={{ ...h1, color: C.dng, fontSize: '22px' }}>{t('FORT OMEGA FALLEN')}</div>
             <hr style={hr} />
             <div style={row}>{[
               ['Days', gs?.day],
@@ -2651,17 +2651,17 @@ export default function DeadPerimeter() {
               ['Kills', gs?.kills],
               ['Score', gs?.score],
             ].map(([l, v]) => (
-              <div key={l} style={{ ...card, flex: 1, textAlign: 'center' }}><span style={lbl}>{l}</span><div style={{ ...val, fontSize: '20px' }}>{v}</div></div>
+              <div key={l} style={{ ...card, flex: 1, textAlign: 'center' }}><span style={lbl}>{t(l)}</span><div style={{ ...val, fontSize: '20px' }}>{v}</div></div>
             ))}</div>
             <div style={{ ...row, marginTop: '6px' }}>{[
               ['Play Time', fmtPlayTime(gs)],
               ['Soldiers Lost', gs?.soldiersLost || 0],
               ['Civilians Lost', gs?.civiliansLost || 0],
             ].map(([l, v]) => (
-              <div key={l} style={{ ...card, flex: 1, textAlign: 'center' }}><span style={lbl}>{l}</span><div style={{ ...val, fontSize: '18px' }}>{v}</div></div>
+              <div key={l} style={{ ...card, flex: 1, textAlign: 'center' }}><span style={lbl}>{t(l)}</span><div style={{ ...val, fontSize: '18px' }}>{v}</div></div>
             ))}</div>
             <hr style={hr} />
-            <button style={btn('#5a1a1a', '#883030')} onClick={newGame}>↺ TRY AGAIN</button>
+            <button style={btn('#5a1a1a', '#883030')} onClick={newGame}>{t('↺ TRY AGAIN')}</button>
           </div>
         </div>
       )}
@@ -2684,9 +2684,9 @@ export default function DeadPerimeter() {
         <div style={wrap}>
           <div style={{ ...panel, textAlign: 'center', maxWidth: '640px' }}>
             <div style={{ fontSize: '48px', marginBottom: '6px' }}>{meta.emoji}</div>
-            <div style={{ ...h1, color: meta.color, fontSize: '22px' }}>{meta.title}</div>
+            <div style={{ ...h1, color: meta.color, fontSize: '22px' }}>{t(meta.title)}</div>
             <div style={{ color: C.txt, fontSize: '11px', marginTop: '8px', opacity: 0.7, lineHeight: '1.5' }}>
-              {meta.blurb}
+              {t(meta.blurb)}
             </div>
             <hr style={hr} />
             <div style={row}>
@@ -2697,7 +2697,7 @@ export default function DeadPerimeter() {
                 ['Score', gs?.score],
                 ['Survivors', (gs?.soldiers?.filter(s => s.state !== 'dead').length || 0) + (gs?.reserve?.length || 0)],
               ].map(([l, v]) => (
-                <div key={l} style={{ ...card, flex: 1, textAlign: 'center' }}><span style={lbl}>{l}</span><div style={{ ...val, fontSize: '18px' }}>{v}</div></div>
+                <div key={l} style={{ ...card, flex: 1, textAlign: 'center' }}><span style={lbl}>{t(l)}</span><div style={{ ...val, fontSize: '18px' }}>{v}</div></div>
               ))}
             </div>
             <div style={{ ...row, marginTop: '6px' }}>
@@ -2708,11 +2708,11 @@ export default function DeadPerimeter() {
                 ['Convoy Cleared', r ? `${r.scenariosCleared} / 3` : '—'],
                 ['Vaccine', r ? (r.vaccineDelivered ? '✓' : '✗') : '—'],
               ].map(([l, v]) => (
-                <div key={l} style={{ ...card, flex: 1, textAlign: 'center' }}><span style={lbl}>{l}</span><div style={{ ...val, fontSize: '18px' }}>{v}</div></div>
+                <div key={l} style={{ ...card, flex: 1, textAlign: 'center' }}><span style={lbl}>{t(l)}</span><div style={{ ...val, fontSize: '18px' }}>{v}</div></div>
               ))}
             </div>
             <hr style={hr} />
-            <button style={btn('#1a3a5a', '#4474aa')} onClick={newGame}>↻ NEW OPERATION</button>
+            <button style={btn('#1a3a5a', '#4474aa')} onClick={newGame}>{t('↻ NEW OPERATION')}</button>
           </div>
         </div>
         );

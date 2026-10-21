@@ -5,6 +5,7 @@
 import { C } from '../constants.js';
 import { MAP_W, MAP_H, FORT_POS, DISTRICTS, LOCATIONS, RISK_COLOR, riskOf } from '../data/city.js';
 import { MISSION_CONDS, SIDE_OBJ } from '../data/missionExtras.js';
+import { t } from '../i18n/index.js';
 
 const ROAD_LINK = 190;
 
@@ -20,6 +21,12 @@ function roads() {
   return out;
 }
 const ROADS = roads();
+// "Northgate Compound (ruins)" is composed in data/city.js: translate both parts.
+const tDestName = name => {
+  const r = /^(.*) \(ruins\)$/.exec(name || '');
+  return r ? t('{name} (ruins)', { name: t(r[1]) }) : t(name);
+};
+const SIZE_WORD = { S: 'small', M: 'medium', L: 'large' };
 
 function Bar({ label, value, color }) {
   return (
@@ -54,7 +61,7 @@ export default function CityMap({ city, dests, selected, onPick, day, jobs = [] 
         {DISTRICTS.map(d => (
           <g key={d.id}>
             <rect x={d.x} y={d.y} width={d.w} height={d.h} fill={d.tint} stroke="rgba(184,204,170,0.12)" strokeDasharray="4 4" rx="6" />
-            <text x={d.x + 8} y={d.y + 14} fill="rgba(184,204,170,0.4)" fontSize="10" fontFamily="monospace" letterSpacing="2">{d.name}</text>
+            <text x={d.x + 8} y={d.y + 14} fill="rgba(184,204,170,0.4)" fontSize="10" fontFamily="monospace" letterSpacing="2">{t(d.name)}</text>
           </g>
         ))}
         {ROADS.map(([a, b], i) => {
@@ -86,7 +93,7 @@ export default function CityMap({ city, dests, selected, onPick, day, jobs = [] 
               <text x={l.x} y={l.y + 5} textAnchor="middle" fontSize="13">{l.icon}</text>
               <rect x={l.x - 13} y={l.y + 16} width="26" height="3" fill="#141612" />
               <rect x={l.x - 13} y={l.y + 16} width={26 * st.loot} height="3" fill="#88ddff" />
-              <text x={l.x} y={l.y + 30} textAnchor="middle" fill={isSel ? '#fff' : 'rgba(220,230,210,0.8)'} fontSize="9" fontFamily="monospace">{l.name}</text>
+              <text x={l.x} y={l.y + 30} textAnchor="middle" fill={isSel ? '#fff' : 'rgba(220,230,210,0.8)'} fontSize="9" fontFamily="monospace">{t(l.name)}</text>
               {st.visits > 0 && <text x={l.x + 14} y={l.y - 9} fontSize="9" fill="#88ee99" fontFamily="monospace">✓</text>}
               {jobs.some(j => j.loc === l.id) && (
                 <g>
@@ -99,48 +106,48 @@ export default function CityMap({ city, dests, selected, onPick, day, jobs = [] 
         })}
       </svg>
       <div style={{ display: 'flex', gap: '12px', fontSize: '8px', color: 'rgba(184,204,170,0.7)', marginTop: '3px', flexWrap: 'wrap' }}>
-        <span>● ring = risk</span><span style={{ color: '#dd5544' }}>◉ red halo = infestation</span><span style={{ color: '#88ddff' }}>▬ blue bar = loot left</span><span>? = unexplored (scout nearby to reveal)</span>
+        <span>{t('● ring = risk')}</span><span style={{ color: '#dd5544' }}>{t('◉ red halo = infestation')}</span><span style={{ color: '#88ddff' }}>{t('▬ blue bar = loot left')}</span><span>{t('? = unexplored (scout nearby to reveal)')}</span>
       </div>
       {sel ? (
         <div style={{ marginTop: '6px', background: 'rgba(8,16,8,0.85)', border: `1px solid ${sel.riskColor}`, padding: '8px 12px', display: 'flex', gap: '14px', flexWrap: 'wrap' }}>
           <div style={{ flex: '1 1 240px' }}>
-            <div style={{ color: C.acc, fontWeight: 'bold', fontSize: '12px' }}>{sel.icon} {sel.name}</div>
+            <div style={{ color: C.acc, fontWeight: 'bold', fontSize: '12px' }}>{sel.icon} {tDestName(sel.name)}</div>
             <div style={{ fontSize: '9px', color: sel.riskColor, fontWeight: 'bold', marginTop: '2px' }}>
-              RISK: {sel.risk} · {({ S: 'small', M: 'medium', L: 'large' })[sel.size]} area · {sel.visits ? `visited ${sel.visits}× (day ${sel.lastDay})` : 'never visited'}
+              {t('RISK: {risk}', { risk: t(sel.risk) })} · {t('{size} area', { size: t(SIZE_WORD[sel.size]) })} · {sel.visits ? t('visited {n}× (day {day})', { n: sel.visits, day: sel.lastDay }) : t('never visited')}
             </div>
-            <div style={{ color: C.txt, fontSize: '9px', marginTop: '4px', lineHeight: '1.4' }}>{sel.desc}</div>
+            <div style={{ color: C.txt, fontSize: '9px', marginTop: '4px', lineHeight: '1.4' }}>{t(sel.desc)}</div>
             <div style={{ color: '#88ddff', fontSize: '9px', marginTop: '3px' }}>{sel.rewards}</div>
-            <Bar label="Infestation" value={sel.infest / 1.2} color="#cc4433" />
-            <Bar label="Loot left" value={sel.lootLeft} color="#88ddff" />
-            <div style={{ fontSize: '9px', color: C.wrn, marginTop: '4px' }}>Travel: −{sel.travel} 🥫 per soldier{sel.slots > 1 ? ' · ⏱ takes the whole day (2 sorties)' : ' · ⏱ half a day'}</div>
+            <Bar label={t('Infestation')} value={sel.infest / 1.2} color="#cc4433" />
+            <Bar label={t('Loot left')} value={sel.lootLeft} color="#88ddff" />
+            <div style={{ fontSize: '9px', color: C.wrn, marginTop: '4px' }}>{t('Travel: −{n} 🥫 per soldier', { n: sel.travel })} · {sel.slots > 1 ? t('⏱ takes the whole day (2 sorties)') : t('⏱ half a day')}</div>
           </div>
           <div style={{ flex: '1 1 220px', fontSize: '9px' }}>
-            <div style={{ color: 'rgba(184,204,170,0.6)' }}>TODAY (DAY {day})</div>
+            <div style={{ color: 'rgba(184,204,170,0.6)' }}>{t('TODAY (DAY {day})', { day })}</div>
             {sel.cond && MISSION_CONDS[sel.cond] ? (
               <div style={{ color: MISSION_CONDS[sel.cond].color, fontWeight: 'bold', marginTop: '3px' }}>
-                {MISSION_CONDS[sel.cond].icon} {MISSION_CONDS[sel.cond].name}
-                <div style={{ fontWeight: 'normal', color: C.txt, opacity: 0.85 }}>{MISSION_CONDS[sel.cond].desc}</div>
+                {MISSION_CONDS[sel.cond].icon} {t(MISSION_CONDS[sel.cond].name)}
+                <div style={{ fontWeight: 'normal', color: C.txt, opacity: 0.85 }}>{t(MISSION_CONDS[sel.cond].desc)}</div>
               </div>
-            ) : <div style={{ color: C.txt, opacity: 0.6, marginTop: '3px' }}>No special conditions.</div>}
+            ) : <div style={{ color: C.txt, opacity: 0.6, marginTop: '3px' }}>{t('No special conditions.')}</div>}
             {sel.side && SIDE_OBJ[sel.side] && (
               <div style={{ color: '#ffd54a', marginTop: '5px' }}>
-                <b>★ SIDE: {SIDE_OBJ[sel.side].icon} {SIDE_OBJ[sel.side].name}</b> {SIDE_OBJ[sel.side].reward}
-                <div style={{ color: C.txt, opacity: 0.85 }}>{SIDE_OBJ[sel.side].desc}</div>
+                <b>{t('★ SIDE:')} {SIDE_OBJ[sel.side].icon} {t(SIDE_OBJ[sel.side].name)}</b> {t(SIDE_OBJ[sel.side].reward)}
+                <div style={{ color: C.txt, opacity: 0.85 }}>{t(SIDE_OBJ[sel.side].desc)}</div>
               </div>
             )}
             {jobs.filter(j => j.loc === sel.locId).map(j => (
               <div key={j.id} style={{ color: '#ffd54a', marginTop: '5px' }}>
-                <b>📋 JOB: {j.title}</b>
-                <div style={{ color: C.txt, opacity: 0.85 }}>{j.kind === 'fetch' ? `Recover the ${j.item} (upper floor of a building).` : j.kind === 'rescue' ? `Find ${j.person} and walk them back to the van.` : `Clear it out: infestation below ${Math.round(j.below * 100)}%.`}</div>
+                <b>{t('📋 JOB: {title}', { title: t(j.title) })}</b>
+                <div style={{ color: C.txt, opacity: 0.85 }}>{j.kind === 'fetch' ? t('Recover the {item} (upper floor of a building).', { item: t(j.item) }) : j.kind === 'rescue' ? t('Find {person} and walk them back to the van.', { person: t(j.person) }) : t('Clear it out: infestation below {pct}%.', { pct: Math.round(j.below * 100) })}</div>
               </div>
             ))}
             <div style={{ color: 'rgba(184,204,170,0.6)', marginTop: '6px', lineHeight: '1.4' }}>
-              Explore the street and its buildings, loot what you can and walk back to the van to leave. What you take stays taken.
+              {t('Explore the street and its buildings, loot what you can and walk back to the van to leave. What you take stays taken.')}
             </div>
           </div>
         </div>
       ) : (
-        <div style={{ marginTop: '6px', fontSize: '10px', color: 'rgba(184,204,170,0.6)' }}>Select a location on the map.</div>
+        <div style={{ marginTop: '6px', fontSize: '10px', color: 'rgba(184,204,170,0.6)' }}>{t('Select a location on the map.')}</div>
       )}
     </div>
   );
