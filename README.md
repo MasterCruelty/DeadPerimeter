@@ -8,6 +8,8 @@
 
 ![Build](https://img.shields.io/badge/build-vite%205-blue) ![Node](https://img.shields.io/badge/node-%3E%3D20-success) ![License](https://img.shields.io/badge/license-MIT-green)
 
+**▶ [Play in the browser](https://mastercruelty.github.io/DeadPerimeter/)** — no install needed. Progress is saved in your browser.
+
 | | |
 | --- | --- |
 | ![Siege](docs/screenshots/siege.jpg) | ![City map](docs/screenshots/city-map.jpg) |
@@ -136,6 +138,12 @@ Click the canvas once so the browser allows audio.
 npm run build        # static bundle in dist/, serve it anywhere
 npm run preview      # http://localhost:4173
 ```
+
+### GitHub Pages
+
+Every push to `main` builds the game and publishes it on GitHub Pages
+(`.github/workflows/pages.yml`). One-time setup in the repository:
+**Settings → Pages → Build and deployment → Source: GitHub Actions**.
 
 ### Docker
 
