@@ -1,5 +1,7 @@
 // Italian: HUD, mission, siege and in-world strings (keys are the English source text).
 export default {
+  // Soldier tag: low on ammo (the risk level 'LOW' is BASSO)
+  'ammo|LOW': 'SCARSE',
   // src/render/hud.js
   "DAY {d} · WAVE {w}/{max}": "GIORNO {d} · ONDATA {w}/{max}",
   "CLEARED": "BONIFICATA",

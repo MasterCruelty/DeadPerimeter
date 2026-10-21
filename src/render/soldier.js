@@ -46,7 +46,7 @@ export function dSoldier(ctx, s, now, isSelected) {
     }
     if (s.ammo <= 1 && s.state !== 'reload') {
       ctx.fillStyle = 'rgba(200,40,20,0.95)'; ctx.font = 'bold 7px monospace'; ctx.textAlign = 'center';
-      ctx.fillText(s.ammo === 0 ? t('DRY') : t('LOW'), s.x, GY - 194); ctx.textAlign = 'left';
+      ctx.fillText(s.ammo === 0 ? t('DRY') : t('ammo|LOW'), s.x, GY - 194); ctx.textAlign = 'left';
     }
     if (isSelected) {
       const ring = 0.7 + 0.3 * Math.sin(now / 180);
@@ -97,7 +97,7 @@ export function dSoldier(ctx, s, now, isSelected) {
     const isKnife = s.state === 'knife' || s.knifeReady;
     if (s.ammo <= 3 && s.ammo > 0 && !isRl) {
       ctx.fillStyle = 'rgba(200,160,20,0.9)'; ctx.font = 'bold 7px monospace'; ctx.textAlign = 'center';
-      ctx.fillText(t('LOW'), s.x, ly - Math.round(76 * sc)); ctx.textAlign = 'left';
+      ctx.fillText(t('ammo|LOW'), s.x, ly - Math.round(76 * sc)); ctx.textAlign = 'left';
     }
     if (s.ammo === 0 && !isRl) {
       ctx.fillStyle = 'rgba(200,40,20,0.95)'; ctx.font = 'bold 7px monospace'; ctx.textAlign = 'center';

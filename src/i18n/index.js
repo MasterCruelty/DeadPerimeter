@@ -46,10 +46,15 @@ export function onLangChange(f) { listeners.add(f); return () => listeners.delet
 const fill = (s, p) => (p ? s.replace(/\{(\w+)\}/g, (m, k) => (p[k] !== undefined ? p[k] : m)) : s);
 export const fillParams = (s, p) => (s ? fill(s, p) : s);
 
+// A key may carry a context ('ammo|LOW') when the same English word
+// needs different translations; without a translation the context is
+// dropped ('LOW').
+const bare = s => { const i = s.indexOf('|'); return i > 0 && /^[a-z]+$/.test(s.slice(0, i)) ? s.slice(i + 1) : s; };
+
 export function t(s, params) {
   if (s === null || s === undefined) return s;
   const d = DICTS[lang];
-  return fill((d && d[s]) || s, params);
+  return fill((d && d[s]) || bare(s), params);
 }
 // Translation only if one exists (null otherwise) — for speech, which
 // falls back to the English line and an English voice.
