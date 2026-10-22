@@ -7,8 +7,9 @@ import { C } from '../constants.js';
 // (different intro banner, biome accent, scripted events later on).
 //
 // Scenarios are played back-to-back — when one is won, the survivors
-// carry their HP / ammo into the next. A total party wipe in any
-// scenario ends the campaign.
+// carry their HP / ammo into the next. Each scenario starts with a
+// checkpoint: a total party wipe (or losing the vial) offers a retry of
+// that scenario, or accepting the outcome, which ends the campaign.
 export const VACCINE_SCENARIOS = [
   {
     name: 'Highway 17 — Convoy',

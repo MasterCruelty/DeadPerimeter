@@ -43,6 +43,7 @@ import { dEvacScene, EVAC_DURATION } from './render/evac.js';
 import { dIntroScene, INTRO_DURATION } from './render/intro.js';
 import { dDefeatScene, DEFEAT_DURATION } from './render/defeat.js';
 import { dTransmissionScene } from './render/transmission.js';
+import { dCheckpointBanner } from './render/checkpoint.js';
 import { createPostFX } from './render/postfx.js';
 import { setNormalTarget } from './render/actors/paint.js';
 import { zombiePrewarm, registerZombieTypes, setWalkerPool } from './render/actors/zombies.js';
@@ -60,6 +61,7 @@ import { isIndoorAt } from './update/cityMission.js';
 import { finishMission } from './expedition/missionFinish.js';
 import {
   mkVaccineCampaign, advanceVaccineScenario, finishVaccineCampaign,
+  retryVaccineCheckpoint, vaccineActFailure,
 } from './expedition/vaccineCampaign.js';
 import { VACCINE_SCENARIOS } from './data/vaccineMission.js';
 
@@ -508,6 +510,12 @@ export default function DeadPerimeter() {
     setScr('expedition');
   }, []);
 
+  // Flash the CHECKPOINT banner (render/checkpoint.js) on the act that
+  // just started or restarted.
+  const showCheckpoint = useCallback(campaign => {
+    campaign.current._checkpointBanner = { act: VACCINE_SCENARIOS[campaign.currentIndex].name, retry: campaign.retriesByAct[campaign.currentIndex] || 0 };
+  }, []);
+
   // Vaccine campaign — start the playable wave-30 finale. Builds the
   // first of three scenarios (highway/hospital/rooftop), wires its
   // mission into missionRef so the regular siege loop renders + drives
@@ -523,7 +531,8 @@ export default function DeadPerimeter() {
     gs.phase = 'vaccine-mission';
     setUi({ ...gs, soldiers: gs.soldiers.map(s => ({ ...s })) });
     setScr('mission');
-  }, []);
+    showCheckpoint(campaign);
+  }, [showCheckpoint]);
 
   // Called when the current scenario's state flips to won / lost.
   // If won and there's another scenario, advance — otherwise wrap up
@@ -541,6 +550,7 @@ export default function DeadPerimeter() {
         // Stay on the mission screen; the new scenario renders in the
         // same canvas with its own biome / layout.
         setUi({ ...gs, soldiers: gs.soldiers.map(s => ({ ...s })) });
+        showCheckpoint(campaign);
         return;
       }
     }
@@ -560,7 +570,23 @@ export default function DeadPerimeter() {
     // Ending cinematic first; finishExtraction routes to the stats screen.
     extractionRef.current = mkExtraction(gs, result, campaign.party.filter(s => s.state !== 'dead'));
     setScr('extraction');
-  }, []);
+  }, [showCheckpoint]);
+
+  // Failed act (wipe, or the vial lost): replay it from the checkpoint
+  // taken when it started. Nothing from the failed attempt was written
+  // back to gs, so only the campaign needs rewinding.
+  const retryVaccineAct = useCallback(() => {
+    const campaign = vaccineRef.current; if (!campaign) return;
+    const gs = gsRef.current; if (!gs) return;
+    const am0 = getAM(); if (am0) { am0.windStop(); am0.cityHumStop(); }
+    const m = retryVaccineCheckpoint(campaign, gs);
+    if (!m) return;
+    missionRef.current = m;
+    inputRef.current = { left: false, right: false, shoot: false, up: false, down: false };
+    pausedRef.current = false; setPaused(false);
+    setUi({ ...gs, soldiers: gs.soldiers.map(s => ({ ...s })) });
+    showCheckpoint(campaign);
+  }, [showCheckpoint]);
 
   const recruit = useCallback(() => {
     const gs = gsRef.current;
@@ -955,7 +981,7 @@ export default function DeadPerimeter() {
     const worldC = mkOff(), hudC = mkOff(), normC = mkOff();
     const normCtx = normC.getContext('2d');
     const hdScale = DPR;
-    if (import.meta.env.DEV) window.__dp = { worldC, hudC, gsRef, missionRef, extractionRef, mkExtraction, expDestsRef };
+    if (import.meta.env.DEV) window.__dp = { worldC, hudC, gsRef, missionRef, vaccineRef, extractionRef, mkExtraction, expDestsRef };
     const worldCtx = worldC.getContext('2d'), hudCtx = hudC.getContext('2d');
     let fx = null, fxTried = false;
     // Per-frame targets: in HD mode the world goes to worldCtx (lit by the
@@ -1423,6 +1449,7 @@ export default function DeadPerimeter() {
         scene = missionLights(m, m.simNow);
         hctx.save(); hudUsed = true;
         dMissionHUD(hctx, m, m.simNow);
+        dCheckpointBanner(hctx, m);
         if (mPaused) {
           hctx.fillStyle = 'rgba(0,0,0,0.62)'; hctx.fillRect(0, 0, CW, CH);
           hctx.fillStyle = 'rgba(6,14,6,0.95)'; hctx.fillRect(CW / 2 - 190, CH / 2 - 80, 380, 150);
@@ -1922,6 +1949,22 @@ export default function DeadPerimeter() {
             ) : vaccineRef.current ? (() => {
               const camp = vaccineRef.current;
               const m = camp.current;
+              const failed = vaccineActFailure(camp);
+              if (failed) {
+                const act = t(VACCINE_SCENARIOS[camp.currentIndex].name).toUpperCase();
+                return (
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+                    <span style={{ color: C.dng, fontSize: '11px', letterSpacing: '.05em' }}>
+                      {failed === 'wiped' ? t('Nobody left standing on {act}.', { act }) : t('The vial did not make it off {act}.', { act })}
+                    </span>
+                    <div>
+                      <button style={btn('#3a3010', '#ffcc44')} onClick={retryVaccineAct}>{t('↺ RETRY FROM CHECKPOINT')}</button>
+                      <button style={btn('#3a1818', C.dng)} onClick={advanceOrFinishVaccine}>{t('ACCEPT THE OUTCOME')}</button>
+                    </div>
+                    <span style={{ color: '#7a8a6a', fontSize: '9px' }}>{t('Retries so far: {n}', { n: camp.retries || 0 })}</span>
+                  </div>
+                );
+              }
               const isLast = camp.currentIndex >= VACCINE_SCENARIOS.length - 1;
               const won = m && m.state === 'won';
               const label = won
