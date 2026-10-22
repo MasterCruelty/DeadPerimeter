@@ -83,6 +83,8 @@ function buildAct(campaign, gs, idx, carrierOrigId) {
   m._vaccineCampaign = true;
   m._vaccineIndex = idx;
   m._vaccineScenarioName = VACCINE_SCENARIOS[idx].name;
+  // Grenades left over from the previous act (undefined: the default).
+  if (campaign.grenades !== undefined) m.grenades = campaign.grenades;
   // If the vaccine was picked up in a previous scenario, hand it off
   // to a survivor in the new scenario so the carrier mechanic stays
   // continuous (no need to spawn another pickup).
@@ -114,6 +116,7 @@ export function saveVaccineCheckpoint(campaign) {
     vaccinePickedUp: campaign.vaccinePickedUp,
     caseHeld: !!carrier,
     carrierOrigId: carrier ? carrier.origId : null,
+    grenades: campaign.grenades,
     party: campaign.party.map(s => ({
       id: s.id, hp: s.hp, maxHp: s.maxHp, state: s.state,
       ammo: s.ammo, _sortieMags: s._sortieMags, onExpedition: s.onExpedition,
@@ -135,6 +138,7 @@ export function retryVaccineCheckpoint(campaign, gs) {
   }
   campaign.scenariosCleared = cp.scenariosCleared;
   campaign.vaccinePickedUp = cp.vaccinePickedUp;
+  campaign.grenades = cp.grenades;
   campaign.retries = (campaign.retries || 0) + 1;
   campaign.retriesByAct[cp.index] = (campaign.retriesByAct[cp.index] || 0) + 1;
   return buildAct(campaign, gs, cp.index, cp.caseHeld ? cp.carrierOrigId : undefined);
@@ -194,6 +198,7 @@ export function advanceVaccineScenario(campaign, gs) {
       : null;
   }
   campaign.vaccinePickedUp = campaign.vaccinePickedUp || !!m._vaccineCollected;
+  if (m.grenades !== undefined) campaign.grenades = m.grenades;
   const next = buildAct(campaign, gs, nextIdx, carryCarrier);
   saveVaccineCheckpoint(campaign);
   return next;
