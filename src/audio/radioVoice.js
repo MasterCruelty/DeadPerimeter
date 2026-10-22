@@ -9,6 +9,7 @@
 // callers (radio.js) fall back to the existing procedural buzz.
 
 import { speechLang, tIfAny, fillParams } from '../i18n/index.js';
+import { duckMusic } from './music.js';
 
 let _initialized = false;
 let _enabled = true;
@@ -162,10 +163,15 @@ function rankedVoices(lang = 'en') {
 export const hasVoiceFor = lang => rankedVoices(lang).length > 0;
 
 // A consistent voice per speaker: the speaker's name picks one of the
-// best few voices, so the squad doesn't all sound the same.
-function pickVoice(pitch, key, lang = 'en') {
+// best few voices, so the squad doesn't all sound the same. Women on
+// the net (Reyes, Voss) get a female voice when the device has one.
+function pickVoice(pitch, key, lang = 'en', female = false) {
   let pool = rankedVoices(lang);
   if (!pool.length && lang === 'en') pool = _voices.filter(v => !NOVELTY.test(v.name || ''));
+  if (female) {
+    const fem = pool.filter(v => FEMALE.test(v.name || '') && !MALE.test(v.name || ''));
+    if (fem.length) pool = fem;
+  }
   if (!pool.length) return null;
   const top = pool.slice(0, Math.min(4, pool.length));
   let h = 0; const s = String(key ?? pitch ?? '');
@@ -218,7 +224,7 @@ export function speakRadio(text, opts = {}) {
     u.pitch = ttsPitch(opts.pitch);
     u.rate  = opts.urgent ? 1.1 : 1.0;
     u.volume = 0.95;
-    const v = pickVoice(opts.pitch, opts.voice, opts.lang || 'en');
+    const v = pickVoice(opts.pitch, opts.voice, opts.lang || 'en', !!opts.female);
     if (v) { u.voice = v; u.lang = v.lang; }
 
     // speak() can "succeed" and still produce nothing (no voices
@@ -228,7 +234,7 @@ export function speakRadio(text, opts = {}) {
     let started = false, failed = false;
     const fail = () => {
       if (started || failed || u._superseded) return;
-      failed = true; stopHiss();
+      failed = true; stopHiss(); duckMusic(false);
       if (++_fails >= 2) _ttsBroken = true;
       if (opts.onFail) { try { opts.onFail(); } catch {} }
     };
@@ -236,17 +242,18 @@ export function speakRadio(text, opts = {}) {
       // Started after we gave up on it (the chatter already played).
       if (failed) { try { ss.cancel(); } catch {} return; }
       started = true; _fails = 0;
+      duckMusic(true);
     };
     u.onend = () => {
       if (u._superseded) return;             // a newer line owns the hiss now
       const t = (_ctx && _ctx.currentTime) || 0;
       radioClick(t + 0.04, 0.04, 0.18);
-      stopHiss();
+      stopHiss(); duckMusic(false);
       if (_current === u) _current = null;
     };
     u.onerror = e => {
       if (u._superseded) return;
-      stopHiss();
+      stopHiss(); duckMusic(false);
       if (e && (e.error === 'interrupted' || e.error === 'canceled')) return;
       fail();
     };
@@ -269,10 +276,14 @@ export function speakRadio(text, opts = {}) {
 // voice (or no translation exists) the English line is spoken with an
 // English voice rather than an English voice mangling the translation.
 export function speakOrChatter(text, opts, soundQ) {
-  const chatter = () => soundQ && soundQ.push({
-    t: 'chatter', pitch: opts.pitch ?? 'mid', urgent: !!opts.urgent,
-    syllables: Math.max(2, Math.min(6, Math.round((text || '').length / 5))),
-  });
+  const chatter = () => {
+    if (!soundQ) return;
+    duckMusic(true, 1100);
+    soundQ.push({
+      t: 'chatter', pitch: opts.pitch ?? 'mid', urgent: !!opts.urgent,
+      syllables: Math.max(2, Math.min(6, Math.round((text || '').length / 5))),
+    });
+  };
   const sl = speechLang();
   const local = sl !== 'en' && hasVoiceFor(sl) ? tIfAny(text, opts.params) : null;
   const say = local || fillParams(text, opts.params), lang = local ? sl : 'en';

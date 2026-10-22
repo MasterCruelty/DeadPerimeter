@@ -38,7 +38,8 @@ import { dZombie } from './render/zombie.js';
 import { dHuman } from './render/human.js';
 import { dBarricade, dBlt, dFx } from './render/effects.js';
 import { dTurret } from './render/turret.js';
-import { dSquadMarker, dHUD, HUD_MUTE, HUD_SPEED, HUD_RADAR } from './render/hud.js';
+import { dSquadMarker, dHUD, dRadioLog, HUD_MUTE, HUD_SPEED, HUD_RADAR } from './render/hud.js';
+import RadioLog from './ui/RadioLog.jsx';
 import { dEvacScene, EVAC_DURATION } from './render/evac.js';
 import { dIntroScene, INTRO_DURATION } from './render/intro.js';
 import { dDefeatScene, DEFEAT_DURATION } from './render/defeat.js';
@@ -51,7 +52,8 @@ import { ZTP } from './data/zombies.js';
 import { zoomLights, siegeLights, missionLights } from './render/lighting.js';
 import { dExtractionScene, EXTRACTION_DURATION, EXTRACTION_SCRIPT, mkExtraction } from './render/extraction.js';
 import { TRANSMISSIONS } from './data/transmissions.js';
-import { pushRadio } from './audio/radio.js';
+import { pushRadio, logRadio, clearRadioLog } from './audio/radio.js';
+import { tickMusic, isMusicOn, setMusicOn } from './audio/music.js';
 import { initRadioVoice, setRadioVoiceEnabled, setRadioMuted, speakOrChatter } from './audio/radioVoice.js';
 
 import { update } from './update/siege.js';
@@ -171,6 +173,8 @@ export default function DeadPerimeter() {
   useEffect(() => onLangChange(() => setLangTick(n => n + 1)), []);
   const [scr, setScr] = useState('menu'), [ui, setUi] = useState(null), [muted, setMuted] = useState(false);
   const [paused, setPaused] = useState(false);
+  const [musicOn, setMusicOnState] = useState(isMusicOn);
+  const scrRef = useRef(scr);
   const [hasSave, setHasSave] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   // Graphics: always the full HD layer (WebGL lighting / bloom / grading
@@ -223,6 +227,21 @@ export default function DeadPerimeter() {
     mutedR.current = n; setMuted(n);
     if (am) am.mute(n);
     setRadioMuted(n);
+  }, []);
+
+  const toggleMusic = useCallback(() => {
+    const n = !isMusicOn();
+    setMusicOn(n); setMusicOnState(n);
+  }, []);
+
+  // Music follows the screen and, in a fight, how hot it is (music.js).
+  useEffect(() => { scrRef.current = scr; }, [scr]);
+  useEffect(() => {
+    const id = setInterval(() => tickMusic({
+      scr: scrRef.current, gs: gsRef.current, m: missionRef.current, finale: !!vaccineRef.current,
+      paused: pausedRef.current, muted: mutedR.current,
+    }), 250);
+    return () => clearInterval(id);
   }, []);
 
   const togglePause = useCallback(() => {
@@ -388,6 +407,7 @@ export default function DeadPerimeter() {
     gs.soldiers.forEach(s => { s.ammo = WPN[s.weapon].ammo; gs.resources.ammo -= WPN[s.weapon].ammoCost; });
     gsRef.current = gs; setUi({ ...gs });
     setHasSave(false);
+    clearRadioLog();
     transmissionRef.current = null;
     extractionRef.current = null;
     // Roll the opening cinematic before the player sees management.
@@ -438,8 +458,9 @@ export default function DeadPerimeter() {
     gs.humans = [];
     gs.bullets = []; gs.effects = []; gs.soundQ = [];
     gs.zombiesSpawned = 0;
-    if (gs.compactRaid) pushRadio(gs, 'baseHit', { line: 'Compact soldiers at the wall! This is a raid!', urgent: true, cooldown: 0 });
-    else if (gs.waveMod) pushRadio(gs, 'deploy', { line: WAVE_MODS[gs.waveMod].radio, cooldown: 0 });
+    gs._wallWarned = false; gs._deadSeen = null;   // fortRadio in update/siege.js
+    if (gs.compactRaid) pushRadio(gs, 'baseHit', { line: 'Omega, this is Colonel Voss. You had your chance. Northgate is at your wall.', urgent: true, cooldown: 0, from: 'voss' });
+    else if (gs.waveMod) pushRadio(gs, 'deploy', { line: WAVE_MODS[gs.waveMod].radio, cooldown: 0, from: 'hale' });
     gs.squadTarget = null; gs.squadLane = null; gs.selectedSoldierId = null;
     const ground = gs.soldiers.filter(s => s.state !== 'dead' && !s.onExpedition && !s.onRoof);
     ground.forEach((s, i) => { s.x = WX + 20; s.state = 'walk'; s.facing = 1; s.destX = 224 + i * 24; s.reloadTriggered = false; });
@@ -490,6 +511,9 @@ export default function DeadPerimeter() {
     // default for any soldier whose _sortieMags wasn't preset.
     const m = mkMission(party, dest, gs.wave || 1, mags, gs.research?.completed);
     missionRef.current = m;
+    // Who's on the net as the squad heads out.
+    if (dest.faction) pushRadio(m, 'deploy', { line: 'This is Colonel Voss. Turn back, Omega, or be buried with the dead.', from: 'voss', cooldown: 0 });
+    else pushRadio(m, 'sortieOut', { from: 'hale', cooldown: 0 });
     inputRef.current = { left: false, right: false, shoot: false, up: false, down: false };
     gs.expeditionsToday = (gs.expeditionsToday || 0) + ((dest && dest.slots) || 1);
     pausedRef.current = false; setPaused(false); getAM()?.duck(false);
@@ -1306,6 +1330,7 @@ export default function DeadPerimeter() {
         while (tr.lineIdx < tr.data.lines.length && off >= tr.data.lines[tr.lineIdx].at) {
           const l = tr.data.lines[tr.lineIdx];
           speakOrChatter(l.text, { pitch: l.pitch }, tr.soundQ);
+          logRadio({ line: l.text, name: 'Central Command', who: { npc: 'command' }, npc: true });
           tr.lineIdx++;
         }
         processSounds(tr.soundQ, getAM(), mutedR);
@@ -1491,6 +1516,7 @@ export default function DeadPerimeter() {
           hctx.fillText(t('Shift: dodge roll · G: grenade · F: melee'), CW / 2, CH / 2 + 74);
           hctx.fillText(t('R: reload · Q: swap gun / melee weapon'), CW / 2, CH / 2 + 90);
           hctx.textAlign = 'left';
+          dRadioLog(hctx, CW / 2 - 260, CH - 182, 520, 6);   // over the radio panel
         }
         hctx.restore();
         return;
@@ -1598,6 +1624,7 @@ export default function DeadPerimeter() {
             hctx.fillText(t('click lane: move · 1-9: select soldier'), CW / 2, CH / 2 + 22);
             hctx.fillText(t('←/→ or radar: pan · F: 2× speed · wheel or +/−: zoom'), CW / 2, CH / 2 + 38);
             hctx.textAlign = 'left';
+            dRadioLog(hctx, CW / 2 - 260, CH - 182, 520, 6);   // over the radio panel
           }
           ctx.restore();
           if (Math.floor(now / 250) !== Math.floor((now - dt) / 250)) setUi(mkSnap(gs));
@@ -2078,7 +2105,10 @@ export default function DeadPerimeter() {
                   {keyRow('Space / Esc / click', 'skip')}
                 </div>
               )}
-              <div style={{ marginTop: '14px' }}><LangSelect /></div>
+              <div style={{ marginTop: '14px', display: 'flex', gap: '8px', justifyContent: 'center', alignItems: 'center', flexWrap: 'wrap' }}>
+                <LangSelect />
+                <button style={{ ...mbtn, opacity: musicOn ? 1 : 0.6 }} onClick={toggleMusic} title={t('Music on / off')}>{musicOn ? t('🎵 MUSIC') : t('🎵 MUSIC OFF')}</button>
+              </div>
               <div style={{ color: '#4a5a40', fontSize: '9px', marginTop: '10px', letterSpacing: '.05em' }}>{t('🔊 click once to enable audio · auto-saves between waves')}</div>
             </div>
           </div>
@@ -2095,6 +2125,7 @@ export default function DeadPerimeter() {
                 <div style={{ display: 'flex', gap: '6px' }}>
                   <LangSelect compact />
                   <button style={mbtn} onClick={toggleMute}>{muted ? t('🔇 MUTED') : t('🔊 SOUND')}</button>
+                  <button style={{ ...mbtn, opacity: musicOn ? 1 : 0.6 }} onClick={toggleMusic} title={t('Music on / off')}>{musicOn ? t('🎵 MUSIC') : t('🎵 MUSIC OFF')}</button>
                 </div>
               </div>
             </div>
@@ -2435,6 +2466,7 @@ export default function DeadPerimeter() {
                 </>
               );
             })()}
+            <RadioLog />
             {gs && (() => {
               const a = ensureArmory(gsRef.current || gs);
               const guns = Object.entries(a.guns).filter(([, n]) => n > 0);

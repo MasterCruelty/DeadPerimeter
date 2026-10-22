@@ -8,5 +8,6 @@ import RADIO from './radio.js';
 import MOVES from './moves.js';
 import FINALE from './finale.js';
 import REPORT from './report.js';
+import RADIOMUSIC from './radiomusic.js';
 
-export default { ...DATA, ...CINE, ...RADIO, ...HUD, ...UI, ...MOVES, ...FINALE, ...REPORT };
+export default { ...DATA, ...CINE, ...RADIO, ...HUD, ...UI, ...MOVES, ...FINALE, ...REPORT, ...RADIOMUSIC };
