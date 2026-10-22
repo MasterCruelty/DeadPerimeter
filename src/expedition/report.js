@@ -149,7 +149,7 @@ export function recordAct(campaign, m) {
 export function campaignReport(campaign, result) {
   const acts = [0, 1, 2].map(i => (campaign.acts || [])[i] || null);
   const actPts = acts.map(a => (!a ? 0 : a.won ? a.pts : Math.min(59, a.pts)));
-  const retries = campaign.retries ?? 0;
+  const retries = (result && result.retries) ?? campaign.retries ?? 0;
   const delivered = !!(result && result.vaccineDelivered);
   const pts = actPts.reduce((a, b) => a + b, 0) / 3 + (delivered ? 10 : -20) - 10 * retries;
   const done = acts.filter(Boolean);
