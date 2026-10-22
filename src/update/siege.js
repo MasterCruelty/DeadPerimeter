@@ -86,10 +86,26 @@ function isBehindBarricade(gs, soldier, attackerX) {
   return gs.barricades.some(b => b.hp > 0 && b.x > soldier.x && b.x < attackerX);
 }
 
+// The fort on the radio: Jun once a wave when the wall is failing,
+// Reyes when someone on the wall goes down.
+function fortRadio(gs) {
+  if (!gs._wallWarned && gs.waveTime > 4000 && gs.baseHp > 0 && gs.baseHp / (gs.baseMaxHp || 1) < 0.3) {
+    gs._wallWarned = true;
+    pushRadio(gs, 'baseHit', { line: 'The wall is coming apart! I can patch it after, just keep them off it!', from: 'jun', urgent: true, cooldown: 0 });
+  }
+  const seen = gs._deadSeen || (gs._deadSeen = new Set(gs.soldiers.filter(s => s.state === 'dead').map(s => s.id)));
+  const lost = gs.soldiers.find(s => s.state === 'dead' && !seen.has(s.id));
+  if (lost) {
+    seen.add(lost.id);
+    pushRadio(gs, 'hurt', { line: '{name} is down. I can\'t reach them out there.', params: { name: lost.name }, from: 'reyes', cooldown: 0 });
+  }
+}
+
 export function update(gs, now, dt) {
   if (gs.phase !== 'siege') return;
   gs.waveTime += dt;
   gs.shakeTimer = Math.max(0, gs.shakeTimer - dt);
+  fortRadio(gs);
 
   // ── SPAWN ────────────────────────────────────────────────────
   while (gs.spawnQueue.length && gs.spawnQueue[0].at <= gs.waveTime) {
@@ -109,7 +125,7 @@ export function update(gs, now, dt) {
       if (z.boss) {
         gs.boss = z; gs.shakeTimer = 500;
         gs.soundQ.push({ t: 'roar', x: z.x });
-        pushRadio(gs, 'baseHit', { line: '{boss} incoming, middle lane! Focus fire!', params: { boss: t(z.bossName) }, urgent: true, cooldown: 0 });
+        pushRadio(gs, 'baseHit', { line: '{boss} incoming, middle lane! Focus fire!', params: { boss: t(z.bossName) }, urgent: true, cooldown: 0, from: 'hale' });
         gs.effects.push({ type: 'txt', x: z.x - 200, y: laneY(1) - 110, v: `☠ ${t(z.bossName)} ☠`, col: '#ff5533', at: now, dur: 2600 });
       } else if (z.type === 'brute') gs.soundQ.push({ t: 'roar', x: z.x });
     }

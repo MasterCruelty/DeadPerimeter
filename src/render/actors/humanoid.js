@@ -329,8 +329,8 @@ function hairCut(col, style) {
   };
 }
 
-// Headgear builders, shared with the zombie looks.
-export { helmet, cap, beanie };
+// Headgear builders, shared with the zombie looks and radio portraits.
+export { helmet, cap, beanie, hairCut };
 
 // The look table. `kind` comes from the actor; `seed` picks variants.
 export function humanLook(kind, seed = 0, extra) {

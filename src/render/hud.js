@@ -3,6 +3,8 @@ import { BALANCE, waveClearAmmoFor } from '../data/difficulty.js';
 import { WAVE_MODS } from '../data/waveMods.js';
 import { dSiegeEventBanner } from './siegeEvents.js';
 import { t } from '../i18n/index.js';
+import { speakerInfo, radioLog } from '../audio/radio.js';
+import { dPortrait } from './portrait.js';
 
 export function dSquadMarker(ctx, target, lane, now) {
   if (target === null || lane === null) return;
@@ -172,8 +174,7 @@ export function dHUD(ctx, gs, now, muted) {
   }
   ctx.restore();
 
-  // Radio chatter subtitle. Renders state.radioMsg as a single line
-  // near the bottom of the screen for ~2.2 s with fade-out.
+  // Radio panel: the last line on the net, with the speaker's portrait.
   dRadioSubtitle(ctx, gs, now);
 }
 
@@ -268,34 +269,110 @@ function dOffscreenIndicators(ctx, gs, now) {
   ctx.restore();
 }
 
-// Single subtitle line, rendered for any state that carries a
-// radioMsg = { text, at, dur, category? }. Used by siege + mission.
-export function dRadioSubtitle(ctx, state, now) {
+// Radio panel, rendered for any state that carries a radioMsg (see
+// pushRadio). Used by siege, sorties, evac and the defeat cinematic:
+// the speaker's portrait on the left, their name above, the line typed
+// out at about the pace of the voice.
+const RADIO_CPS = 15;
+const PANEL = { w: 470, h: 60 };
+
+function speakerOf(m) {
+  const sp = speakerInfo(m);
+  return { name: sp.name, col: sp.color };
+}
+const lineOf = m => (m.line ? t(m.line, m.params) : m.text);
+
+function wrapText(ctx, text, maxW) {
+  const out = []; let cur = '';
+  text.split(' ').forEach(w => {
+    const tryLine = cur ? `${cur} ${w}` : w;
+    if (ctx.measureText(tryLine).width > maxW && cur) { out.push(cur); cur = w; } else cur = tryLine;
+  });
+  if (cur) out.push(cur);
+  return out;
+}
+
+const rgba = (hex, a) => `rgba(${parseInt(hex.slice(1, 3), 16)},${parseInt(hex.slice(3, 5), 16)},${parseInt(hex.slice(5, 7), 16)},${a})`;
+
+export function dRadioSubtitle(ctx, state) {
   const rm = state && state.radioMsg;
   if (!rm) return;
   // pushRadio stamps radioMsg.at with performance.now(); read the same
-  // clock here so the subtitle survives the siege's fast-forward clock.
-  const age = (typeof performance !== 'undefined' ? performance.now() : now) - rm.at;
-  if (age < 0 || age >= rm.dur) return;
-  const a = age < 120 ? age / 120 : 1 - Math.max(0, (age - (rm.dur - 360)) / 360);
-  const alpha = Math.max(0, Math.min(1, a));
+  // clock here so the panel survives the siege's fast-forward clock.
+  const age = performance.now() - rm.at;
+  const text = lineOf(rm);
+  const typeMs = text.length / RADIO_CPS * 1000;
+  const hold = Math.max(rm.dur, typeMs + 1600);
+  if (age < 0 || age >= hold) return;
+  const alpha = Math.max(0, Math.min(1, age < 120 ? age / 120 : 1 - Math.max(0, (age - (hold - 360)) / 360)));
   if (alpha <= 0) return;
-  const text = '📻 ' + rm.text;
+  const sp = speakerOf(rm);
+  const { w } = PANEL;
   ctx.save();
   ctx.font = 'bold 12px monospace';
-  const w = Math.min(420, ctx.measureText(text).width + 24);
-  const x = (CW - w) / 2, y = CH - 60;
-  ctx.fillStyle = `rgba(8,12,8,${0.78 * alpha})`;
-  ctx.fillRect(x, y, w, 22);
-  ctx.strokeStyle = `rgba(120,180,100,${0.55 * alpha})`; ctx.lineWidth = 1;
-  ctx.strokeRect(x, y, w, 22);
-  ctx.textAlign = 'center';
-  // Category-based tint for quick read at a glance
+  const lines = wrapText(ctx, text, w - 82).slice(0, 3);
+  const h = Math.max(PANEL.h, 30 + lines.length * 15);
+  const x = (CW - w) / 2, y = CH - 40 - h;
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = 'rgba(6,10,6,0.86)'; ctx.fillRect(x, y, w, h);
+  ctx.strokeStyle = 'rgba(120,180,100,0.55)'; ctx.lineWidth = 1; ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+  ctx.fillStyle = rgba(sp.col, 0.8); ctx.fillRect(x, y, 3, h);
+  dPortrait(ctx, rm.who, x + 8, y + (h - 52) / 2, 52, age, 1);
+  ctx.strokeStyle = 'rgba(120,180,100,0.4)'; ctx.strokeRect(x + 7.5, y + (h - 52) / 2 - 0.5, 53, 53);
+  // Name + transmit light
+  const typing = age < typeMs;
+  ctx.font = 'bold 10px monospace'; ctx.textAlign = 'left';
+  ctx.fillStyle = sp.col;
+  ctx.fillText(`◉ ${sp.name.toUpperCase()}`, x + 70, y + 14);
+  ctx.textAlign = 'right'; ctx.font = '8px monospace';
+  ctx.fillStyle = typing && Math.floor(age / 300) % 2 === 0 ? '#ff6a4a' : 'rgba(184,204,170,0.45)';
+  ctx.fillText(typing ? t('● TX') : t('○ RX'), x + w - 8, y + 13);
+  // Typewriter text, tinted by what kind of call it is.
   const tint = rm.category === 'hurt' || rm.category === 'lowAmmo' || rm.category === 'baseHit' ? '#ffaa66'
              : rm.category === 'retreat' ? '#ffd66a'
              : rm.category === 'defeat' ? '#ff8888'
-             : '#cce6cc';
-  ctx.fillStyle = `rgba(${parseInt(tint.slice(1,3),16)},${parseInt(tint.slice(3,5),16)},${parseInt(tint.slice(5,7),16)},${alpha})`;
-  ctx.fillText(text, CW / 2, y + 15);
-  ctx.textAlign = 'left'; ctx.restore();
+             : '#d8ecd0';
+  ctx.textAlign = 'left'; ctx.font = 'bold 12px monospace'; ctx.fillStyle = tint;
+  let left = Math.floor(age / 1000 * RADIO_CPS);
+  lines.forEach((ln, i) => {
+    if (left <= 0) return;
+    const shown = ln.slice(0, left);
+    ctx.fillText(shown, x + 70, y + 31 + i * 15);
+    if (typing && left <= ln.length) {
+      const cw = ctx.measureText(shown).width;
+      ctx.fillRect(x + 71 + cw, y + 22 + i * 15, 6, 11);
+    }
+    left -= ln.length + 1;
+  });
+  ctx.restore();
+}
+
+// Radio log box (pause screens): the last `rows` logged lines, newest
+// first, each with a small portrait.
+export function dRadioLog(ctx, x, y, w, rows = 5) {
+  const log = radioLog().slice(0, rows);
+  const h = 22 + Math.max(1, log.length) * 20;
+  ctx.save();
+  ctx.fillStyle = 'rgba(6,12,6,0.94)'; ctx.fillRect(x, y, w, h);
+  ctx.strokeStyle = 'rgba(114,188,64,0.5)'; ctx.lineWidth = 1; ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+  ctx.fillStyle = C.acc; ctx.font = 'bold 10px monospace'; ctx.textAlign = 'left';
+  ctx.fillText(t('📻 RADIO LOG'), x + 8, y + 14);
+  if (!log.length) {
+    ctx.fillStyle = 'rgba(184,204,170,0.5)'; ctx.font = '10px monospace';
+    ctx.fillText(t('No traffic yet.'), x + 8, y + 32);
+  }
+  log.forEach((e, i) => {
+    const ry = y + 20 + i * 20, sp = speakerOf(e);
+    dPortrait(ctx, e.who, x + 8, ry, 17, Infinity, 0.95);
+    ctx.font = 'bold 9px monospace'; ctx.fillStyle = sp.col;
+    const nm = `${sp.name}:`;
+    ctx.fillText(nm, x + 31, ry + 12);
+    const nw = ctx.measureText(nm).width + 6;
+    ctx.font = '9px monospace'; ctx.fillStyle = 'rgba(214,230,204,0.9)';
+    let txt = lineOf(e);
+    while (txt.length > 4 && ctx.measureText(txt).width > w - 40 - nw) txt = txt.slice(0, -2);
+    if (txt !== lineOf(e)) txt = txt.slice(0, -1) + '…';
+    ctx.fillText(txt, x + 31 + nw, ry + 12);
+  });
+  ctx.restore();
 }

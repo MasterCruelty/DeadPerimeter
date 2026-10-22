@@ -37,8 +37,10 @@ export class AudioEngine {
   // Throttles use the audio clock: gameplay clocks differ between the
   // siege (fast-forwardable), sorties and cinematics.
   get _t() { return this.ctx.currentTime * 1000; }
+  // Siege drum bed. The procedural music (music.js) replaces it while
+  // MUSIC is on (musicBed).
   startBg() {
-    if (this.bgRunning) return; this.bgRunning = true;
+    if (this.bgRunning || this.musicBed) return; this.bgRunning = true;
     this.bg.gain.setTargetAtTime(0.36, this.ctx.currentTime, 1.4);
     const w = this._ns(), wf = this.ctx.createBiquadFilter(); wf.type = 'lowpass'; wf.frequency.value = 160;
     const wg = this.ctx.createGain(); wg.gain.value = 0.12; w.connect(wf); wf.connect(wg); wg.connect(this.bg); w.start();
