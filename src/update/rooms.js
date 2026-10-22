@@ -101,6 +101,10 @@ function buildRoom(m, door) {
       state: 'idle', facing: -1, walkPhase: r() * 6, atkTimer: 0, hurtTimer: 0, deadAt: 0, lane: 0, activated: false, standingY: 0,
     });
   }
+  // Now and then a grenade (update/moves.js), mostly in military stock.
+  if (r() < (['storage', 'armory', 'lockers'].includes(door.kind) ? 0.35 : 0.08) * (0.5 + 0.5 * lootLeft)) {
+    pickups.push({ id: uid(), x: Math.round(300 + r() * 480), type: 'grenade', value: 1, collected: false, lane: 0 });
+  }
   return {
     W: ROOM_W, biomeKey: K.biome, segs: null, buildings: [], platforms: [], ladders: [], props: [],
     obstacles, pickups, zombies, hazards: [], humans: [], rescuables: [], encounter: null, side: null, alarm: null,

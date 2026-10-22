@@ -55,6 +55,8 @@ import { initRadioVoice, setRadioVoiceEnabled, setRadioMuted, speakOrChatter } f
 
 import { update } from './update/siege.js';
 import { mkMission, updateMission, dMissionWorld, dMissionHUD } from './update/mission.js';
+import { juiceStep, juiceWatch, shakeOffset } from './update/moves.js';
+import { dMovesHUD } from './render/moves.js';
 import { isIndoorAt } from './update/cityMission.js';
 
 import { finishMission } from './expedition/missionFinish.js';
@@ -1097,6 +1099,13 @@ export default function DeadPerimeter() {
         if (e.key === 'ArrowDown'  || e.key === 's' || e.key === 'S') { inputRef.current.down = true;  e.preventDefault(); }
         if (e.key === ' ' || e.key === 'Spacebar') { inputRef.current.shoot = true; e.preventDefault(); }
         if ((e.key === 'e' || e.key === 'E') && !e.repeat && !missionRef.current.dialog) { missionRef.current.inputInteract = true; e.preventDefault(); }
+        // Moveset (update/moves.js): one-shot presses, read on the next tick.
+        if (!e.repeat && !e.ctrlKey && !e.metaKey && !e.altKey && !missionRef.current.dialog) {
+          const mm = missionRef.current;
+          const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+          const act = { Shift: 'inputRoll', g: 'inputGrenade', r: 'inputReload', q: 'inputSwap', f: 'inputMelee' }[k];
+          if (act) { mm[act] = true; e.preventDefault(); }
+        }
       } else {
         // Siege phase: arrow keys pan the camera across the wider WORLD_W.
         const gs = gsRef.current;
@@ -1413,20 +1422,29 @@ export default function DeadPerimeter() {
         }
         const mPaused = pausedRef.current && m.state === 'active';
         if (!mPaused) {
-          m.simNow += dt;
-          updateMission(m, m.simNow, dt);
+          // Hitstop holds the world for a few frames, slow motion
+          // stretches it (update/moves.js).
+          const sdt = juiceStep(m, dt);
+          if (sdt > 0) {
+            m.simNow += sdt;
+            updateMission(m, m.simNow, sdt);
+            juiceWatch(m);
+          }
           processSounds(m.soundQ, getAM(), mutedR, m.cameraX || 0);
         }
         ctx.save(); ctx.clearRect(0, 0, CW, CH);
+        const [shx, shy] = mPaused ? [0, 0] : shakeOffset(m);
+        if (shx || shy) ctx.translate(shx, shy);
         dMissionWorld(ctx, m, m.simNow);
         ctx.restore();
         scene = missionLights(m, m.simNow);
         hctx.save(); hudUsed = true;
         dMissionHUD(hctx, m, m.simNow);
+        dMovesHUD(hctx, m, m.simNow);
         if (mPaused) {
           hctx.fillStyle = 'rgba(0,0,0,0.62)'; hctx.fillRect(0, 0, CW, CH);
-          hctx.fillStyle = 'rgba(6,14,6,0.95)'; hctx.fillRect(CW / 2 - 190, CH / 2 - 80, 380, 150);
-          hctx.strokeStyle = C.acc; hctx.lineWidth = 1; hctx.strokeRect(CW / 2 - 189.5, CH / 2 - 79.5, 379, 149);
+          hctx.fillStyle = 'rgba(6,14,6,0.95)'; hctx.fillRect(CW / 2 - 190, CH / 2 - 80, 380, 190);
+          hctx.strokeStyle = C.acc; hctx.lineWidth = 1; hctx.strokeRect(CW / 2 - 189.5, CH / 2 - 79.5, 379, 189);
           hctx.fillStyle = C.acc; hctx.font = 'bold 28px monospace'; hctx.textAlign = 'center';
           hctx.fillText(t('⏸ SORTIE PAUSED'), CW / 2, CH / 2 - 38);
           hctx.fillStyle = C.txt; hctx.font = '11px monospace';
@@ -1436,6 +1454,8 @@ export default function DeadPerimeter() {
           hctx.fillText(t('hold fire while moving back = backpedal shooting'), CW / 2, CH / 2 + 26);
           hctx.fillText(t('W: jump / climb ladder · S: climb down / drop'), CW / 2, CH / 2 + 42);
           hctx.fillText(t('stand by ★ containers to search them'), CW / 2, CH / 2 + 58);
+          hctx.fillText(t('Shift: dodge roll · G: grenade · F: melee'), CW / 2, CH / 2 + 74);
+          hctx.fillText(t('R: reload · Q: swap gun / melee weapon'), CW / 2, CH / 2 + 90);
           hctx.textAlign = 'left';
         }
         hctx.restore();
@@ -1913,9 +1933,14 @@ export default function DeadPerimeter() {
             {missionRef.current && missionRef.current.state === 'active' ? (
               <>
                 <span style={{ color: '#888', fontSize: '10px' }}>{t('A/D move · SPACE or hold mouse: fire · W jump/climb · S down · E enter/exit rooms · Esc pause')}</span>
+                <span style={{ color: '#888', fontSize: '10px' }}>{t('Shift roll · G grenade · F melee · R reload · Q gun/melee')}</span>
                 {missionRef.current.objective === 'explore' && (
                   <button style={mbtn} onClick={() => { if (missionRef.current) missionRef.current.inputInteract = true; }} title={t('Enter / leave a room (E)')}>🚪 E</button>
                 )}
+                {[['inputRoll', '🤸', t('Dodge roll (Shift)')], ['inputGrenade', '💣', t('Throw a grenade (G)')], ['inputMelee', '🔪', t('Melee attack (F)')],
+                  ['inputReload', '⟳', t('Reload (R)')], ['inputSwap', '⇄', t('Swap gun / melee weapon (Q)')]].map(([k, icon, tip]) => (
+                  <button key={k} style={mbtn} onClick={() => { if (missionRef.current) missionRef.current[k] = true; }} title={tip}>{icon}</button>
+                ))}
                 <button style={mbtn} onClick={togglePause}>{paused ? t('▶ RESUME') : t('⏸ PAUSE')}</button>
                 <button style={mbtn} onClick={toggleMute}>{muted ? '🔇' : '🔊'}</button>
               </>
@@ -1991,6 +2016,11 @@ export default function DeadPerimeter() {
                   {keyRow('Space / hold mouse', 'fire — hold while backing off to strafe')}
                   {keyRow('W / ↑', 'jump · climb ladder · high road')}
                   {keyRow('S / ↓', 'climb down · drop · low road')}
+                  {keyRow('Shift', 'dodge roll — brief invulnerability, costs stamina')}
+                  {keyRow('G', 'throw a grenade (loud: draws the dead)')}
+                  {keyRow('F', 'melee attack', 'sortie')}
+                  {keyRow('R', 'reload')}
+                  {keyRow('Q', 'swap gun / melee weapon')}
                   {keyRow('Y / N', 'accept / refuse a trade')}
                   {keyRow('Esc', 'pause', 'sortie')}
                   <div style={h2}>{t('CINEMATICS')}</div>

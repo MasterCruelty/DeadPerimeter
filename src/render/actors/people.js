@@ -9,8 +9,9 @@ import { WPN, wbase, meleeOf } from '../../data/weapons.js';
 import { sprite, blit, live, detail } from './paint.js';
 import {
   BODY, rigGeom, ik, fkArm, paintLeg, paintTorso, paintHead, paintArm,
-  walkPose, standPose, kneelPose, corpsePose, humanLook, hashOf,
+  walkPose, standPose, kneelPose, corpsePose, rollPose, humanLook, hashOf,
 } from './humanoid.js';
+import { ROLL_MS } from '../../update/moves.js';
 
 const BOX_STAND = { w: 70, h: 80, ox: 30, oy: 74 };
 const BOX_DEAD = { w: 100, h: 36, ox: 78, oy: 26 };
@@ -54,6 +55,7 @@ function paintBody(T, G, look) {
 function bodySprite(look, anim, frame) {
   return sprite(`h|${look.key}|${anim}|${frame}`, BOX_STAND, T => {
     const pose = anim === 'walk' ? walkPose(frame / WALK_FRAMES) : anim === 'kneel' ? kneelPose(frame / IDLE_FRAMES)
+      : anim === 'roll' ? rollPose()
       : anim === 'aim' ? standPose(frame / IDLE_FRAMES, { lean: 0.13, head: 0.2 }) : standPose(frame / IDLE_FRAMES);
     paintBody(T, rigGeom(pose), look);
   });
@@ -144,6 +146,24 @@ export function drawSoldierBody(ctx, s, now) {
       blit(ctx, bodySprite(look, 'idle', 0));
       ctx.restore();
     } else blit(ctx, corpseSprite(look));
+    return null;
+  }
+
+  if ((s.rollT || 0) > 0) {
+    // Dodge roll: the tucked body turns one full forward somersault
+    // around its middle, arms hugging the shins; the gun is slung.
+    const p = Math.min(1, 1 - s.rollT / ROLL_MS);
+    const G = rigGeom(rollPose());
+    const knee = G.legF.knee;
+    const hug = (dx, dy) => ik(G.shoulder[0], G.shoulder[1], knee[0] + dx, knee[1] + dy, BODY.upper, BODY.fore, -1);
+    ctx.save();
+    // Spin around the middle of the ball (~14, -11 in pose space),
+    // held high enough that the head clears the street upside down.
+    ctx.translate(0, -13 - 6 * Math.sin(p * Math.PI)); ctx.rotate(p * Math.PI * 2); ctx.translate(-14, 11);
+    live(ctx, T => paintArm(T, G, hug(-1, 2), look, true));
+    blit(ctx, bodySprite(look, 'roll', 0), s.hurtTimer > 0 ? Math.min(1, s.hurtTimer / 200) : 0);
+    live(ctx, T => paintArm(T, G, hug(2, 4), look, false));
+    ctx.restore();
     return null;
   }
 
