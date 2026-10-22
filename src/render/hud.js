@@ -2,6 +2,7 @@ import { C, CW, CH, WX, WORLD_W, laneY, laneSc, zoomOf } from '../constants.js';
 import { BALANCE, waveClearAmmoFor } from '../data/difficulty.js';
 import { WAVE_MODS } from '../data/waveMods.js';
 import { dSiegeEventBanner } from './siegeEvents.js';
+import { GRADE_COL, fmtTime } from '../expedition/report.js';
 import { t } from '../i18n/index.js';
 
 export function dSquadMarker(ctx, target, lane, now) {
@@ -159,14 +160,20 @@ export function dHUD(ctx, gs, now, muted) {
     const age = now - gs.waveClearAt, f = 1 - Math.min(1, age / 2800);
     if (f > 0) {
       ctx.save(); ctx.globalAlpha = f;
+      const rep = gs.lastWaveReport && gs.lastWaveReport.wave === gs.wave ? gs.lastWaveReport : null;
+      const bh = rep ? 90 : 72;
       ctx.fillStyle = 'rgba(0,20,0,0.94)';
-      ctx.fillRect(CW / 2 - 182, CH / 2 - 40, 364, 72);
+      ctx.fillRect(CW / 2 - 182, CH / 2 - 40, 364, bh);
       ctx.strokeStyle = C.acc; ctx.lineWidth = 2;
-      ctx.strokeRect(CW / 2 - 182, CH / 2 - 40, 364, 72);
+      ctx.strokeRect(CW / 2 - 182, CH / 2 - 40, 364, bh);
       ctx.fillStyle = C.acc; ctx.font = 'bold 26px monospace'; ctx.textAlign = 'center';
       ctx.fillText(t('✦ WAVE CLEARED ✦'), CW / 2, CH / 2 + 4);
       ctx.fillStyle = C.txt; ctx.font = '10px monospace';
       ctx.fillText(t('+{n} ammo · returning to command', { n: waveClearAmmoFor(gs.wave) }), CW / 2, CH / 2 + 22);
+      if (rep) {
+        ctx.fillStyle = GRADE_COL[rep.grade]; ctx.font = 'bold 11px monospace';
+        ctx.fillText(t('GRADE {g} · wall −{w} · {l} lost · {k} kills · {time}', { g: rep.grade, w: rep.wallDmg, l: rep.lost, k: rep.kills, time: fmtTime(rep.time) }), CW / 2, CH / 2 + 40);
+      }
       ctx.textAlign = 'left'; ctx.restore();
     }
   }

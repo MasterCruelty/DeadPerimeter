@@ -5,5 +5,6 @@ import HUD from './hud.js';
 import DATA from './data.js';
 import CINE from './cine.js';
 import RADIO from './radio.js';
+import REPORT from './report.js';
 
-export default { ...DATA, ...CINE, ...RADIO, ...HUD, ...UI };
+export default { ...DATA, ...CINE, ...RADIO, ...HUD, ...UI, ...REPORT };

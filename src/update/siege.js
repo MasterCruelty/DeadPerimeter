@@ -16,6 +16,7 @@ import { tickSiegeEvent, settleSiegeEvent } from './siegeEvents.js';
 import { cityDayTick } from '../data/city.js';
 import { compactDayTick } from './faction.js';
 import { hasUnlock } from './quests.js';
+import { startWaveStats, waveReport } from '../expedition/report.js';
 import { t } from '../i18n/index.js';
 
 // Visibility conditions (fog / night) shrink every friendly weapon range.
@@ -88,6 +89,8 @@ function isBehindBarricade(gs, soldier, attackerX) {
 
 export function update(gs, now, dt) {
   if (gs.phase !== 'siege') return;
+  // Baseline for the end-of-wave report (startWave resets waveTime).
+  if (!gs.waveTime || !gs.waveStats) gs.waveStats = startWaveStats(gs);
   gs.waveTime += dt;
   gs.shakeTimer = Math.max(0, gs.shakeTimer - dt);
 
@@ -550,6 +553,7 @@ export function update(gs, now, dt) {
     if (gs.zombiesSpawned > 0 && gs.spawnQueue.length === 0 && live === 0 && !runner) {
       settleSiegeEvent(gs, now);
       gs.waveComplete = true; gs.waveClearAt = now; gs.soundQ.push({ t: 'wclr' });
+      gs.lastWaveReport = waveReport(gs);
     }
   }
   if (gs.waveComplete && now - gs.waveClearAt > 3000) {

@@ -120,7 +120,7 @@ export function cityDests(gs) {
       cond: t.cond, side: t.side,
       // Active jobs that need something from this place (update/quests.js).
       quests: ((gs.quests && gs.quests.active) || []).filter(j => j.loc === l.id)
-        .map(j => ({ id: j.id, kind: j.kind, item: j.item, person: j.person, title: j.title })),
+        .map(j => ({ id: j.id, kind: j.kind, item: j.item, person: j.person, title: j.title, below: j.below })),
       rewards: lootSummary(l.loot),
     };
   });

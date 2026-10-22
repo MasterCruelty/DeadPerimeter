@@ -15,7 +15,11 @@ import { dSoldier } from '../render/soldier.js';
 import { dFx, dBlt } from '../render/effects.js';
 import { dRadioSubtitle } from '../render/hud.js';
 import { setupMissionExtras, tickMissionExtras, bulletHitsSide } from './missionExtras.js';
-import { dMissionExtras, dMissionExtrasHUD } from '../render/missionExtras.js';
+import { dMissionExtras } from '../render/missionExtras.js';
+import { tickObjectives, garrisonOf } from './objectives.js';
+import { dObjectives } from '../render/objectives.js';
+import { startSortieStats, trackShot, trackHit, sortieReport } from '../expedition/report.js';
+import { dReportGrade } from '../render/report.js';
 import { pushRadio } from '../audio/radio.js';
 import { t } from '../i18n/index.js';
 
@@ -615,6 +619,7 @@ export function mkMission(soldier, dest, wave = 1, magsPerSoldier = 2, researchC
   };
   if (explore) setupCityMission(mission, dest);
   setupMissionExtras(mission, dest, wave);
+  mission.stats = startSortieStats(mission);
   return mission;
 }
 
@@ -1009,6 +1014,7 @@ export function updateMission(m, now, dt) {
 
   tickMissionExtras(m, now, dt, aliveParty(m));
   tickCity(m, now, dt, aliveParty(m));
+  tickObjectives(m, now);
   if (m.state !== 'active') return;
 
   // Activation now considers any party member or rescuable as the "trigger"
@@ -1540,6 +1546,7 @@ export function updateMission(m, now, dt) {
   });
 
   m.bullets = m.bullets.filter(b => {
+    trackShot(m, b);
     b.x += b.dx; b.y += b.dy; b.life--;
     if (b.life <= 0 || b.x < 0 || b.x > MISSION_W) return false;
     if (barricadeStops(m, b)) {
@@ -1603,6 +1610,7 @@ export function updateMission(m, now, dt) {
     );
     if (humanHit) {
       humanHit.hp -= b.dmg; humanHit.hurtTimer = 210;
+      trackHit(m, b);
       alertHumans(m, humanHit);
       humanHit._hitAt = now;
       m.soundQ.push({ t: 'hit', now, x: b.x });
@@ -1622,7 +1630,7 @@ export function updateMission(m, now, dt) {
       return false;
     }
 
-    if (bulletHitsSide(m, b, now)) return false;
+    if (bulletHitsSide(m, b, now)) { trackHit(m, b); return false; }
 
     // Y-level check: a bullet fired from a platform must be on the
     // same level as the zombie to hit. Otherwise a soldier shooting
@@ -1644,6 +1652,7 @@ export function updateMission(m, now, dt) {
         });
       }
       hit.hp -= dmg; hit.hurtTimer = 210; m.soundQ.push({ t: 'hit', now, x: b.x });
+      trackHit(m, b);
       m.effects.push({ type: 'blood', x: b.x, y: b.y, drops: Array.from({ length: 6 }, () => ({ x: 0, y: 0, vx: (Math.random() - 0.5) * 3.5, vy: -Math.random() * 2.5 - 0.5, r: 1.5 + Math.random() * 3 })), at: now, dur: 600 });
       m.effects.push({ type: 'hit', x: b.x, y: b.y, at: now, dur: 200 });
       m.effects.push({ type: 'txt', x: hit.x, y: MGY - 60 + (hit.standingY || 0), v: `-${Math.round(dmg)}`, col: C.bld, at: now, dur: 680 });
@@ -2950,7 +2959,7 @@ export function dMissionHUD(ctx, m, now) {
   ctx.fillStyle = hg; ctx.fillRect(0, 0, CW_, 40);
   ctx.strokeStyle = C.uib; ctx.lineWidth = 1;
   ctx.beginPath(); ctx.moveTo(0, 40.5); ctx.lineTo(CW_, 40.5); ctx.stroke();
-  dMissionExtrasHUD(ctx, m, now);
+  dObjectives(ctx, m, now);
   dCityHUD(ctx, m);
 
   // ── Destination + objective (truncated so it never runs into the bar)
@@ -3013,11 +3022,9 @@ export function dMissionHUD(ctx, m, now) {
   ctx.fillStyle = m.killedCount >= need && need > 0 ? C.acc : C.wrn;
   ctx.font = '9px monospace';
   if (m.compactAssault) {
-    const troops = m.humans.filter(h => h.compact);
-    const down = troops.filter(h => h.state === 'dead').length;
-    const voss = troops.some(h => h.colonel && h.state === 'dead');
-    ctx.fillStyle = voss || down >= Math.ceil(troops.length * 0.8) ? C.acc : '#d8b060';
-    ctx.fillText(t('🏴 GARRISON {a}/{b}', { a: down, b: troops.length }) + (voss ? t(' · VOSS DOWN') : ''), px, 33);
+    const g = garrisonOf(m);
+    ctx.fillStyle = g.done ? C.acc : '#d8b060';
+    ctx.fillText(t('🏴 GARRISON {a}/{b}', { a: g.down, b: g.total }) + (g.voss ? t(' · VOSS DOWN') : ''), px, 33);
   } else if (m.objective === 'explore') {
     ctx.fillStyle = C.txt;
     ctx.fillText(t('☠ KILLS {n}', { n: m.killedCount || 0 }), px, 33);
@@ -3058,7 +3065,7 @@ export function dMissionHUD(ctx, m, now) {
   let cx = 790, row = 0;
   ctx.fillStyle = '#88ddff';
   Object.entries(m.collected).forEach(([k, v]) => {
-    if (!v || v <= 0 || k === 'rescuedCivs') return;
+    if (!v || v <= 0 || k === 'rescuedCivs' || Array.isArray(v)) return;
     const lbl = k === 'civilian' ? '👤' : k === 'lostSoldier' ? '🎖' : objIcons[k] || k[0];
     const txt = `${lbl}${v === true ? '' : v}`;
     const w = ctx.measureText(txt).width + 8;
@@ -3138,6 +3145,7 @@ export function dMissionHUD(ctx, m, now) {
       .map(([k, v]) => `${objIcons[k] || k} ${v}`).join('   ');
     ctx.fillStyle = 'rgba(184,204,170,0.8)'; ctx.font = '11px monospace';
     ctx.fillText(t('☠ {n} kills', { n: m.killedCount }) + (m.state === 'won' && haul ? '   ·   ' + haul : ''), CW_ / 2, CH / 2 + 34);
+    dReportGrade(ctx, sortieReport(m), CW_ / 2, CH / 2 + 50);
     ctx.textAlign = 'left';
   }
 

@@ -58,6 +58,8 @@ import { mkMission, updateMission, dMissionWorld, dMissionHUD } from './update/m
 import { isIndoorAt } from './update/cityMission.js';
 
 import { finishMission } from './expedition/missionFinish.js';
+import { sortieReport, submitRecord, recordKey, recordAct, campaignReport } from './expedition/report.js';
+import ReportCard from './ui/ReportCard.jsx';
 import {
   mkVaccineCampaign, advanceVaccineScenario, finishVaccineCampaign,
 } from './expedition/vaccineCampaign.js';
@@ -134,6 +136,7 @@ const mkSnap = gs => ({
   transmissionsDone: Array.isArray(gs.transmissionsDone) ? [...gs.transmissionsDone] : [],
   pendingTransmission: gs.pendingTransmission ?? null,
   lastFoodReport:  gs.lastFoodReport  ?? null,
+  lastWaveReport:  gs.lastWaveReport  ?? null,
   lastSupplyDrop:  gs.lastSupplyDrop  ?? null,
   cameraX: gs.cameraX || 0,
   workbench: gs.workbench, researchLab: gs.researchLab, research: gs.research,
@@ -492,6 +495,7 @@ export default function DeadPerimeter() {
   const finalizeMission = useCallback(() => {
     const m = missionRef.current; if (!m) return;
     const gs = gsRef.current;
+    const report = sortieReport(m);   // before leaving a room: the sortie as it ended
     leaveRoomIfInside(m);   // the result reads the street, not a room
     // finishMission writes back every party member's hp/state/onExpedition.
     const am0 = getAM(); if (am0) { am0.windStop(); am0.cityHumStop(); }
@@ -499,6 +503,7 @@ export default function DeadPerimeter() {
     if (result) result.discovered = applyCityVisit(gs, m);
     if (result) result.compact = assaultOutcome(gs, m);
     if (result) result.quests = completeAfterSortie(gs, m);
+    if (result) { result.report = report; result.record = submitRecord(recordKey(m), report); }
     // Persist loot, losses and the city state right away.
     try { saveGame(gs); setHasSave(true); } catch (e) { /* non-fatal */ }
     missionRef.current = null;
@@ -533,6 +538,7 @@ export default function DeadPerimeter() {
     const campaign = vaccineRef.current; if (!campaign) return;
     const gs = gsRef.current; if (!gs) return;
     const m = campaign.current;
+    recordAct(campaign, m);
     const am0 = getAM(); if (am0) { am0.windStop(); am0.cityHumStop(); }
     if (m.state === 'won') {
       const next = advanceVaccineScenario(campaign, gs);
@@ -549,6 +555,7 @@ export default function DeadPerimeter() {
     // but the convoy didn't make it. The screen shows the 'failure' tier
     // text instead of the misleading "FORT OMEGA FALLEN" gameover panel.
     const result = finishVaccineCampaign(campaign, gs);
+    result.report = campaignReport(campaign, result);
     vaccineResultRef.current = result;
     vaccineRef.current = null;
     missionRef.current = null;
@@ -1784,6 +1791,7 @@ export default function DeadPerimeter() {
             <div style={{ fontWeight: 'bold', fontSize: '13px', color: expResult.outcome === 'success' ? C.acc : expResult.outcome === 'injured' ? C.wrn : C.dng }}>
               {expResult.outcome === 'success' ? t('✦ MISSION SUCCESS') : expResult.outcome === 'injured' ? t('⚠ RETURNED INJURED') : t('✖ SOLDIER LOST')}
             </div>
+            <ReportCard rep={expResult.report} record={expResult.record} title={t('SORTIE REPORT')} />
             {Object.keys(expResult.reward || {}).length > 0 && (() => {
               // Split positive recoveries from the foodCost line so the
               // log reads "Recovered: ammo +N  ·  Eaten: 9 food" rather
@@ -2094,6 +2102,9 @@ export default function DeadPerimeter() {
                   {' '}{t('Every soldier (active + reserve) eats {n} food per day.', { n: BALANCE.foodPerPersonPerDay })}
                 </div>
               </div>
+            )}
+            {gs.lastWaveReport && gs.lastWaveReport.wave === gs.wave - 1 && (
+              <ReportCard compact rep={gs.lastWaveReport} title={t('WAVE {n} REPORT', { n: gs.lastWaveReport.wave })} />
             )}
             {gs.lastFoodReport && gs.lastFoodReport.hungry === 0 && gs.lastFoodReport.ate > 0 && (
               <div style={{ background: 'rgba(20,40,20,0.85)', border: `1px solid ${C.acc}`, padding: '6px 14px', marginTop: '8px', fontSize: '10px', color: C.txt }}>
@@ -2688,6 +2699,7 @@ export default function DeadPerimeter() {
             <div style={{ color: C.txt, fontSize: '11px', marginTop: '8px', opacity: 0.7, lineHeight: '1.5' }}>
               {t(meta.blurb)}
             </div>
+            {r && r.report && <ReportCard rep={r.report} record={r.report.record} title={t('FINALE REPORT')} />}
             <hr style={hr} />
             <div style={row}>
               {[
