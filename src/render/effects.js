@@ -115,6 +115,35 @@ export function dFx(ctx, e, now) {
   } else if (e.type === 'hit') {
     ctx.fillStyle = 'rgba(255,160,0,0.7)';
     ctx.beginPath(); ctx.arc(0, 0, 10 * (1 - life), 0, Math.PI * 2); ctx.fill();
+  } else if (e.type === 'blast') {
+    // Grenade: flash + fireball, a ground shock ring, smoke rising
+    // and debris thrown out (seeded per blast so it doesn't flicker).
+    const r = e.r || 90, sd = e.seed || 0;
+    const rnd = i => { const v = Math.sin(sd + i * 12.9898) * 43758.5453; return v - Math.floor(v); };
+    ctx.globalAlpha = 1;
+    for (let i = 0; i < 7; i++) {
+      const a = Math.PI * (1.1 + rnd(i) * 0.8), d = r * (0.15 + life * (0.35 + rnd(i + 9) * 0.3));
+      const pr = 10 + rnd(i + 3) * 12 + life * 16;
+      ctx.fillStyle = `rgba(52,48,44,${0.5 * (1 - life)})`;
+      ctx.beginPath(); ctx.arc(Math.cos(a) * d * 0.6, Math.sin(a) * d - life * 26, pr, 0, Math.PI * 2); ctx.fill();
+    }
+    if (life < 0.35) {
+      const k = life / 0.35;
+      ctx.strokeStyle = `rgba(255,230,190,${0.5 * (1 - k)})`; ctx.lineWidth = 3 * (1 - k) + 0.5;
+      ctx.beginPath(); ctx.ellipse(0, 2, r * (0.3 + k), r * (0.3 + k) * 0.28, 0, 0, Math.PI * 2); ctx.stroke();
+    }
+    if (life < 0.4) {
+      const k = life / 0.4, fr = r * (0.35 + 0.35 * Math.min(1, k * 3));
+      const g = ctx.createRadialGradient(0, -6, 0, 0, -6, fr);
+      g.addColorStop(0, `rgba(255,250,220,${1 - k})`); g.addColorStop(0.35, `rgba(255,170,50,${0.9 * (1 - k)})`);
+      g.addColorStop(0.7, `rgba(200,60,10,${0.6 * (1 - k)})`); g.addColorStop(1, 'rgba(120,30,0,0)');
+      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(0, -6, fr, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.fillStyle = `rgba(40,34,28,${1 - life})`;
+    for (let i = 0; i < 12; i++) {
+      const vx = (rnd(i + 20) - 0.5) * 9, vy = -2 - rnd(i + 40) * 5;
+      ctx.fillRect(vx * life * 24, vy * life * 20 + life * life * 60, 2 + rnd(i) * 2, 2);
+    }
   }
   ctx.restore();
 }

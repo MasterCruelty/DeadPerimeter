@@ -442,6 +442,12 @@ export function kneelPose(p = 0) {
   return { lean: 0.16 + b * 0.01, head: 0.05, legF: [1.25, 1.35], legB: [0.12, 1.62], drop: 0.3 + b * 0.3, swing: 0 };
 }
 
+// Dodge roll: tucked into a ball, knees to the chest, back rounded.
+// The renderer spins it around the hips over the roll.
+export function rollPose() {
+  return { lean: 0.95, head: 0.55, legF: [2.0, 2.4], legB: [1.7, 2.5], drop: 2, swing: 0 };
+}
+
 // Relaxed pose used for corpses (rendered rotated onto the ground).
 export function corpsePose() {
   // Rotated -90° onto the ground: anything swung forward would stick

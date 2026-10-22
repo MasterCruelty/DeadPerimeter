@@ -317,6 +317,49 @@ export class AudioEngine {
     n.connect(lp); lp.connect(ng); ng.connect(out); n.start(t); n.stop(t + 1.35);
     setTimeout(() => this.crackle(), 250);
   }
+  // Frag grenade: the mine blast plus a sharp supersonic crack and
+  // fragments pattering down.
+  grenade(pan) {
+    this.explosion(pan);
+    const t = this.ctx.currentTime; const out = this._out(pan);
+    const l = Math.ceil(this.ctx.sampleRate * 0.12);
+    const b = this.ctx.createBuffer(1, l, this.ctx.sampleRate); const d = b.getChannelData(0);
+    for (let i = 0; i < l; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / l, 3);
+    const s = this.ctx.createBufferSource(); s.buffer = b;
+    const hp = this.ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 1200;
+    const g = this.ctx.createGain(); g.gain.value = 0.7;
+    s.connect(hp); hp.connect(g); g.connect(out); s.start(t);
+    for (let i = 0; i < 5; i++) this._thunk(t + 0.35 + Math.random() * 0.5, 300 + Math.random() * 300, 0.03, 0.08, pan);
+  }
+  // Pin pulled + spoon flying off.
+  pin(pan) {
+    const t = this.ctx.currentTime;
+    this._metal(t, [3200, 5100], 0.03, 0.22, pan);
+    this._metal(t + 0.11, [2400, 3900, 6100], 0.06, 0.16, pan);
+  }
+  // Grenade bouncing on the ground.
+  clink(pan) {
+    if (this._t - (this._lastClink ?? -1e9) < 60) return; this._lastClink = this._t;
+    const t = this.ctx.currentTime;
+    this._metal(t, [1500, 2600], 0.04, 0.16, pan); this._thunk(t, 180, 0.04, 0.18, pan);
+  }
+  // Dodge roll: cloth and gear swish, then the shoulder hitting the ground.
+  roll(pan) {
+    const t = this.ctx.currentTime;
+    this._scrape(t, 0.22, 500, 1400, 0.16, pan);
+    this._thunk(t + 0.18, 110, 0.12, 0.34, pan);
+  }
+  // Melee swing that hits nothing.
+  swish(pan) {
+    const t = this.ctx.currentTime;
+    this._scrape(t, 0.13, 1800, 4200, 0.18, pan);
+  }
+  // Gun slung / drawn.
+  swap(pan) {
+    const t = this.ctx.currentTime;
+    this._scrape(t, 0.08, 900, 1800, 0.1, pan);
+    this._metal(t + 0.07, [1900, 3100], 0.04, 0.2, pan); this._thunk(t + 0.07, 220, 0.05, 0.2, pan);
+  }
   // Brute / mini-boss: a deep, enraged bellow from a huge throat.
   roar(pan) {
     if (this._t - (this._lastRoar ?? -1e9) < 600) return; this._lastRoar = this._t;
@@ -627,6 +670,12 @@ export function processSounds(q, am, mutedRef, camX = null, zoom = 1) {
       case 'zatk':   am.zombieAtk(pan(e));   break;
       case 'slash':  am.slash(pan(e));       break;
       case 'explosion': am.explosion(pan(e)); break;
+      case 'grenade': am.grenade(pan(e)); break;
+      case 'pin':    am.pin(pan(e));         break;
+      case 'clink':  am.clink(pan(e));       break;
+      case 'roll':   am.roll(pan(e));        break;
+      case 'swish':  am.swish(pan(e));       break;
+      case 'swap':   am.swap(pan(e));        break;
       case 'roar':   am.roar(pan(e));        break;
       case 'spit':   am.spit(pan(e));        break;
       case 'pickup': am.pickup();            break;
