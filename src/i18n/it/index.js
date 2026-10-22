@@ -7,5 +7,5 @@ import CINE from './cine.js';
 import RADIO from './radio.js';
 import MOVES from './moves.js';
 import FINALE from './finale.js';
+import REPORT from './report.js';
 
-export default { ...DATA, ...CINE, ...RADIO, ...HUD, ...UI, ...MOVES, ...FINALE };
