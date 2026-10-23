@@ -21,6 +21,7 @@ import { WPN, wbase } from '../data/weapons.js';
 import { meleeStats, spendStam, SWING_COST } from '../entities/gear.js';
 import { MISSION_W, MGY } from '../data/expeditions.js';
 import { barricadeBetween } from './cityMission.js';
+import { bulletHitsSide } from './missionExtras.js';
 import { pushRadio } from '../audio/radio.js';
 import { t } from '../i18n/index.js';
 
@@ -166,6 +167,8 @@ function blast(m, x, y, now, src, H) {
     return d > R ? 0 : 1 - 0.6 * (d / R);
   };
   const bodyY = p => MGY - 30 + (p.standingY || 0) + (p.jumpY || 0);
+  // A locked barricade takes the blast for whatever is behind it.
+  const shielded = e => barricadeBetween(m, x, e.x);
   m.soundQ.push({ t: 'grenade', x });
   m.effects.push({ type: 'blast', x, y, r: R, at: now, dur: 720, seed: Math.random() * 1000 });
   const lead = m.soldier;
@@ -174,7 +177,7 @@ function blast(m, x, y, now, src, H) {
   const credit = () => { m.killedCount++; if (src) src._kills = (src._kills || 0) + 1; };
   m.zombies.forEach(z => {
     if (z.state === 'dead') return;
-    const k = fall(z.x, bodyY(z));
+    const k = shielded(z) ? 0 : fall(z.x, bodyY(z));
     if (k <= 0) return;
     const dmg = Math.round(NADE_DMG * k);
     z.hp -= dmg; z.hurtTimer = 260; z.atkTimer = 0;
@@ -190,9 +193,15 @@ function blast(m, x, y, now, src, H) {
       }
     }
   });
+  // The nest side objective burns like a target too.
+  const sd = m.side;
+  if (sd && sd.type === 'nest' && sd.state === 'active' && !shielded(sd)) {
+    const k = fall(sd.x, MGY - 20);
+    if (k > 0) bulletHitsSide(m, { x: sd.x, y: MGY - 20, dmg: Math.round(NADE_DMG * k), shooterY: 0 }, now);
+  }
   (m.humans || []).forEach(h => {
     if (h.state === 'dead' || !h.hostile) return;
-    const k = fall(h.x, bodyY(h));
+    const k = shielded(h) ? 0 : fall(h.x, bodyY(h));
     if (k <= 0) return;
     const dmg = Math.round(NADE_DMG * 0.8 * k);
     h.hp -= dmg; h.hurtTimer = 260; h._hitAt = now;
@@ -209,7 +218,7 @@ function blast(m, x, y, now, src, H) {
   // Friendly fire: the squad takes a third of it (a roll dodges it).
   [m.soldier, ...(m.followers || [])].forEach(p => {
     if (!p || p.hp <= 0 || p.state === 'dead' || dodging(p)) return;
-    const k = fall(p.x, bodyY(p));
+    const k = shielded(p) ? 0 : fall(p.x, bodyY(p));
     if (k <= 0) return;
     const dmg = Math.round(NADE_DMG * 0.33 * k);
     p.hp -= dmg; p.hurtTimer = 320;
@@ -221,7 +230,7 @@ function blast(m, x, y, now, src, H) {
   });
   // Mines in the blast go off too.
   (m.hazards || []).forEach(h => {
-    if (h.type === 'mine' && !h.triggered && Math.abs(h.x - x) < R && m._detonateMine) m._detonateMine(h);
+    if (h.type === 'mine' && !h.triggered && Math.abs(h.x - x) < R && m._detonateMine) m._detonateMine(h, now);
   });
   // Noise: the dead far around come for it, hostiles on alert.
   m.zombies.forEach(z => {

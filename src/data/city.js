@@ -148,7 +148,8 @@ export function applyCityVisit(gs, m) {
   const all = k => worlds.flatMap(w => w[k] || []);
   const zTotal = Math.max(1, all('zombies').length);
   st.infest = Math.max(0.1, st.infest - 0.45 * Math.min(1, (m.killedCount || 0) / zTotal));
-  const pickups = all('pickups'), boxes = all('obstacles').filter(o => o.searchable);
+  // Grenades are kit, not the place's stock.
+  const pickups = all('pickups').filter(p => p.type !== 'grenade'), boxes = all('obstacles').filter(o => o.searchable);
   const lootable = pickups.length + boxes.length;
   const taken = pickups.filter(p => p.collected).length + boxes.filter(o => o.searched && !o._preLooted).length;
   if (lootable > 0) st.loot = Math.max(0.05, st.loot * (1 - 0.85 * taken / lootable));

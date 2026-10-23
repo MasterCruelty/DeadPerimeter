@@ -73,7 +73,7 @@ export function dMovesHUD(ctx, m, now) {
   ctx.font = 'bold 9px monospace';
   ctx.fillStyle = slung ? '#ffcc66' : C.txt;
   const mel = MELEE[meleeOf(s)];
-  let label = slung ? `${mel.icon} ${t(mel.name).toUpperCase()}` : `🔫 ${(WPN[s.weapon] || WPN.rifle).name}`;
+  let label = slung ? `${mel.icon} ${t(mel.name).toUpperCase()}` : `🔫 ${t((WPN[s.weapon] || WPN.rifle).name)}`;
   while (ctx.measureText(label).width > 150 && label.length > 4) label = label.slice(0, -2) + '…';
   ctx.fillText(label, x + 26, y + 31);
   key(t('[F] MELEE'), x + 6, y + 44);

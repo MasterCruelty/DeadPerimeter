@@ -325,14 +325,15 @@ class Music {
 }
 
 // ── State machine, fed by the game ───────────────────────────────
-function stateFor(scr, finale) {
+function stateFor(scr, finale, tier) {
   switch (scr) {
     case 'menu': case 'gameover': return 'title';
     case 'management': case 'expedition': case 'placement': case 'vaccine-briefing': case 'transmission': return 'command';
     case 'siege': return 'siege';
     case 'mission': return finale ? 'finale' : 'sortie';
     case 'defeat': return 'defeat';
-    case 'victory': return 'victory';
+    // The victory screen also closes a lost convoy: that one gets the defeat sting.
+    case 'victory': return tier === 'failure' ? 'defeat' : 'victory';
     default: return 'none';                  // intro, evac, extraction: their own soundtrack
   }
 }
@@ -367,8 +368,8 @@ function sortieHeat(m) {
 let _mx = null, _wasOn = _on;
 // Called a few times a second from the game: picks the state and feeds
 // the intensity. Cheap when nothing changes.
-export function tickMusic({ scr, gs, m, finale, paused, muted }) {
-  const want = !_gesture || muted || !_on ? 'none' : stateFor(scr, finale);
+export function tickMusic({ scr, gs, m, finale, tier, paused, muted }) {
+  const want = !_gesture || muted || !_on ? 'none' : stateFor(scr, finale, tier);
   const am = _mx ? _mx.am : (_gesture ? getAM() : null);
   if (!am) return;
   // The old siege drum bed stands in for the music when MUSIC is off.
