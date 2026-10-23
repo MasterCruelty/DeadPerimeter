@@ -3186,11 +3186,14 @@ export function dMissionHUD(ctx, m, now) {
   while (ctx.measureText(title).width > 196 && title.length > 4) title = title.slice(0, -2) + '…';
   ctx.fillText(title, 12, 17);
   ctx.font = '9px monospace';
-  ctx.fillStyle = riskCol; ctx.fillText(t(m.dest.risk || ''), 12, 32);
+  const risk = t(m.dest.risk || '');
+  ctx.fillStyle = riskCol; ctx.fillText(risk, 12, 32);
   ctx.fillStyle = C.txt;
+  // Squeezed to end before the counter under the route bar (px = 226).
+  const sx = Math.max(48, 18 + ctx.measureText(risk).width);
   ctx.fillText(m.objective === 'defend' ? t('· HOLD THE FLAG')
     : m.room ? t('· {room} · E AT THE EXIT', { room: t(roomKind(m.room.door).name).toUpperCase() })
-    : m.objective === 'explore' ? t('· EXPLORE · BACK TO VAN TO LEAVE') : t('· REACH THE EXIT'), 48, 32);
+    : m.objective === 'explore' ? t('· EXPLORE · BACK TO VAN TO LEAVE') : t('· REACH THE EXIT'), sx, 32, 220 - sx);
 
   // ── Route bar with markers (entrance, fork, defend flag, exit, party, boss)
   const px = 226, pw = 340, ph = 8, py = 11;

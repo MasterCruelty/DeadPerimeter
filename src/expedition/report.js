@@ -1,7 +1,8 @@
 // After-action reports: per-sortie stats, a grade and per-place records.
 //
 // Grades come from points (S ≥ 100, A ≥ 80, B ≥ 60, C below):
-//   sortie    50 + lead accuracy × 45 (max 30; 15 if the lead never fired)
+//   sortie    50 + lead accuracy × 60 (max 30, i.e. one hit in two across the
+//             depth band; 15 if the lead never fired)
 //             + side objective (+15 done, −5 failed, +8 when there is none or it was left alone)
 //             + 8 per job finished here, −20 if the main goal was missed
 //               (Compact still standing, vaccine vial lost)
@@ -75,7 +76,7 @@ export function sortieReport(m) {
   const won = m.state === 'won';
   const acc = st.shots > 0 ? st.hits / st.shots : null;
   const pts = 50
-    + (acc === null ? 15 : Math.min(30, acc * 45))
+    + (acc === null ? 15 : Math.min(30, acc * 60))
     // A side objective left alone counts like none; failing one costs.
     + (side ? (side.state === 'done' ? 15 : side.state === 'failed' ? -5 : 8) : 8)
     + 8 * jobs.filter(j => j.state === 'done').length
