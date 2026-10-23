@@ -1497,6 +1497,9 @@ export default function DeadPerimeter() {
         ctx.restore();
         scene = missionLights(m, m.simNow);
         hctx.save(); hudUsed = true;
+        // A finale act won without the vial is a failure: the end
+        // overlay says so instead of "mission success".
+        if (vaccineRef.current && m.state === 'won' && m._caseLost === undefined) m._caseLost = vaccineActFailure(vaccineRef.current) === 'case';
         dMissionHUD(hctx, m, m.simNow);
         dMovesHUD(hctx, m, m.simNow);
         dCheckpointBanner(hctx, m);

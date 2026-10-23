@@ -245,7 +245,9 @@ export function finishVaccineCampaign(campaign, gs) {
       });
     }
   }
-  const cleared = campaign.scenariosCleared + (m.state === 'won' ? 1 : 0);
+  // advanceVaccineScenario already counted the last act when it ran out
+  // of acts; count from the act actually played so it isn't counted twice.
+  const cleared = Math.max(campaign.scenariosCleared, campaign.currentIndex + (m.state === 'won' ? 1 : 0));
   const survivors = stillAlive.length;
   // Vaccine "delivered" means: the sample was picked up at the hospital
   // AND the carrier was still holding it (vial not dropped on a dead

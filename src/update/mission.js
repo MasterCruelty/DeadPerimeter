@@ -3158,11 +3158,12 @@ export function dMissionHUD(ctx, m, now) {
   if (m.state === 'won' || m.state === 'lost') {
     const f = Math.min(1, (now - m.endedAt) / 600);
     ctx.fillStyle = `rgba(0,0,0,${f * 0.7})`; ctx.fillRect(0, 0, CW_, CH);
-    ctx.fillStyle = m.state === 'won' ? C.acc : C.dng;
+    const success = m.state === 'won' && !m._caseLost;
+    ctx.fillStyle = success ? C.acc : C.dng;
     ctx.font = 'bold 36px monospace'; ctx.textAlign = 'center';
-    ctx.fillText(m.state === 'won' ? t('★ MISSION SUCCESS ★') : t('✖ MISSION FAILED'), CW_ / 2, CH / 2 - 20);
+    ctx.fillText(success ? t('★ MISSION SUCCESS ★') : m._caseLost ? t('✖ THE VIAL IS LOST') : t('✖ MISSION FAILED'), CW_ / 2, CH / 2 - 20);
     ctx.font = '12px monospace'; ctx.fillStyle = C.txt;
-    ctx.fillText(m.state === 'won' ? t('Returning to Fort Omega...') : t('{name} did not return.', { name: m.soldier.name }), CW_ / 2, CH / 2 + 10);
+    ctx.fillText(success ? t('Returning to Fort Omega...') : m._caseLost ? t('The squad made it through without the vaccine.') : t('{name} did not return.', { name: m.soldier.name }), CW_ / 2, CH / 2 + 10);
     // Debrief line: kills + haul (lost missions forfeit the haul).
     const haul = Object.entries(m.collected)
       .filter(([k, v]) => typeof v === 'number' && v > 0 && k !== 'rescuedCivs')
