@@ -38,11 +38,13 @@ import { dZombie } from './render/zombie.js';
 import { dHuman } from './render/human.js';
 import { dBarricade, dBlt, dFx } from './render/effects.js';
 import { dTurret } from './render/turret.js';
-import { dSquadMarker, dHUD, HUD_MUTE, HUD_SPEED, HUD_RADAR } from './render/hud.js';
+import { dSquadMarker, dHUD, dRadioLog, HUD_MUTE, HUD_SPEED, HUD_RADAR } from './render/hud.js';
+import RadioLog from './ui/RadioLog.jsx';
 import { dEvacScene, EVAC_DURATION } from './render/evac.js';
 import { dIntroScene, INTRO_DURATION } from './render/intro.js';
 import { dDefeatScene, DEFEAT_DURATION } from './render/defeat.js';
 import { dTransmissionScene } from './render/transmission.js';
+import { dCheckpointBanner } from './render/checkpoint.js';
 import { createPostFX } from './render/postfx.js';
 import { setNormalTarget } from './render/actors/paint.js';
 import { zombiePrewarm, registerZombieTypes, setWalkerPool } from './render/actors/zombies.js';
@@ -50,16 +52,22 @@ import { ZTP } from './data/zombies.js';
 import { zoomLights, siegeLights, missionLights } from './render/lighting.js';
 import { dExtractionScene, EXTRACTION_DURATION, EXTRACTION_SCRIPT, mkExtraction } from './render/extraction.js';
 import { TRANSMISSIONS } from './data/transmissions.js';
-import { pushRadio } from './audio/radio.js';
+import { pushRadio, logRadio, clearRadioLog } from './audio/radio.js';
+import { tickMusic, isMusicOn, setMusicOn } from './audio/music.js';
 import { initRadioVoice, setRadioVoiceEnabled, setRadioMuted, speakOrChatter } from './audio/radioVoice.js';
 
 import { update } from './update/siege.js';
 import { mkMission, updateMission, dMissionWorld, dMissionHUD } from './update/mission.js';
+import { juiceStep, juiceWatch, shakeOffset } from './update/moves.js';
+import { dMovesHUD } from './render/moves.js';
 import { isIndoorAt } from './update/cityMission.js';
 
 import { finishMission } from './expedition/missionFinish.js';
+import { sortieReport, submitRecord, recordKey, recordAct, campaignReport } from './expedition/report.js';
+import ReportCard from './ui/ReportCard.jsx';
 import {
   mkVaccineCampaign, advanceVaccineScenario, finishVaccineCampaign,
+  retryVaccineCheckpoint, vaccineActFailure,
 } from './expedition/vaccineCampaign.js';
 import { VACCINE_SCENARIOS } from './data/vaccineMission.js';
 
@@ -134,6 +142,7 @@ const mkSnap = gs => ({
   transmissionsDone: Array.isArray(gs.transmissionsDone) ? [...gs.transmissionsDone] : [],
   pendingTransmission: gs.pendingTransmission ?? null,
   lastFoodReport:  gs.lastFoodReport  ?? null,
+  lastWaveReport:  gs.lastWaveReport  ?? null,
   lastSupplyDrop:  gs.lastSupplyDrop  ?? null,
   cameraX: gs.cameraX || 0,
   workbench: gs.workbench, researchLab: gs.researchLab, research: gs.research,
@@ -164,6 +173,8 @@ export default function DeadPerimeter() {
   useEffect(() => onLangChange(() => setLangTick(n => n + 1)), []);
   const [scr, setScr] = useState('menu'), [ui, setUi] = useState(null), [muted, setMuted] = useState(false);
   const [paused, setPaused] = useState(false);
+  const [musicOn, setMusicOnState] = useState(isMusicOn);
+  const scrRef = useRef(scr);
   const [hasSave, setHasSave] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   // Graphics: always the full HD layer (WebGL lighting / bloom / grading
@@ -216,6 +227,21 @@ export default function DeadPerimeter() {
     mutedR.current = n; setMuted(n);
     if (am) am.mute(n);
     setRadioMuted(n);
+  }, []);
+
+  const toggleMusic = useCallback(() => {
+    const n = !isMusicOn();
+    setMusicOn(n); setMusicOnState(n);
+  }, []);
+
+  // Music follows the screen and, in a fight, how hot it is (music.js).
+  useEffect(() => { scrRef.current = scr; }, [scr]);
+  useEffect(() => {
+    const id = setInterval(() => tickMusic({
+      scr: scrRef.current, gs: gsRef.current, m: missionRef.current, finale: !!vaccineRef.current,
+      paused: pausedRef.current, muted: mutedR.current,
+    }), 250);
+    return () => clearInterval(id);
   }, []);
 
   const togglePause = useCallback(() => {
@@ -381,6 +407,7 @@ export default function DeadPerimeter() {
     gs.soldiers.forEach(s => { s.ammo = WPN[s.weapon].ammo; gs.resources.ammo -= WPN[s.weapon].ammoCost; });
     gsRef.current = gs; setUi({ ...gs });
     setHasSave(false);
+    clearRadioLog();
     transmissionRef.current = null;
     extractionRef.current = null;
     // Roll the opening cinematic before the player sees management.
@@ -431,8 +458,9 @@ export default function DeadPerimeter() {
     gs.humans = [];
     gs.bullets = []; gs.effects = []; gs.soundQ = [];
     gs.zombiesSpawned = 0;
-    if (gs.compactRaid) pushRadio(gs, 'baseHit', { line: 'Compact soldiers at the wall! This is a raid!', urgent: true, cooldown: 0 });
-    else if (gs.waveMod) pushRadio(gs, 'deploy', { line: WAVE_MODS[gs.waveMod].radio, cooldown: 0 });
+    gs._wallWarned = false; gs._deadSeen = null;   // fortRadio in update/siege.js
+    if (gs.compactRaid) pushRadio(gs, 'baseHit', { line: 'Omega, this is Colonel Voss. You had your chance. Northgate is at your wall.', urgent: true, cooldown: 0, from: 'voss' });
+    else if (gs.waveMod) pushRadio(gs, 'deploy', { line: WAVE_MODS[gs.waveMod].radio, cooldown: 0, from: 'hale' });
     gs.squadTarget = null; gs.squadLane = null; gs.selectedSoldierId = null;
     const ground = gs.soldiers.filter(s => s.state !== 'dead' && !s.onExpedition && !s.onRoof);
     ground.forEach((s, i) => { s.x = WX + 20; s.state = 'walk'; s.facing = 1; s.destX = 224 + i * 24; s.reloadTriggered = false; });
@@ -483,6 +511,9 @@ export default function DeadPerimeter() {
     // default for any soldier whose _sortieMags wasn't preset.
     const m = mkMission(party, dest, gs.wave || 1, mags, gs.research?.completed);
     missionRef.current = m;
+    // Who's on the net as the squad heads out.
+    if (dest.faction) pushRadio(m, 'deploy', { line: 'This is Colonel Voss. Turn back, Omega, or be buried with the dead.', from: 'voss', cooldown: 0 });
+    else pushRadio(m, 'sortieOut', { from: 'hale', cooldown: 0 });
     inputRef.current = { left: false, right: false, shoot: false, up: false, down: false };
     gs.expeditionsToday = (gs.expeditionsToday || 0) + ((dest && dest.slots) || 1);
     pausedRef.current = false; setPaused(false); getAM()?.duck(false);
@@ -492,6 +523,7 @@ export default function DeadPerimeter() {
   const finalizeMission = useCallback(() => {
     const m = missionRef.current; if (!m) return;
     const gs = gsRef.current;
+    const report = sortieReport(m);   // before leaving a room: the sortie as it ended
     leaveRoomIfInside(m);   // the result reads the street, not a room
     // finishMission writes back every party member's hp/state/onExpedition.
     const am0 = getAM(); if (am0) { am0.windStop(); am0.cityHumStop(); }
@@ -499,6 +531,7 @@ export default function DeadPerimeter() {
     if (result) result.discovered = applyCityVisit(gs, m);
     if (result) result.compact = assaultOutcome(gs, m);
     if (result) result.quests = completeAfterSortie(gs, m);
+    if (result) { result.report = report; result.record = submitRecord(recordKey(m), report); }
     // Persist loot, losses and the city state right away.
     try { saveGame(gs); setHasSave(true); } catch (e) { /* non-fatal */ }
     missionRef.current = null;
@@ -506,6 +539,12 @@ export default function DeadPerimeter() {
     setExpResult(result); setExpPhase('done'); setExpEvents([]); setExpVisible(0);
     setUi({ ...gs, soldiers: gs.soldiers.map(s => ({ ...s })) });
     setScr('expedition');
+  }, []);
+
+  // Flash the CHECKPOINT banner (render/checkpoint.js) on the act that
+  // just started or restarted.
+  const showCheckpoint = useCallback(campaign => {
+    campaign.current._checkpointBanner = { act: VACCINE_SCENARIOS[campaign.currentIndex].name, retry: campaign.retriesByAct[campaign.currentIndex] || 0 };
   }, []);
 
   // Vaccine campaign — start the playable wave-30 finale. Builds the
@@ -523,7 +562,8 @@ export default function DeadPerimeter() {
     gs.phase = 'vaccine-mission';
     setUi({ ...gs, soldiers: gs.soldiers.map(s => ({ ...s })) });
     setScr('mission');
-  }, []);
+    showCheckpoint(campaign);
+  }, [showCheckpoint]);
 
   // Called when the current scenario's state flips to won / lost.
   // If won and there's another scenario, advance — otherwise wrap up
@@ -533,6 +573,7 @@ export default function DeadPerimeter() {
     const campaign = vaccineRef.current; if (!campaign) return;
     const gs = gsRef.current; if (!gs) return;
     const m = campaign.current;
+    recordAct(campaign, m);
     const am0 = getAM(); if (am0) { am0.windStop(); am0.cityHumStop(); }
     if (m.state === 'won') {
       const next = advanceVaccineScenario(campaign, gs);
@@ -541,6 +582,7 @@ export default function DeadPerimeter() {
         // Stay on the mission screen; the new scenario renders in the
         // same canvas with its own biome / layout.
         setUi({ ...gs, soldiers: gs.soldiers.map(s => ({ ...s })) });
+        showCheckpoint(campaign);
         return;
       }
     }
@@ -549,6 +591,7 @@ export default function DeadPerimeter() {
     // but the convoy didn't make it. The screen shows the 'failure' tier
     // text instead of the misleading "FORT OMEGA FALLEN" gameover panel.
     const result = finishVaccineCampaign(campaign, gs);
+    result.report = campaignReport(campaign, result);
     vaccineResultRef.current = result;
     vaccineRef.current = null;
     missionRef.current = null;
@@ -560,7 +603,23 @@ export default function DeadPerimeter() {
     // Ending cinematic first; finishExtraction routes to the stats screen.
     extractionRef.current = mkExtraction(gs, result, campaign.party.filter(s => s.state !== 'dead'));
     setScr('extraction');
-  }, []);
+  }, [showCheckpoint]);
+
+  // Failed act (wipe, or the vial lost): replay it from the checkpoint
+  // taken when it started. Nothing from the failed attempt was written
+  // back to gs, so only the campaign needs rewinding.
+  const retryVaccineAct = useCallback(() => {
+    const campaign = vaccineRef.current; if (!campaign) return;
+    const gs = gsRef.current; if (!gs) return;
+    const am0 = getAM(); if (am0) { am0.windStop(); am0.cityHumStop(); }
+    const m = retryVaccineCheckpoint(campaign, gs);
+    if (!m) return;
+    missionRef.current = m;
+    inputRef.current = { left: false, right: false, shoot: false, up: false, down: false };
+    pausedRef.current = false; setPaused(false);
+    setUi({ ...gs, soldiers: gs.soldiers.map(s => ({ ...s })) });
+    showCheckpoint(campaign);
+  }, [showCheckpoint]);
 
   const recruit = useCallback(() => {
     const gs = gsRef.current;
@@ -955,7 +1014,7 @@ export default function DeadPerimeter() {
     const worldC = mkOff(), hudC = mkOff(), normC = mkOff();
     const normCtx = normC.getContext('2d');
     const hdScale = DPR;
-    if (import.meta.env.DEV) window.__dp = { worldC, hudC, gsRef, missionRef, extractionRef, mkExtraction, expDestsRef };
+    if (import.meta.env.DEV) window.__dp = { worldC, hudC, gsRef, missionRef, vaccineRef, extractionRef, mkExtraction, expDestsRef };
     const worldCtx = worldC.getContext('2d'), hudCtx = hudC.getContext('2d');
     let fx = null, fxTried = false;
     // Per-frame targets: in HD mode the world goes to worldCtx (lit by the
@@ -1097,6 +1156,13 @@ export default function DeadPerimeter() {
         if (e.key === 'ArrowDown'  || e.key === 's' || e.key === 'S') { inputRef.current.down = true;  e.preventDefault(); }
         if (e.key === ' ' || e.key === 'Spacebar') { inputRef.current.shoot = true; e.preventDefault(); }
         if ((e.key === 'e' || e.key === 'E') && !e.repeat && !missionRef.current.dialog) { missionRef.current.inputInteract = true; e.preventDefault(); }
+        // Moveset (update/moves.js): one-shot presses, read on the next tick.
+        if (!e.repeat && !e.ctrlKey && !e.metaKey && !e.altKey && !missionRef.current.dialog) {
+          const mm = missionRef.current;
+          const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+          const act = { Shift: 'inputRoll', g: 'inputGrenade', r: 'inputReload', q: 'inputSwap', f: 'inputMelee' }[k];
+          if (act) { mm[act] = true; e.preventDefault(); }
+        }
       } else {
         // Siege phase: arrow keys pan the camera across the wider WORLD_W.
         const gs = gsRef.current;
@@ -1264,6 +1330,7 @@ export default function DeadPerimeter() {
         while (tr.lineIdx < tr.data.lines.length && off >= tr.data.lines[tr.lineIdx].at) {
           const l = tr.data.lines[tr.lineIdx];
           speakOrChatter(l.text, { pitch: l.pitch }, tr.soundQ);
+          logRadio({ line: l.text, name: 'Central Command', who: { npc: 'command' }, npc: true });
           tr.lineIdx++;
         }
         processSounds(tr.soundQ, getAM(), mutedR);
@@ -1413,20 +1480,33 @@ export default function DeadPerimeter() {
         }
         const mPaused = pausedRef.current && m.state === 'active';
         if (!mPaused) {
-          m.simNow += dt;
-          updateMission(m, m.simNow, dt);
+          // Hitstop holds the world for a few frames, slow motion
+          // stretches it (update/moves.js).
+          const sdt = juiceStep(m, dt);
+          if (sdt > 0) {
+            m.simNow += sdt;
+            updateMission(m, m.simNow, sdt);
+            juiceWatch(m);
+          }
           processSounds(m.soundQ, getAM(), mutedR, m.cameraX || 0);
         }
         ctx.save(); ctx.clearRect(0, 0, CW, CH);
+        const [shx, shy] = mPaused ? [0, 0] : shakeOffset(m);
+        if (shx || shy) ctx.translate(shx, shy);
         dMissionWorld(ctx, m, m.simNow);
         ctx.restore();
         scene = missionLights(m, m.simNow);
         hctx.save(); hudUsed = true;
+        // A finale act won without the vial is a failure: the end
+        // overlay says so instead of "mission success".
+        if (vaccineRef.current && m.state === 'won' && m._caseLost === undefined) m._caseLost = vaccineActFailure(vaccineRef.current) === 'case';
         dMissionHUD(hctx, m, m.simNow);
+        dMovesHUD(hctx, m, m.simNow);
+        dCheckpointBanner(hctx, m);
         if (mPaused) {
           hctx.fillStyle = 'rgba(0,0,0,0.62)'; hctx.fillRect(0, 0, CW, CH);
-          hctx.fillStyle = 'rgba(6,14,6,0.95)'; hctx.fillRect(CW / 2 - 190, CH / 2 - 80, 380, 150);
-          hctx.strokeStyle = C.acc; hctx.lineWidth = 1; hctx.strokeRect(CW / 2 - 189.5, CH / 2 - 79.5, 379, 149);
+          hctx.fillStyle = 'rgba(6,14,6,0.95)'; hctx.fillRect(CW / 2 - 190, CH / 2 - 80, 380, 190);
+          hctx.strokeStyle = C.acc; hctx.lineWidth = 1; hctx.strokeRect(CW / 2 - 189.5, CH / 2 - 79.5, 379, 189);
           hctx.fillStyle = C.acc; hctx.font = 'bold 28px monospace'; hctx.textAlign = 'center';
           hctx.fillText(t('⏸ SORTIE PAUSED'), CW / 2, CH / 2 - 38);
           hctx.fillStyle = C.txt; hctx.font = '11px monospace';
@@ -1436,7 +1516,10 @@ export default function DeadPerimeter() {
           hctx.fillText(t('hold fire while moving back = backpedal shooting'), CW / 2, CH / 2 + 26);
           hctx.fillText(t('W: jump / climb ladder · S: climb down / drop'), CW / 2, CH / 2 + 42);
           hctx.fillText(t('stand by ★ containers to search them'), CW / 2, CH / 2 + 58);
+          hctx.fillText(t('Shift: dodge roll · G: grenade · F: melee'), CW / 2, CH / 2 + 74);
+          hctx.fillText(t('R: reload · Q: swap gun / melee weapon'), CW / 2, CH / 2 + 90);
           hctx.textAlign = 'left';
+          dRadioLog(hctx, CW / 2 - 260, CH - 182, 520, 6);   // over the radio panel
         }
         hctx.restore();
         return;
@@ -1544,6 +1627,7 @@ export default function DeadPerimeter() {
             hctx.fillText(t('click lane: move · 1-9: select soldier'), CW / 2, CH / 2 + 22);
             hctx.fillText(t('←/→ or radar: pan · F: 2× speed · wheel or +/−: zoom'), CW / 2, CH / 2 + 38);
             hctx.textAlign = 'left';
+            dRadioLog(hctx, CW / 2 - 260, CH - 182, 520, 6);   // over the radio panel
           }
           ctx.restore();
           if (Math.floor(now / 250) !== Math.floor((now - dt) / 250)) setUi(mkSnap(gs));
@@ -1784,6 +1868,7 @@ export default function DeadPerimeter() {
             <div style={{ fontWeight: 'bold', fontSize: '13px', color: expResult.outcome === 'success' ? C.acc : expResult.outcome === 'injured' ? C.wrn : C.dng }}>
               {expResult.outcome === 'success' ? t('✦ MISSION SUCCESS') : expResult.outcome === 'injured' ? t('⚠ RETURNED INJURED') : t('✖ SOLDIER LOST')}
             </div>
+            <ReportCard rep={expResult.report} record={expResult.record} title={t('SORTIE REPORT')} />
             {Object.keys(expResult.reward || {}).length > 0 && (() => {
               // Split positive recoveries from the foodCost line so the
               // log reads "Recovered: ammo +N  ·  Eaten: 9 food" rather
@@ -1913,15 +1998,36 @@ export default function DeadPerimeter() {
             {missionRef.current && missionRef.current.state === 'active' ? (
               <>
                 <span style={{ color: '#888', fontSize: '10px' }}>{t('A/D move · SPACE or hold mouse: fire · W jump/climb · S down · E enter/exit rooms · Esc pause')}</span>
+                <span style={{ color: '#888', fontSize: '10px' }}>{t('Shift roll · G grenade · F melee · R reload · Q gun/melee')}</span>
                 {missionRef.current.objective === 'explore' && (
                   <button style={mbtn} onClick={() => { if (missionRef.current) missionRef.current.inputInteract = true; }} title={t('Enter / leave a room (E)')}>🚪 E</button>
                 )}
+                {[['inputRoll', '🤸', t('Dodge roll (Shift)')], ['inputGrenade', '💣', t('Throw a grenade (G)')], ['inputMelee', '🔪', t('Melee attack (F)')],
+                  ['inputReload', '⟳', t('Reload (R)')], ['inputSwap', '⇄', t('Swap gun / melee weapon (Q)')]].map(([k, icon, tip]) => (
+                  <button key={k} style={mbtn} onClick={() => { if (missionRef.current) missionRef.current[k] = true; }} title={tip}>{icon}</button>
+                ))}
                 <button style={mbtn} onClick={togglePause}>{paused ? t('▶ RESUME') : t('⏸ PAUSE')}</button>
                 <button style={mbtn} onClick={toggleMute}>{muted ? '🔇' : '🔊'}</button>
               </>
             ) : vaccineRef.current ? (() => {
               const camp = vaccineRef.current;
               const m = camp.current;
+              const failed = vaccineActFailure(camp);
+              if (failed) {
+                const act = t(VACCINE_SCENARIOS[camp.currentIndex].name).toUpperCase();
+                return (
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+                    <span style={{ color: C.dng, fontSize: '11px', letterSpacing: '.05em' }}>
+                      {failed === 'wiped' ? t('Nobody left standing on {act}.', { act }) : t('The vial did not make it off {act}.', { act })}
+                    </span>
+                    <div>
+                      <button style={btn('#3a3010', '#ffcc44')} onClick={retryVaccineAct}>{t('↺ RETRY FROM CHECKPOINT')}</button>
+                      <button style={btn('#3a1818', C.dng)} onClick={advanceOrFinishVaccine}>{t('ACCEPT THE OUTCOME')}</button>
+                    </div>
+                    <span style={{ color: '#7a8a6a', fontSize: '9px' }}>{t('Retries so far: {n}', { n: camp.retries || 0 })}</span>
+                  </div>
+                );
+              }
               const isLast = camp.currentIndex >= VACCINE_SCENARIOS.length - 1;
               const won = m && m.state === 'won';
               const label = won
@@ -1991,13 +2097,21 @@ export default function DeadPerimeter() {
                   {keyRow('Space / hold mouse', 'fire — hold while backing off to strafe')}
                   {keyRow('W / ↑', 'jump · climb ladder · high road')}
                   {keyRow('S / ↓', 'climb down · drop · low road')}
+                  {keyRow('Shift', 'dodge roll — brief invulnerability, costs stamina')}
+                  {keyRow('G', 'throw a grenade (loud: draws the dead)')}
+                  {keyRow('F', 'melee attack', 'sortie')}
+                  {keyRow('R', 'reload')}
+                  {keyRow('Q', 'swap gun / melee weapon')}
                   {keyRow('Y / N', 'accept / refuse a trade')}
                   {keyRow('Esc', 'pause', 'sortie')}
                   <div style={h2}>{t('CINEMATICS')}</div>
                   {keyRow('Space / Esc / click', 'skip')}
                 </div>
               )}
-              <div style={{ marginTop: '14px' }}><LangSelect /></div>
+              <div style={{ marginTop: '14px', display: 'flex', gap: '8px', justifyContent: 'center', alignItems: 'center', flexWrap: 'wrap' }}>
+                <LangSelect />
+                <button style={{ ...mbtn, opacity: musicOn ? 1 : 0.6 }} onClick={toggleMusic} title={t('Music on / off')}>{musicOn ? t('🎵 MUSIC') : t('🎵 MUSIC OFF')}</button>
+              </div>
               <div style={{ color: '#4a5a40', fontSize: '9px', marginTop: '10px', letterSpacing: '.05em' }}>{t('🔊 click once to enable audio · auto-saves between waves')}</div>
             </div>
           </div>
@@ -2014,6 +2128,7 @@ export default function DeadPerimeter() {
                 <div style={{ display: 'flex', gap: '6px' }}>
                   <LangSelect compact />
                   <button style={mbtn} onClick={toggleMute}>{muted ? t('🔇 MUTED') : t('🔊 SOUND')}</button>
+                  <button style={{ ...mbtn, opacity: musicOn ? 1 : 0.6 }} onClick={toggleMusic} title={t('Music on / off')}>{musicOn ? t('🎵 MUSIC') : t('🎵 MUSIC OFF')}</button>
                 </div>
               </div>
             </div>
@@ -2094,6 +2209,9 @@ export default function DeadPerimeter() {
                   {' '}{t('Every soldier (active + reserve) eats {n} food per day.', { n: BALANCE.foodPerPersonPerDay })}
                 </div>
               </div>
+            )}
+            {gs.lastWaveReport && gs.lastWaveReport.wave === gs.wave - 1 && (
+              <ReportCard compact rep={gs.lastWaveReport} title={t('WAVE {n} REPORT', { n: gs.lastWaveReport.wave })} />
             )}
             {gs.lastFoodReport && gs.lastFoodReport.hungry === 0 && gs.lastFoodReport.ate > 0 && (
               <div style={{ background: 'rgba(20,40,20,0.85)', border: `1px solid ${C.acc}`, padding: '6px 14px', marginTop: '8px', fontSize: '10px', color: C.txt }}>
@@ -2351,6 +2469,7 @@ export default function DeadPerimeter() {
                 </>
               );
             })()}
+            <RadioLog />
             {gs && (() => {
               const a = ensureArmory(gsRef.current || gs);
               const guns = Object.entries(a.guns).filter(([, n]) => n > 0);
@@ -2688,6 +2807,7 @@ export default function DeadPerimeter() {
             <div style={{ color: C.txt, fontSize: '11px', marginTop: '8px', opacity: 0.7, lineHeight: '1.5' }}>
               {t(meta.blurb)}
             </div>
+            {r && r.report && <ReportCard rep={r.report} record={r.report.record} title={t('FINALE REPORT')} />}
             <hr style={hr} />
             <div style={row}>
               {[

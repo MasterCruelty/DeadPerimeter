@@ -32,7 +32,7 @@ export function finishMission(m, gs) {
       if (ups) levelUps.push(t('{name} → Lv {lv}', { name: orig.name, lv: orig.level }));
       // Unused spare magazines go back into the stash (they used to
       // vanish, so every sortie burned its whole loadout).
-      const spare = Math.max(0, mSol.magsLeft || 0) * (mSol.maxAmmo || 0);
+      const spare = Math.max(0, mSol.magsLeft || 0) * (mSol.maxAmmo || 0) + Math.max(0, mSol._loose || 0);
       if (spare > 0) {
         const key = ammoPool(mSol.weapon);
         gs.resources[key] = Math.min(key === 'sniperAmmo' ? 99 : 999, (gs.resources[key] || 0) + spare);

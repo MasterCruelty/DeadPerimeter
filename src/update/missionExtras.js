@@ -23,6 +23,7 @@ import { pushRadio } from '../audio/radio.js';
 import { waveMul } from '../data/rewards.js';
 import { gearName } from '../entities/gear.js';
 import { streetSpot, segAt } from './cityMission.js';
+import { addShake } from './moves.js';
 import { t } from '../i18n/index.js';
 export { MISSION_CONDS, SIDE_OBJ } from '../data/missionExtras.js';
 
@@ -123,6 +124,7 @@ export function bulletHitsSide(m, b, now) {
     const mats = Math.round(12 * k), meds = Math.round(5 * k);
     m.collected.materials += mats; m.collected.medicine += meds;
     m.soundQ.push({ t: 'explosion', x: sd.x });
+    addShake(m, 4);
     m.effects.push({ type: 'txt', x: sd.x, y: MGY - 110, v: t('NEST DESTROYED  +{m} 🔧 +{d} 💊', { m: mats, d: meds }), col: '#ffcc44', at: now, dur: 2400 });
     pushRadio(m, 'kill', { line: 'Nest is burning!', speaker: m.soldier, cooldown: 0 });
   }

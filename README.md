@@ -64,9 +64,22 @@ points before the next wave.
 - Daily twists: night raids, hordes, picked-over places, side objectives
   (crack a military cache, burn a nest, answer an SOS), car alarms,
   traders and bandits.
+- The lead soldier can **roll** out of a bite (a moment of
+  invulnerability, costs stamina), throw **grenades** (two per sortie,
+  more in containers and storerooms; the blast wakes the street),
+  **reload** by hand, sling the gun for the **melee** weapon and swing
+  it at will. Hits land with a short freeze, guns kick the camera and a
+  boss going down slows time for a moment.
 - Ammo on a sortie is the magazines you packed. When a gun runs dry the
   soldier switches to a melee weapon or the knife — and swinging costs
   **stamina**.
+- The HUD lists the **objectives**: the main goal, the job you took at
+  this place and the side objective, with live counters (garrison left,
+  SOS time left) and a check mark when one is done.
+- Every sortie ends with a **report**: time against par, kills,
+  accuracy, damage taken, losses, side objective, loot, and a grade
+  from S to C. The best grade for each place is kept as a record. Each
+  siege wave and the finale get a grade too.
 
 ### Soldiers and gear
 - **Found guns** (AK-47, MP5, .357 Revolver, Hunting Rifle, Double
@@ -105,7 +118,9 @@ ending it.
 Survive wave 30 and the vaccine has to leave the city: **Highway 17 →
 Central Hospital → Rooftop evac**, played back to back, with a carrier
 who drops the case on death and four endings depending on what (and
-who) makes it out.
+who) makes it out. Each act starts with a **checkpoint**: if the squad
+is wiped or the vial is lost, retry the act from where it began or
+accept the outcome. Retries count against the finale's grade.
 
 ### Presentation
 - **English and Italian**: pick the language on the title screen or in
@@ -121,8 +136,15 @@ who) makes it out.
 - **Procedural audio** (no sound files): zombies snarl, growl and shriek
   through a synthesized vocal tract; reloads are built from real
   mechanical steps (mag out, mag in, charging handle, bolt, pump).
-- **Radio voices**: every soldier speaks with their own voice
-  (text-to-speech, picking the best natural voices on the device).
+- **Radio**: every line shows up in a radio panel with the speaker's
+  portrait — Reyes, Hale, Jun, Voss, Command or the soldier who's
+  talking — and every soldier speaks with their own voice
+  (text-to-speech, picking the best natural voices on the device). The
+  last messages stay in the radio log (command center and pause).
+- **Music**, synthesized like the rest: a dark drone with pulses that
+  follows the fight — it tightens in a surge, with a boss on the field
+  or the wall about to fall, and when zombies chase you on a sortie.
+  Separate MUSIC switch next to SOUND.
 - Auto-save between waves, pause anywhere, touch controls on mobile.
 
 ---
@@ -186,7 +208,11 @@ The `Dockerfile` is multi-stage (`deps` → `build` → `prod` on
 | Climb stairs or ladders / go down | `W` `↑` / `S` `↓` |
 | Jump (costs stamina) | `W` `↑` away from stairs and ladders |
 | Fire | Hold `Space` or the left mouse button (keep holding to back off while shooting) |
-| Melee | Automatic when the gun is dry and an enemy is close |
+| Melee | `F` (automatic when the gun is dry and an enemy is close) |
+| Dodge roll | `Shift` |
+| Grenade | `G` |
+| Reload | `R` |
+| Swap gun / melee weapon | `Q` |
 | Search a container | Stand next to it until the ring fills |
 | Enter / leave a room | `E` at the door (or the 🚪 E button) |
 | Get past a barricade | Stand at it to tear it down (loud) — or bring bolt cutters |
@@ -195,7 +221,8 @@ The `Dockerfile` is multi-stage (`deps` → `build` → `prod` on
 | Pause | `Esc` |
 
 On mobile, tap the left/right thirds of the canvas to move and the
-centre to fire.
+centre to fire; roll, grenade, melee, reload and swap have their own
+buttons.
 
 ---
 

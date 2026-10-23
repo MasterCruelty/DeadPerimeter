@@ -180,6 +180,10 @@ export function missionLights(m, now) {
     else if (h.type === 'mine' && !h.triggered && Math.floor(now / 600) % 2 === 0) push(lights, h.x, MGY - 6, 26, 0.6, [1, 0.15, 0.1], cam);
     else if (h.type === 'mine' && h.triggered && now - h.triggeredAt < 450) push(lights, h.x, MGY - 20, 260, 1.8 * (1 - (now - h.triggeredAt) / 450), FIRE, cam);
   });
+  // Grenade blasts (update/moves.js).
+  m.effects.forEach(e => {
+    if (e.type === 'blast' && now - e.at < 420) push(lights, e.x, e.y - 14, 300, 2.0 * (1 - (now - e.at) / 420), FIRE, cam);
+  });
   m.pickups.forEach(p => {
     if (p.collected) return;
     const y = MGY - 30 + (p.standingY || 0) + (p.lane === 1 ? -34 : 0);

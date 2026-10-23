@@ -54,6 +54,7 @@ export function saveGame(gs) {
       lastEvacWave: gs.lastEvacWave ?? -10,
       lastRichCrate: gs.lastRichCrate ?? -9,
       lastFoodReport: gs.lastFoodReport || null,
+      lastWaveReport: gs.lastWaveReport || null,
       transmissionsDone: Array.isArray(gs.transmissionsDone) ? [...gs.transmissionsDone] : [],
       lastSupplyDrop: gs.lastSupplyDrop || null,
       city: gs.city || null,
@@ -123,6 +124,7 @@ export function loadGame(mkGS) {
     gs.lastEvacWave = data.lastEvacWave ?? -10;
     gs.lastRichCrate = data.lastRichCrate ?? -9;
     gs.lastFoodReport = data.lastFoodReport || null;
+    gs.lastWaveReport = data.lastWaveReport || null;
     gs.transmissionsDone = Array.isArray(data.transmissionsDone) ? [...data.transmissionsDone] : [];
     gs.lastSupplyDrop = data.lastSupplyDrop || null;
     if (data.city && data.city.locs) gs.city = data.city;

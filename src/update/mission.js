@@ -14,9 +14,15 @@ import { dZombie } from '../render/zombie.js';
 import { dSoldier } from '../render/soldier.js';
 import { dFx, dBlt } from '../render/effects.js';
 import { dRadioSubtitle } from '../render/hud.js';
+import { dNades } from '../render/moves.js';
 import { setupMissionExtras, tickMissionExtras, bulletHitsSide } from './missionExtras.js';
-import { dMissionExtras, dMissionExtrasHUD } from '../render/missionExtras.js';
+import { dMissionExtras } from '../render/missionExtras.js';
+import { tickObjectives, garrisonOf } from './objectives.js';
+import { dObjectives } from '../render/objectives.js';
+import { startSortieStats, trackShot, trackHit, sortieReport } from '../expedition/report.js';
+import { dReportGrade } from '../render/report.js';
 import { pushRadio } from '../audio/radio.js';
+import { tickMoves, rollStep, dodging, kick, hitstop, addShake, nadeFind, giveNade } from './moves.js';
 import { t } from '../i18n/index.js';
 
 // Hurt-callout helper (same logic as siege): fires once when a party
@@ -487,7 +493,7 @@ export function mkMission(soldier, dest, wave = 1, magsPerSoldier = 2, researchC
     // above ground), vy is vertical velocity. Followers don't jump,
     // only the lead reacts to inputUp.
     jumpY: 0, vy: 0,
-    civilian: !!orig.civilian,
+    civilian: !!orig.civilian, veteran: !!orig.veteran, jacket: orig.jacket,
     state: 'idle', facing: 1,
     lastShot: 0, reloadStart: 0, shootAt: 0, knifeTimer: 0,
     walkPhase: Math.random() * Math.PI * 2, hurtTimer: 0, reloadTriggered: false,
@@ -615,6 +621,7 @@ export function mkMission(soldier, dest, wave = 1, magsPerSoldier = 2, researchC
   };
   if (explore) setupCityMission(mission, dest);
   setupMissionExtras(mission, dest, wave);
+  mission.stats = startSortieStats(mission);
   return mission;
 }
 
@@ -824,7 +831,9 @@ export function updateMission(m, now, dt) {
   // Lead movement (player-controlled). Acid pool slows movement to 50%.
   const onAcid = (m.hazards || []).some(h => h.type === 'acid' && Math.abs(s.x - h.x) <= h.w / 2);
   const moveSpd = 2.4 * (dt / 16) * (onAcid ? 0.5 : 1);
-  if (s.state !== 'reload' && s.state !== 'knife') {
+  if (rollStep(m, s, dt)) {
+    // Dodge roll in progress (update/moves.js): no steering.
+  } else if (s.state !== 'reload' && s.state !== 'knife') {
     // Holding fire locks the facing so the lead can backpedal while
     // shooting (kiting a Brute / Tank) instead of turning around.
     const lockFacing = m.inputShoot && s.ammo > 0;
@@ -891,7 +900,7 @@ export function updateMission(m, now, dt) {
       s.standingY = 0;
       s.climbing = null;
     }
-  } else if (m.inputUp && onSurface && s.state !== 'knife' && s.state !== 'reload' && spendStam(s, JUMP_COST)) {
+  } else if (m.inputUp && onSurface && s.state !== 'knife' && s.state !== 'reload' && !dodging(s) && spendStam(s, JUMP_COST)) {
     // No ladder under us — UP is a jump from the current surface.
     s.vy = JUMP_VEL;
     s.state = 'walk';
@@ -1009,6 +1018,7 @@ export function updateMission(m, now, dt) {
 
   tickMissionExtras(m, now, dt, aliveParty(m));
   tickCity(m, now, dt, aliveParty(m));
+  tickObjectives(m, now);
   if (m.state !== 'active') return;
 
   // Activation now considers any party member or rescuable as the "trigger"
@@ -1146,6 +1156,8 @@ export function updateMission(m, now, dt) {
       if (Math.abs(dx) > 50 || !sameLevel) { z.state = 'walk'; z.atkTimer = 0; return; }
       if (z.atkTimer > (meta.atkRate || 1000)) {
         z.atkTimer = 0;
+        // A dodge roll slips under the swing.
+        if (dodging(tgt)) return;
         tgt.hp -= z.z.dmg; tgt.hurtTimer = 320;
         m.soundQ.push({ t: 'zatk', x: z.x });
         if (tgt.hp <= 0) {
@@ -1160,10 +1172,11 @@ export function updateMission(m, now, dt) {
 
   // ── LEAD: player-driven shoot / knife ───────────────────────────
   const w = WPN[s.weapon];
-  if (m.inputShoot && s.state !== 'reload' && s.ammo > 0) {
+  if (m.inputShoot && s.state !== 'reload' && s.ammo > 0 && !s.knifeReady && !dodging(s)) {
     if (now - s.lastShot >= w.rate) {
       s.state = 'shoot'; s.lastShot = now; s.shootAt = now; s.ammo--;
       m.soundQ.push({ t: 'shot', w: s.weapon, x: s.x }); m.soundQ.push({ t: 'shell' });
+      kick(m, s.weapon);
       const bx = s.x + s.facing * 38;
       // Bullet origin Y rides the soldier's platform — if the lead
       // is up on a ledge / second floor, their muzzle is up there
@@ -1202,18 +1215,24 @@ export function updateMission(m, now, dt) {
   if (s.state === 'shoot' && now - s.shootAt > 200) s.state = m.inputLeft || m.inputRight ? 'walk' : 'idle';
   if (s.state === 'reload' && now - s.reloadStart >= effRl(s, w)) s.state = 'idle';
 
-  if (s.ammo <= 0 && s.state !== 'reload') {
+  // Dry, or the gun is slung (Q): the melee weapon takes over.
+  if ((s.ammo <= 0 || s.knifeReady) && s.state !== 'reload' && !dodging(s)) {
     const meleeTgt = m.zombies.find(z => z.state !== 'dead' && z.activated && Math.abs(z.x - s.x) < 52
       && Math.abs((z.standingY || 0) - ((s.standingY || 0) + (s.jumpY || 0))) < 22);
     if (meleeTgt) {
       s.facing = meleeTgt.x > s.x ? 1 : -1;
       s.knifeTimer = (s.knifeTimer || 0) + dt;
-      if (s.knifeTimer >= meleeStats(s).rate * 0.92) {
+      if (s.knifeTimer >= meleeStats(s).rate * 0.92 && !(s.meleeCd > 0)) {
         s.knifeTimer = 0; s.state = 'knife'; s.shootAt = now;
+        s.meleeCd = meleeStats(s).rate * 0.8;
         meleeHit(m, s, meleeTgt, now);
+        hitstop(m, 50); addShake(m, 1.6);
       }
     } else { s.knifeTimer = 0; if (s.state === 'knife' && now - s.shootAt > 300) s.state = 'idle'; }
   }
+
+  // Roll, grenades, reload, swap, melee on demand.
+  tickMoves(m, now, dt, { meleeHit, alertHumans, promoteLeadOnDeath });
 
   // ── FOLLOWERS: AI shoot / knife ─────────────────────────────────
   (m.followers || []).forEach(f => {
@@ -1499,9 +1518,10 @@ export function updateMission(m, now, dt) {
     if (h.triggered) return;
     h.triggered = true; h.triggeredAt = now;
     m.soundQ.push({ t: 'explosion', x: h.x });
+    addShake(m, Math.max(0, 6 - Math.abs(m.soldier.x - h.x) / 120));
     const radius = h.radius || 40;
     aliveParty(m).forEach(p => {
-      if (Math.abs(p.x - h.x) > radius) return;
+      if (Math.abs(p.x - h.x) > radius || dodging(p)) return;
       p.hp -= h.dmg; p.hurtTimer = 320;
       m.effects.push({ type: 'txt', x: p.x, y: MGY - 70, v: t('MINE -{n}', { n: h.dmg }), col: '#ff4400', at: now, dur: 1200 });
       if (p.hp <= 0) {
@@ -1527,7 +1547,7 @@ export function updateMission(m, now, dt) {
       if (now - h._lastTick > 500) {
         h._lastTick = now;
         aliveParty(m).forEach(p => {
-          if (Math.abs(p.x - h.x) > h.w / 2) return;
+          if (Math.abs(p.x - h.x) > h.w / 2 || dodging(p)) return;
           p.hp -= h.dmg; p.hurtTimer = 200;
           m.effects.push({ type: 'txt', x: p.x, y: MGY - 60, v: `-${h.dmg}`, col: '#88cc44', at: now, dur: 600 });
           if (p.hp <= 0) {
@@ -1539,8 +1559,12 @@ export function updateMission(m, now, dt) {
     }
   });
 
+  // Bullets step per frame; m._ts slows them with the rest of the
+  // world during slow motion (update/moves.js juiceStep).
+  const bts = m._ts ?? 1;
   m.bullets = m.bullets.filter(b => {
-    b.x += b.dx; b.y += b.dy; b.life--;
+    trackShot(m, b);
+    b.x += b.dx * bts; b.y += b.dy * bts; b.life -= bts;
     if (b.life <= 0 || b.x < 0 || b.x > MISSION_W) return false;
     if (barricadeStops(m, b)) {
       m.effects.push({ type: 'hit', x: b.x, y: b.y, at: now, dur: 160 });
@@ -1549,7 +1573,7 @@ export function updateMission(m, now, dt) {
 
     if (b.spit) {
       // Acid spit hits any living party member or rescuable in its path.
-      const hit = aliveTargets(m).find(p => Math.abs(p.x - b.x) < 18 && b.y > MGY - 38);
+      const hit = aliveTargets(m).find(p => !dodging(p) && Math.abs(p.x - b.x) < 18 && b.y > MGY - 38);
       if (hit) {
         hit.hp -= b.dmg; hit.hurtTimer = 240;
         m.effects.push({ type: 'txt', x: hit.x, y: MGY - 60, v: `-${b.dmg}`, col: '#88cc44', at: now, dur: 700 });
@@ -1570,7 +1594,7 @@ export function updateMission(m, now, dt) {
 
     // Hostile-human bullets damage the party / rescuables / civilians.
     if (b.hostile) {
-      const hit = aliveTargets(m).find(p => Math.abs(p.x - b.x) < 18);
+      const hit = aliveTargets(m).find(p => !dodging(p) && Math.abs(p.x - b.x) < 18);
       if (hit) {
         hit.hp -= b.dmg; hit.hurtTimer = 220;
         m.effects.push({ type: 'txt', x: hit.x, y: MGY - 60, v: `-${Math.round(b.dmg)}`, col: '#ff6644', at: now, dur: 700 });
@@ -1603,6 +1627,7 @@ export function updateMission(m, now, dt) {
     );
     if (humanHit) {
       humanHit.hp -= b.dmg; humanHit.hurtTimer = 210;
+      trackHit(m, b);
       alertHumans(m, humanHit);
       humanHit._hitAt = now;
       m.soundQ.push({ t: 'hit', now, x: b.x });
@@ -1622,7 +1647,7 @@ export function updateMission(m, now, dt) {
       return false;
     }
 
-    if (bulletHitsSide(m, b, now)) return false;
+    if (bulletHitsSide(m, b, now)) { trackHit(m, b); return false; }
 
     // Y-level check: a bullet fired from a platform must be on the
     // same level as the zombie to hit. Otherwise a soldier shooting
@@ -1644,6 +1669,7 @@ export function updateMission(m, now, dt) {
         });
       }
       hit.hp -= dmg; hit.hurtTimer = 210; m.soundQ.push({ t: 'hit', now, x: b.x });
+      trackHit(m, b);
       m.effects.push({ type: 'blood', x: b.x, y: b.y, drops: Array.from({ length: 6 }, () => ({ x: 0, y: 0, vx: (Math.random() - 0.5) * 3.5, vy: -Math.random() * 2.5 - 0.5, r: 1.5 + Math.random() * 3 })), at: now, dur: 600 });
       m.effects.push({ type: 'hit', x: b.x, y: b.y, at: now, dur: 200 });
       m.effects.push({ type: 'txt', x: hit.x, y: MGY - 60 + (hit.standingY || 0), v: `-${Math.round(dmg)}`, col: C.bld, at: now, dur: 680 });
@@ -1718,6 +1744,7 @@ export function updateMission(m, now, dt) {
         at: now, dur: 1200,
       });
       m.soundQ.push({ t: 'pickup' });
+      nadeFind(m, o, now);
     }
   });
 
@@ -1738,6 +1765,11 @@ export function updateMission(m, now, dt) {
       return Math.abs(pY - mY) < 12;
     });
     if (grabber) {
+      if (p.type === 'grenade') {
+        // Left on the floor when the squad can't carry more.
+        if (giveNade(m, p.x, now)) p.collected = true;
+        return;
+      }
       p.collected = true;
       if (p.type === 'civilian') {
         m.collected.civilian = true;
@@ -2874,6 +2906,7 @@ export function dMissionWorld(ctx, m, now) {
 
   m.effects.forEach(e => dFx(ctx, e, now));
   m.bullets.forEach(b => dBlt(ctx, b));
+  dNades(ctx, m, now);
 
   if (m.objective === 'defend') {
     // Sandbag emplacement: a U-shaped barricade around the anchor with
@@ -2950,7 +2983,7 @@ export function dMissionHUD(ctx, m, now) {
   ctx.fillStyle = hg; ctx.fillRect(0, 0, CW_, 40);
   ctx.strokeStyle = C.uib; ctx.lineWidth = 1;
   ctx.beginPath(); ctx.moveTo(0, 40.5); ctx.lineTo(CW_, 40.5); ctx.stroke();
-  dMissionExtrasHUD(ctx, m, now);
+  dObjectives(ctx, m, now);
   dCityHUD(ctx, m);
 
   // ── Destination + objective (truncated so it never runs into the bar)
@@ -3013,11 +3046,9 @@ export function dMissionHUD(ctx, m, now) {
   ctx.fillStyle = m.killedCount >= need && need > 0 ? C.acc : C.wrn;
   ctx.font = '9px monospace';
   if (m.compactAssault) {
-    const troops = m.humans.filter(h => h.compact);
-    const down = troops.filter(h => h.state === 'dead').length;
-    const voss = troops.some(h => h.colonel && h.state === 'dead');
-    ctx.fillStyle = voss || down >= Math.ceil(troops.length * 0.8) ? C.acc : '#d8b060';
-    ctx.fillText(t('🏴 GARRISON {a}/{b}', { a: down, b: troops.length }) + (voss ? t(' · VOSS DOWN') : ''), px, 33);
+    const g = garrisonOf(m);
+    ctx.fillStyle = g.done ? C.acc : '#d8b060';
+    ctx.fillText(t('🏴 GARRISON {a}/{b}', { a: g.down, b: g.total }) + (g.voss ? t(' · VOSS DOWN') : ''), px, 33);
   } else if (m.objective === 'explore') {
     ctx.fillStyle = C.txt;
     ctx.fillText(t('☠ KILLS {n}', { n: m.killedCount || 0 }), px, 33);
@@ -3058,7 +3089,7 @@ export function dMissionHUD(ctx, m, now) {
   let cx = 790, row = 0;
   ctx.fillStyle = '#88ddff';
   Object.entries(m.collected).forEach(([k, v]) => {
-    if (!v || v <= 0 || k === 'rescuedCivs') return;
+    if (!v || v <= 0 || k === 'rescuedCivs' || Array.isArray(v)) return;
     const lbl = k === 'civilian' ? '👤' : k === 'lostSoldier' ? '🎖' : objIcons[k] || k[0];
     const txt = `${lbl}${v === true ? '' : v}`;
     const w = ctx.measureText(txt).width + 8;
@@ -3127,17 +3158,19 @@ export function dMissionHUD(ctx, m, now) {
   if (m.state === 'won' || m.state === 'lost') {
     const f = Math.min(1, (now - m.endedAt) / 600);
     ctx.fillStyle = `rgba(0,0,0,${f * 0.7})`; ctx.fillRect(0, 0, CW_, CH);
-    ctx.fillStyle = m.state === 'won' ? C.acc : C.dng;
+    const success = m.state === 'won' && !m._caseLost;
+    ctx.fillStyle = success ? C.acc : C.dng;
     ctx.font = 'bold 36px monospace'; ctx.textAlign = 'center';
-    ctx.fillText(m.state === 'won' ? t('★ MISSION SUCCESS ★') : t('✖ MISSION FAILED'), CW_ / 2, CH / 2 - 20);
+    ctx.fillText(success ? t('★ MISSION SUCCESS ★') : m._caseLost ? t('✖ THE VIAL IS LOST') : t('✖ MISSION FAILED'), CW_ / 2, CH / 2 - 20);
     ctx.font = '12px monospace'; ctx.fillStyle = C.txt;
-    ctx.fillText(m.state === 'won' ? t('Returning to Fort Omega...') : t('{name} did not return.', { name: m.soldier.name }), CW_ / 2, CH / 2 + 10);
+    ctx.fillText(success ? t('Returning to Fort Omega...') : m._caseLost ? t('The squad made it through without the vaccine.') : t('{name} did not return.', { name: m.soldier.name }), CW_ / 2, CH / 2 + 10);
     // Debrief line: kills + haul (lost missions forfeit the haul).
     const haul = Object.entries(m.collected)
       .filter(([k, v]) => typeof v === 'number' && v > 0 && k !== 'rescuedCivs')
       .map(([k, v]) => `${objIcons[k] || k} ${v}`).join('   ');
     ctx.fillStyle = 'rgba(184,204,170,0.8)'; ctx.font = '11px monospace';
     ctx.fillText(t('☠ {n} kills', { n: m.killedCount }) + (m.state === 'won' && haul ? '   ·   ' + haul : ''), CW_ / 2, CH / 2 + 34);
+    dReportGrade(ctx, sortieReport(m), CW_ / 2, CH / 2 + 50);
     ctx.textAlign = 'left';
   }
 

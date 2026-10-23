@@ -88,7 +88,7 @@ export const BASE_MISSION_W = 1900;
 export function setMissionWidth(w) { MISSION_W = w || BASE_MISSION_W; }
 export const MISSION_VIEW = CW;
 export const MGY = GY;
-export const objIcons = { medicine: '💊', ammo: '🔫', food: '🥫', materials: '🔧', sniperAmmo: '🎯', turretAmmo: '🟠', civilian: '👤', lostSoldier: '🪖', vaccine: '💉' };
+export const objIcons = { medicine: '💊', ammo: '🔫', food: '🥫', materials: '🔧', sniperAmmo: '🎯', turretAmmo: '🟠', civilian: '👤', lostSoldier: '🪖', vaccine: '💉', grenade: '💣' };
 
 // Stars and skyline now span the full WORLD_W so the camera-scroll
 // reveals more of the city without exposing a "wall of pixels" edge.
