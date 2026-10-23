@@ -25,6 +25,11 @@ function lookOf(kind, seed, extra) {
   return l;
 }
 
+// A sortie works on copies of the soldiers (new id, origId = the
+// soldier at the fort): seed the look from the original so a soldier
+// looks the same at the wall, on a sortie and on the radio.
+export const lookSeed = s => hashOf(`${s.name || ''}|${s.origId ?? s.id ?? 0}`);
+
 export function actorKind(a) {
   if (a.compact) return 'guard';
   if (a.police) return a.swat ? 'swat' : 'police';
@@ -136,7 +141,7 @@ function paintKnife(T, hand, ang) {
 // feet and applied lane scale + facing. Returns the weapon anchor so
 // the caller can place the muzzle flash.
 export function drawSoldierBody(ctx, s, now) {
-  const seed = hashOf(`${s.name || ''}|${s.id || 0}`);
+  const seed = lookSeed(s);
   const look = lookOf(actorKind(s), seed, s.jacket || s.colonel ? { ...(s.jacket ? { jacket: s.jacket } : {}), ...(s.colonel ? { officer: true } : {}) } : null);
   if (s.state === 'dead') {
     const dp = s.deadAt ? Math.min(1, (now - s.deadAt) / 480) : 1;

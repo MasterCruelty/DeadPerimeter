@@ -3,8 +3,8 @@
 // canvas. Soldiers get the same look as their body on the field; the
 // survivors, Voss and Command have their own. The CRT noise on top is
 // drawn live by dPortrait().
-import { rigGeom, standPose, fkArm, paintTorso, paintHead, paintArm, humanLook, hashOf, cap, beanie, helmet, hairCut } from './actors/humanoid.js';
-import { actorKind } from './actors/people.js';
+import { rigGeom, standPose, fkArm, paintTorso, paintHead, paintArm, humanLook, cap, beanie, helmet, hairCut } from './actors/humanoid.js';
+import { actorKind, lookSeed } from './actors/people.js';
 import { detail } from './actors/paint.js';
 import { DPR } from '../constants.js';
 
@@ -83,7 +83,7 @@ const NPC_LOOKS = {
 };
 
 function soldierLook(s) {
-  const seed = hashOf(`${s.name || ''}|${s.id || 0}`);
+  const seed = lookSeed(s);
   const extra = s.jacket || s.colonel ? { ...(s.jacket ? { jacket: s.jacket } : {}), ...(s.colonel ? { officer: true } : {}) } : null;
   return humanLook(actorKind(s), seed, extra);
 }

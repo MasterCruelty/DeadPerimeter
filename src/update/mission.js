@@ -493,7 +493,7 @@ export function mkMission(soldier, dest, wave = 1, magsPerSoldier = 2, researchC
     // above ground), vy is vertical velocity. Followers don't jump,
     // only the lead reacts to inputUp.
     jumpY: 0, vy: 0,
-    civilian: !!orig.civilian,
+    civilian: !!orig.civilian, veteran: !!orig.veteran, jacket: orig.jacket,
     state: 'idle', facing: 1,
     lastShot: 0, reloadStart: 0, shootAt: 0, knifeTimer: 0,
     walkPhase: Math.random() * Math.PI * 2, hurtTimer: 0, reloadTriggered: false,

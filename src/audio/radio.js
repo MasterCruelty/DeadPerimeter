@@ -71,7 +71,7 @@ export function speakerInfo(m) {
 // The bits of a soldier the portrait needs (render/portrait.js mirrors
 // drawSoldierBody's look from these).
 const soldierWho = s => ({
-  name: s.name, id: s.id, veteran: !!s.veteran, civilian: !!s.civilian, compact: !!s.compact,
+  name: s.name, id: s.origId ?? s.id, veteran: !!s.veteran, civilian: !!s.civilian, compact: !!s.compact,
   police: !!s.police, swat: !!s.swat, bandit: !!s.bandit, jacket: s.jacket || null, colonel: !!s.colonel,
 });
 
