@@ -128,7 +128,8 @@ export function pushRadio(state, category, opts = {}) {
     text: subtitle, line: text, params: opts.params, name, who, npc: !!npc,
     at: now, dur: opts.dur || 2200, category, urgent: !!opts.urgent,
   };
-  if (opts.line || npc) logRadio({ line: text, params: opts.params, name, who, npc: !!npc, category });
+  // The log keeps the people on the net, not squad chatter (opts.log forces it).
+  if (npc || opts.log) logRadio({ line: text, params: opts.params, name, who, npc: !!npc, category });
   if (!state.soundQ) state.soundQ = [];
 
   // Prefer real TTS; procedural chatter when it's off or fails. Speak

@@ -669,8 +669,13 @@ function meleeHit(m, who, tgt, now) {
   if (broke) m.effects.push({ type: 'txt', x: who.x, y: MGY - 90, v: t('{w} BROKE', { w: t(MELEE[broke].name).toUpperCase() }), col: C.dng, at: now, dur: 1200 });
   if (tgt.hp <= 0) {
     tgt.hp = 0; tgt.state = 'dead'; tgt.deadAt = now;
-    m.soundQ.push({ t: 'zdie', zt: tgt.type, x: tgt.x }); m.killedCount++;
+    m.killedCount++;
     who._kills = (who._kills || 0) + 1;
+    if (tgt.type) m.soundQ.push({ t: 'zdie', zt: tgt.type, x: tgt.x });
+    else if (tgt.colonel) {
+      m.effects.push({ type: 'txt', x: tgt.x, y: MGY - 110, v: t('★ COL. VOSS DOWN'), col: '#ffd54a', at: now, dur: 2600 });
+      pushRadio(m, 'kill', { line: 'The colonel is down! Their line is breaking!', speaker: m.soldier, cooldown: 0 });
+    }
   }
 }
 
@@ -1514,25 +1519,27 @@ export function updateMission(m, now, dt) {
   // Mine detonation helper. Used by both the proximity trigger
   // (party member walks on it) and the bullet-shot trigger
   // (player shoots the mine from a safe distance).
-  const detonateMine = h => {
+  // `at`: a grenade calls it from update/moves.js before this frame's
+  // closure exists, so the time comes in and the lead is read off m.
+  const detonateMine = (h, at = now) => {
     if (h.triggered) return;
-    h.triggered = true; h.triggeredAt = now;
+    h.triggered = true; h.triggeredAt = at;
     m.soundQ.push({ t: 'explosion', x: h.x });
     addShake(m, Math.max(0, 6 - Math.abs(m.soldier.x - h.x) / 120));
     const radius = h.radius || 40;
     aliveParty(m).forEach(p => {
       if (Math.abs(p.x - h.x) > radius || dodging(p)) return;
       p.hp -= h.dmg; p.hurtTimer = 320;
-      m.effects.push({ type: 'txt', x: p.x, y: MGY - 70, v: t('MINE -{n}', { n: h.dmg }), col: '#ff4400', at: now, dur: 1200 });
+      m.effects.push({ type: 'txt', x: p.x, y: MGY - 70, v: t('MINE -{n}', { n: h.dmg }), col: '#ff4400', at: at, dur: 1200 });
       if (p.hp <= 0) {
         p.hp = 0; p.state = 'dead';
-        if (p.id === s.id) promoteLeadOnDeath(m, now);
+        if (p.id === m.soldier.id) promoteLeadOnDeath(m, at);
       } else missionHurtCallout(m, p);
     });
-    m.effects.push({ type: 'hit', x: h.x, y: MGY - 12, at: now, dur: 480 });
+    m.effects.push({ type: 'hit', x: h.x, y: MGY - 12, at: at, dur: 480 });
     m.effects.push({ type: 'blood', x: h.x, y: MGY - 12,
       drops: Array.from({ length: 12 }, () => ({ x: 0, y: 0, vx: (Math.random() - 0.5) * 5, vy: -Math.random() * 3 - 0.5, r: 2 + Math.random() * 4 })),
-      at: now, dur: 700 });
+      at: at, dur: 700 });
   };
   m._detonateMine = detonateMine;
 
@@ -3170,7 +3177,7 @@ export function dMissionHUD(ctx, m, now) {
       .map(([k, v]) => `${objIcons[k] || k} ${v}`).join('   ');
     ctx.fillStyle = 'rgba(184,204,170,0.8)'; ctx.font = '11px monospace';
     ctx.fillText(t('☠ {n} kills', { n: m.killedCount }) + (m.state === 'won' && haul ? '   ·   ' + haul : ''), CW_ / 2, CH / 2 + 34);
-    dReportGrade(ctx, sortieReport(m), CW_ / 2, CH / 2 + 50);
+    dReportGrade(ctx, sortieReport(m), CW_ / 2, CH / 2 + 50, f);
     ctx.textAlign = 'left';
   }
 

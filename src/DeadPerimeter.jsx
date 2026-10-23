@@ -239,6 +239,7 @@ export default function DeadPerimeter() {
   useEffect(() => {
     const id = setInterval(() => tickMusic({
       scr: scrRef.current, gs: gsRef.current, m: missionRef.current, finale: !!vaccineRef.current,
+      tier: vaccineResultRef.current && vaccineResultRef.current.tier,
       paused: pausedRef.current, muted: mutedR.current,
     }), 250);
     return () => clearInterval(id);
@@ -419,6 +420,7 @@ export default function DeadPerimeter() {
   const continueGame = useCallback(() => {
     const am = getAM(); if (am) am.resume();
     const gs = loadGame(mkGS);
+    clearRadioLog();
     if (!gs) return;
     gsRef.current = gs; setUi({ ...gs }); setScr('management');
   }, []);
@@ -1157,7 +1159,7 @@ export default function DeadPerimeter() {
         if (e.key === ' ' || e.key === 'Spacebar') { inputRef.current.shoot = true; e.preventDefault(); }
         if ((e.key === 'e' || e.key === 'E') && !e.repeat && !missionRef.current.dialog) { missionRef.current.inputInteract = true; e.preventDefault(); }
         // Moveset (update/moves.js): one-shot presses, read on the next tick.
-        if (!e.repeat && !e.ctrlKey && !e.metaKey && !e.altKey && !missionRef.current.dialog) {
+        if (!e.repeat && !e.ctrlKey && !e.metaKey && !e.altKey && !missionRef.current.dialog && !pausedRef.current) {
           const mm = missionRef.current;
           const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
           const act = { Shift: 'inputRoll', g: 'inputGrenade', r: 'inputReload', q: 'inputSwap', f: 'inputMelee' }[k];
@@ -1519,7 +1521,7 @@ export default function DeadPerimeter() {
           hctx.fillText(t('Shift: dodge roll · G: grenade · F: melee'), CW / 2, CH / 2 + 74);
           hctx.fillText(t('R: reload · Q: swap gun / melee weapon'), CW / 2, CH / 2 + 90);
           hctx.textAlign = 'left';
-          dRadioLog(hctx, CW / 2 - 260, CH - 182, 520, 6);   // over the radio panel
+          dRadioLog(hctx, CW / 2 - 260, CH / 2 + 116, 520, 4);   // under the pause box
         }
         hctx.restore();
         return;
@@ -2004,7 +2006,7 @@ export default function DeadPerimeter() {
                 )}
                 {[['inputRoll', '🤸', t('Dodge roll (Shift)')], ['inputGrenade', '💣', t('Throw a grenade (G)')], ['inputMelee', '🔪', t('Melee attack (F)')],
                   ['inputReload', '⟳', t('Reload (R)')], ['inputSwap', '⇄', t('Swap gun / melee weapon (Q)')]].map(([k, icon, tip]) => (
-                  <button key={k} style={mbtn} onClick={() => { if (missionRef.current) missionRef.current[k] = true; }} title={tip}>{icon}</button>
+                  <button key={k} style={mbtn} onClick={() => { if (missionRef.current && !missionRef.current.dialog && !pausedRef.current) missionRef.current[k] = true; }} title={tip}>{icon}</button>
                 ))}
                 <button style={mbtn} onClick={togglePause}>{paused ? t('▶ RESUME') : t('⏸ PAUSE')}</button>
                 <button style={mbtn} onClick={toggleMute}>{muted ? '🔇' : '🔊'}</button>
