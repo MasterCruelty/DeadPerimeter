@@ -580,22 +580,32 @@ Order of operations in one call:
 - Trader proximity opens the dialog and pauses world simulation.
 - Encounter proximity sweep clears any zombies that wandered into the
   camp area (220 px radius).
-- Lead movement (including fork-lane switch via `W` / `S`, ladder climb,
-  jump on `Space`).
-- Follower AI: track lead, fire on hostiles in range, switch to knife
-  on dry mag.
-- Zombie AI: walk-to-target, ranged spitter logic, melee on contact.
-  Zombies on platforms or with ladders below them will climb to reach
-  party members on a different floor.
-- Hostile-human AI: walk to weapon's ideal range, then stop and fire.
-- Bullet loop with branches: spit → damage party / rescuables; hostile →
-  damage party; friendly → mine detonate → human → zombie. Kill chatter
-  on confirmed kills.
+- Lead movement: `A` / `D` along the street, `W` / `S` across the depth
+  band (`update/depth.js`), `C` jump, `E` climbs the stair / ladder the
+  lead stands at (`ladderAt`; a room door at the same spot wins, the
+  two never overlap), `S` at the top of one climbs down.
+- Follower AI: track lead in a formation spread across the band, walk
+  to the target's depth to line up the shot (`_aimDepth`), hold fire
+  while misaligned or with a wreck in the way, switch to knife on dry
+  mag.
+- Zombie AI: close in on both axes (a pack far off keeps a personal
+  depth offset), bite only when lined up in depth, ranged spitter logic
+  (the spit flies across the band toward the target). Zombies on
+  platforms or with ladders below them will climb to reach party
+  members on a different floor (heading to the back wall first).
+- Hostile-human AI: walk to weapon's ideal range, line up on the
+  target's depth, fire only when roughly aligned (aim wobbles in
+  depth); close in when a wreck is in the way.
+- Bullet loop with branches: barricade / wreck (`coverStops`) → spit →
+  damage party / rescuables; hostile → damage party; friendly → mine
+  detonate → human → zombie. Every bullet carries `depth` (+ `dd`
+  drift for pellet spread) and hits only within `HIT_TOL` /
+  `HOSTILE_TOL` of it. Kill chatter on confirmed kills.
 - Hazard ticks: mine proximity trigger (or bullet trigger); acid pool
-  slow + dot.
-- Pickup collection (lane-gated for fork pickups, floor-gated for
+  (an ellipse at its depth) slow + dot.
+- Pickup collection (depth-gated, `GRAB_DEPTH`; floor-gated for
   upper-floor pickups via `standingY` match). Vaccine pickup arms the
-  carrier mechanic.
+  carrier mechanic; a dead carrier drops it where they fell.
 - **Searchable container progress** — hold proximity for ~700 ms with
   a progress bar; on completion, roll loot from the container-type
   table.
@@ -609,10 +619,40 @@ Order of operations in one call:
 - Win condition: `s.x >= MISSION_W - 50` (reach) or extraction complete
   (defend).
 
-`dMissionWorld` + `dMissionHUD` paint the parallax background +
-foreground entities + multi-floor buildings + ladders + platforms +
-`dVaccineVial` over the carrier's head + top HUD (progress bar
-repurposed as defend timer during DEFEND missions).
+`dMissionWorld` + `dMissionHUD` paint the parallax background, the
+depth band's surface (`dBand`: sidewalk, road, kerb, or an indoor
+floor), multi-floor buildings + ladders + platforms, then everything
+standing in the band sorted back to front and drawn through
+`atDepth` (obstacles, van, barricade line, cache / nest / alarm car,
+fork median, defend sandbags, pickups, zombies, survivors, squad,
+APC), `dVaccineVial` over the carrier's head, the E prompts and the
+top HUD (progress bar repurposed as defend timer during DEFEND
+missions). The radio panel sits up top during sorties so it never
+covers the band.
+
+#### `update/depth.js` — the sortie depth band
+
+Constants and helpers for the beat-'em-up street. Every mission actor
+and prop carries `depth`: 0 against the back wall (doors, stairs,
+ladders, containers), `BAND` (68) at the front kerb; rooms use
+`ROOM_BAND` (54). Feet sit at `MGY + depth`, sprites scale by
+`depthSc` (1.00 → 1.14). Upper floors / ledges / ladders are a single
+line at depth 0 (`aloft`, `clampDepth`).
+
+| Export | Purpose |
+| --- | --- |
+| `BAND, ROOM_BAND, bandOf(m)` | Band depth on the street / in a room. |
+| `DEPTH_SPD` | Depth speed as a share of walking speed (0.67). |
+| `HIT_TOL, HOSTILE_TOL` | Depth gap within which a party / hostile bullet hits (13 / 10; +6 Brute, +3 Tank). |
+| `BITE_DEPTH, MELEE_DEPTH` | Bites (14) and melee swings (18). |
+| `GRAB_DEPTH, SEARCH_DEPTH` | Pickups (22), containers / cache (30). |
+| `BACK_REACH, LEDGE_REACH` | E reaches doors, stairs and ladders from depth ≤ 40; a jump lands on a ledge from depth ≤ 18. |
+| `dep, dGap, depthSc, anyDepth, stepDepth, clampDepth, aloft` | Basics. |
+| `formationDepth(lead, i, band)` | Squad formation across the band (±18, ±34…). |
+| `placeObstacle(o, r)` | Cars anywhere (cover), furniture / searchables at the back, clutter anywhere. |
+| `coverStops(m, b)`, `coverBetween` | Wrecked cars (and the alarm car) stop bullets along their depth unless fired point-blank over them. |
+| `forkMid, holdFork, noteRoad, roadClamp, wrongRoad` | The fork's concrete median: the squad keeps to the road the lead took. |
+| `atDepth(ctx, x, d, fn, yOff)` | Draw something authored standing at `(x, MGY)` at depth `d`, scaled. |
 
 ### 2.7 `src/expedition/`
 
@@ -731,6 +771,8 @@ The codebase relies on these rules. Breaking any of them is a regression.
    Dead soldiers stay in `gs.soldiers` forever as memorials.
 10. **Lane scaling is on the canvas transform**, not pre-baked into
     sprite coordinates. Multi-floor Y is a separate `standingY` offset.
+    Sorties use the same rule with a continuous depth: sprites are
+    drawn at lane 0 inside `atDepth`, never moved by hand.
 11. **Mission lead promotion** is checked at the top of `updateMission`
     every frame. Mission fails only when `aliveParty(m).length === 0`.
 12. **Cinematic audio loops** (heli, wind, cityHum) MUST be paired —
@@ -912,14 +954,15 @@ are right next to the constants.
 | Camera scroll | `constants.js` (`WORLD_W`), `update/siege.js` (cameraX clamp), `DeadPerimeter.jsx` (pan key handlers) |
 | Playable missions | `update/mission.js`, `expedition/missionFinish.js`, `DeadPerimeter.jsx` (`playMission`, `finalizeMission`) |
 | Pre-mission magazine loadout | `DeadPerimeter.jsx` (`magsRef`, `magsPerSoldier` state, `playMission` ammo issue), `update/mission.js` (`buildMissionSoldier` reads `_sortieMags`) |
-| Multi-floor + platforms + ladders + jump | `update/mission.js` (platforms[], ladders[], jump impulse, climb checks, Y-level combat) |
+| Multi-floor + platforms + ladders + jump | `update/mission.js` (platforms[], ladders[], `ladderAt` + E to climb, C jump impulse, climb checks, Y-level combat), `update/depth.js` (`aloft`, `LEDGE_REACH`, `BACK_REACH`) |
+| Sortie depth band | `update/depth.js` (band, tolerances, formation, cover, fork median, `atDepth`), `update/mission.js` (movement / AI / bullets on both axes, `dBand`, depth-sorted world pass), `update/moves.js` (roll and grenades in depth), `update/cityMission.js` + `update/rooms.js` + `update/missionExtras.js` + `update/faction.js` (spawn depths), `render/cityMission.js` + `render/missionExtras.js` (drawables for the sorted pass), `render/lighting.js`, `DeadPerimeter.jsx` (W/S, C, E, ▲ ▼ touch buttons) |
 | Indoor multi-segment missions | `data/biomes.js` (`*_interior`), `data/expeditions.js` (indoor dests), `update/mission.js` (entranceX + indoor generator) |
 | Searchable loot containers | `update/mission.js` (`obstacles[].searchable`, progress bar, on-complete loot roll) |
 | APC extraction after defend | `update/mission.js` (defend timer → `m.extraction = { … }`, APC entity, embark, drive-out) |
 | Mines / acid pools | `update/mission.js` (`mkMission` hazards, hazard loop, bullet → mine check) |
 | Spitter / Brute | `data/zombies.js`, `update/mission.js` (mkMission spawn + spitter AI block + scripted rooftop brute) |
 | DEFEND objective | `update/mission.js` (objective rolling + ambush spawn + defend tick + sandbag render + APC dispatch) |
-| Fork (high/low) | `update/mission.js` (fork rolling, lane switch input, pickup lane gate, render) |
+| Fork (back / front road) | `update/mission.js` (fork rolling, pickups on each road, `dForkMedian`), `update/depth.js` (median: `holdFork`, `noteRoad`, `roadClamp`, `wrongRoad`) |
 | Survivor encounters | `data/expeditions.js` (`TRADE_OFFERS`, `rollEncounter`), `update/mission.js` (humans block, AI loop, trade dialog), `DeadPerimeter.jsx` (`resolveTrade`) |
 | Lead promotion | `update/mission.js` (`promoteLeadOnDeath` + top-of-frame guard) |
 | Wave conditions / surge pacing / mini-boss | `data/waveMods.js`, `entities/wave.js` (`mkWave(n, mod)`), `entities/zombie.js` (boss), `update/siege.js` (`modRange`, `spitterTick`, boss spawn + bounty, `nextWaveMod` roll), `render/weather.js`, `render/hud.js` (tag + boss bar), `render/lighting.js`, `DeadPerimeter.jsx` (`ensureNextWaveMod`, intel panel) |
@@ -929,7 +972,7 @@ are right next to the constants.
 | Fort survivors, jobs & story | `data/quests.js` (NPCs, `STORY`, `FORT_UNLOCKS`, side-job templates), `update/quests.js` (offers, accept/decline, `jobsAt`, completion + rewards, unlock helpers `sortiesPerDay` / `healCost` / `turretMaterials` / `hasUnlock`), `data/city.js` (`dest.quests`), `update/cityMission.js` (quest items / people placed), `update/mission.js` (quest pickup), `render/missionExtras.js` (HUD tags), `ui/CityMap.jsx` (`!` markers), `DeadPerimeter.jsx` (survivors panel, result lines) |
 | Northgate Compact (faction) | `data/faction.js` (`COMPACT`, `COMPACT_STOCK`, standing tiers/discount, `mkCompact`), `update/faction.js` (`buy` + envoy sortie slot, `compactDayTick`, `setupAssault`, `assaultOutcome`, `raidDue` / `raidLaunched`), `ui/CompactPanel.jsx`, `data/city.js` (`compound` location, `dest.faction` / `compactInfo`), `update/cityMission.js` (assault layout), `update/mission.js` (trooper AI, colonel, garrison HUD), `update/siege.js` (raid waves, day tick), `update/quests.js` (radio unlock reveals the compound) |
 | Stamina, travel time, journal | `entities/gear.js` (`maxStam`, `tickStam`, `spendStam`, `winded`), `data/progression.js` (Endurance → `stamMul`), `data/city.js` (`travelSlots`), `update/quests.js` (`q.log`), `DeadPerimeter.jsx` (journal block, slot check) |
-| Rooms + barricades (explore) | `update/rooms.js` (`placeRoomDoors`, seeded `buildRoom`, `enterRoom` / `exitRoom` swap the mission's world fields, `tickRooms` on the E key, `leaveRoomIfInside` before the result), `render/rooms.js` (street doors, room decor per kind, E prompts), `data/biomes.js` (`apartment_interior`, `clinic_interior`), `update/cityMission.js` (barricades: `clampCity` keeps the dead pounding on it, `barricadeStops` blocks bullets; bolt cutters), `render/cityMission.js` (`dBarricade`) |
+| Rooms + barricades (explore) | `update/rooms.js` (`placeRoomDoors`, seeded `buildRoom`, `enterRoom` / `exitRoom` swap the mission's world fields, `tickRooms` on the E key, `leaveRoomIfInside` before the result), `render/rooms.js` (street doors, room decor per kind, E prompts; doors are reached from the back of the band, `BACK_REACH`), `data/biomes.js` (`apartment_interior`, `clinic_interior`), `update/cityMission.js` (barricades: `clampCity` keeps the dead pounding on it, `barricadeStops` blocks bullets; bolt cutters), `render/cityMission.js` (`dBarricade` at the wall + a line of sandbag stacks across the band) |
 | Siege zoom | `constants.js` (`ZOOM_*`, `zoomOf`, `clampCam`), `update/zoom.js` (`setZoom` keeps the anchor point fixed), `render/lighting.js` (`zoomLights`), `DeadPerimeter.jsx` (world transform, click mapping, wheel / +/−), `render/hud.js` (radar window, off-screen arrows) |
 | Audio | `audio/AudioEngine.js` (`_voice` vocal-tract synth for zombies, `_metal` / `_thunk` / `_scrape` reload layers per weapon, formant `radioChatter`), `audio/radioVoice.js` (ranked natural voices, one per speaker, narrow pitch) |
 | Languages (i18n) | `i18n/index.js` (`t(english, params)`, `setLang`, `onLangChange`, `speechLang`; English text is the key, `ctx|Word` keys for words with two meanings), `i18n/it/*.js` (Italian by area: ui, hud, data, cine, radio, moves, finale, report, radiomusic), `ui/LangSelect.jsx`, `audio/radioVoice.js` (speaks the translation with a voice for the language, else the English line), `audio/radio.js` (`pushRadio` lines with `{placeholders}` + `params`). Add text: write it in English through `t()` (display time only, never in saved data or ids) and add the Italian to the matching `i18n/it` file. |
@@ -952,7 +995,7 @@ are right next to the constants.
 | Pause | `DeadPerimeter.jsx` (`togglePause`, Esc handler, render guard, overlay) |
 | Mobile touch | `DeadPerimeter.jsx` (`onTouchStart` / `onTouchEnd`) |
 | Wall repair | `DeadPerimeter.jsx` (`repairWall`), `data/difficulty.js` (`wallRepairCost`, `wallRepairHp`, `wallRepairBonus` from research) |
-| Sortie moveset + hit feel | `update/moves.js` (roll, grenades, manual reload, swap, melee on demand; hitstop, shake, slow motion via `m._ts`), `render/moves.js` (grenades, moves HUD panel), `render/actors/humanoid.js` + `people.js` (roll pose), `DeadPerimeter.jsx` (keys + touch buttons) |
+| Sortie moveset + hit feel | `update/moves.js` (roll — also across the band with W/S —, grenades lobbed at a depth and hitting by distance with the depth gap weighted, manual reload, swap, melee on demand; hitstop, shake, slow motion via `m._ts`), `render/moves.js` (grenades, moves HUD panel), `render/actors/humanoid.js` + `people.js` (roll pose), `DeadPerimeter.jsx` (keys + touch buttons) |
 | Objectives HUD | `update/objectives.js` (`tickObjectives`: primary / job / side lines with live counters, toasts), `render/objectives.js` (`dObjectives`) |
 | Reports, grades, records | `expedition/report.js` (sortie / wave / finale stats and S-A-B-C grade, records in localStorage `dp-records`), `render/report.js` (grade box on the end overlay), `ui/ReportCard.jsx`, `update/siege.js` (wave report), `entities/persistence.js` (`lastWaveReport`) |
 | Finale checkpoints | `expedition/vaccineCampaign.js` (`saveVaccineCheckpoint` at each act start, `retryVaccineCheckpoint`, `vaccineActFailure`, `retries`), `render/checkpoint.js` (banner), `DeadPerimeter.jsx` (retry / accept panel) |
@@ -969,7 +1012,8 @@ are right next to the constants.
 - **WORLD_W** — siege world width (1980 px). Camera scrolls within it.
 - **standingY** — per-entity Y offset for multi-floor / platform
   positioning in missions. Negative = elevated.
-- **forkLane** — 0/1 for low/high road in fork-section missions.
+- **depth** — per-entity position across a sortie's street band, 0 at
+  the back wall to `BAND` at the front kerb (`update/depth.js`).
 - **Hostile** — bullets coming **from** humans **toward** soldiers.
 - **Spit** — acid globs fired by Spitter zombies; behave like hostile
   bullets but green and arcing.
@@ -987,8 +1031,9 @@ are right next to the constants.
   peaceful traders).
 - **Activated** (humans) — bandits flagged hostile after the proximity
   check, or refused traders flipped hostile by `resolveTrade('refuse')`.
-- **Fork** — high/low lane section in some MED+HIGH missions; switch
-  via W/S.
+- **Fork** — section of some MED+HIGH reach missions split by a
+  concrete median into a back and a front road, each with its own
+  pickups; pick one with W/S before the median starts.
 - **Lead** — `m.soldier`, the player-controlled soldier in a playable
   mission. Promoted from a follower if the original lead dies.
 - **Override ref** — `introRef / defeatRef / evacRef / transmissionRef /
