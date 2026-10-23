@@ -4,8 +4,8 @@ import { meleeStats, wearMelee, gearIcon, gearName, tickStam, spendStam, JUMP_CO
 import { ZTP } from '../data/zombies.js';
 import { MISSION_W, MISSION_VIEW, MGY, objIcons, rollEncounter, setMissionWidth } from '../data/expeditions.js';
 import { setupCityMission, tickCity, clampCity, barricadeStops, barricadeBetween, onContainerSearched } from './cityMission.js';
-import { dCityWorld, dCityHUD } from '../render/cityMission.js';
-import { dRoomDecor, dRoomDoors } from '../render/rooms.js';
+import { dCityWorld, dCityHUD, dCityBack, cityDrawables } from '../render/cityMission.js';
+import { dRoomDecor, dRoomDoors, prompt } from '../render/rooms.js';
 import { roomKind } from './rooms.js';
 import { BIOMES, DEFAULT_BIOME, SEARCHABLE_TYPES } from '../data/biomes.js';
 import { pickupValue, boxValue, LOCKED_MUL } from '../data/rewards.js';
@@ -16,13 +16,18 @@ import { dFx, dBlt } from '../render/effects.js';
 import { dRadioSubtitle } from '../render/hud.js';
 import { dNades } from '../render/moves.js';
 import { setupMissionExtras, tickMissionExtras, bulletHitsSide } from './missionExtras.js';
-import { dMissionExtras } from '../render/missionExtras.js';
+import { dMissionExtras, extrasDrawables } from '../render/missionExtras.js';
+import { dContactShadow } from '../render/background.js';
 import { tickObjectives, garrisonOf } from './objectives.js';
 import { dObjectives } from '../render/objectives.js';
 import { startSortieStats, trackShot, trackHit, sortieReport } from '../expedition/report.js';
 import { dReportGrade } from '../render/report.js';
 import { pushRadio } from '../audio/radio.js';
 import { tickMoves, rollStep, dodging, kick, hitstop, addShake, nadeFind, giveNade } from './moves.js';
+import { BAND, DEPTH_SPD, HIT_TOL, HOSTILE_TOL, BITE_DEPTH, MELEE_DEPTH, GRAB_DEPTH, SEARCH_DEPTH, BACK_REACH, LEDGE_REACH,
+  dep, dGap, bandOf, depthSc, anyDepth, aloft, stepDepth, clampDepth, holdFork, forkMid, noteRoad, roadClamp, wrongRoad,
+  coverStops, coverBetween, atDepth, formationDepth, placeObstacle } from './depth.js';
+import { doorAt } from './rooms.js';
 import { t } from '../i18n/index.js';
 
 // Hurt-callout helper (same logic as siege): fires once when a party
@@ -62,10 +67,9 @@ function promoteLeadOnDeath(m, now) {
   m.followers.unshift(oldLead);
   // Copy facing so the new lead doesn't snap.
   heir.facing = oldLead.facing;
-  heir.forkLane = oldLead.forkLane || 0;
-  heir._laneY   = oldLead._laneY   || 0;
+  heir._aimDepth = undefined;
   m.soldier = heir;
-  m.effects.push({ type: 'txt', x: heir.x, y: MGY - 90, v: t('LEAD DOWN — {name} TAKING POINT', { name: heir.name.toUpperCase() }), col: '#ff8844', at: now, dur: 2600 });
+  m.effects.push({ type: 'txt', x: heir.x, y: MGY - 90 + dep(heir), v: t('LEAD DOWN — {name} TAKING POINT', { name: heir.name.toUpperCase() }), col: '#ff8844', at: now, dur: 2600 });
   pushRadio(m, 'advance', { line: "I've got point!", urgent: true, speaker: heir });
   return true;
 }
@@ -137,7 +141,7 @@ export function mkMission(soldier, dest, wave = 1, magsPerSoldier = 2, researchC
     const t = types[Math.floor(Math.random() * types.length)];
     const z = ZTP[t];
     zombies.push({
-      id: uid(), type: t, z, x, hp: z.hp, maxHp: z.hp,
+      id: uid(), type: t, z, x, depth: anyDepth(), hp: z.hp, maxHp: z.hp,
       spd: z.spd * (0.85 + Math.random() * 0.3),
       state: 'idle', facing: -1,
       walkPhase: Math.random() * Math.PI * 2,
@@ -175,7 +179,7 @@ export function mkMission(soldier, dest, wave = 1, magsPerSoldier = 2, researchC
     const x = Math.max(260, Math.min(MISSION_W - 160,
       Math.round(300 + (MISSION_W - 520) * (i + 1) / (pkCount + 1)) + rng(-50, 50)));
     const type = pkOptions[Math.floor(Math.random() * pkOptions.length)];
-    pickups.push({ id: uid(), x, type, value: pickupValue(type, { wave, x, W: MISSION_W, mul: valueMul }), collected: false, lane: 0 });
+    pickups.push({ id: uid(), x, depth: anyDepth(10, BAND - 8), type, value: pickupValue(type, { wave, x, W: MISSION_W, mul: valueMul }), collected: false, lane: 0 });
   }
   // (Pickup-elevation pass runs AFTER buildings + platforms are
   // generated, further below — buildings/platforms are still in the
@@ -186,10 +190,10 @@ export function mkMission(soldier, dest, wave = 1, magsPerSoldier = 2, researchC
   const civBase  = dest.risk === 'HIGH' ? 1.0 : dest.risk === 'MED' ? 0.6 : 0.0;
   const lostBase = dest.risk === 'HIGH' ? 0.55 : dest.risk === 'MED' ? 0.22 : 0.0;
   if (lootHas('civilian') && Math.random() < civBase) {
-    pickups.push({ id: uid(), x: MISSION_W - 200, type: 'civilian', value: 1, collected: false, lane: 0 });
+    pickups.push({ id: uid(), x: MISSION_W - 200, depth: anyDepth(), type: 'civilian', value: 1, collected: false, lane: 0 });
   }
   if (lootHas('lostSoldier') && Math.random() < lostBase) {
-    pickups.push({ id: uid(), x: MISSION_W - 320 + rng(-40, 40), type: 'lostSoldier', value: 1, collected: false, lane: 0 });
+    pickups.push({ id: uid(), x: MISSION_W - 320 + rng(-40, 40), depth: anyDepth(), type: 'lostSoldier', value: 1, collected: false, lane: 0 });
   }
 
   // Vaccine campaign — hospital scenario gets one guaranteed vaccine
@@ -200,7 +204,7 @@ export function mkMission(soldier, dest, wave = 1, magsPerSoldier = 2, researchC
   // the vaccine made it out.
   if (dest._vaccineSegment === 'hospital') {
     pickups.push({
-      id: uid(), x: MISSION_W - 180, type: 'vaccine',
+      id: uid(), x: MISSION_W - 180, depth: Math.round(BAND / 2), type: 'vaccine',
       value: 1, collected: false, lane: 0,
       _vaccine: true,
     });
@@ -227,9 +231,10 @@ export function mkMission(soldier, dest, wave = 1, magsPerSoldier = 2, researchC
   const defendDuration = vacSeg === 'rooftop' ? 75000 : 45000;
 
   // Branching path: random 50% on MED/HIGH (mutually exclusive with defend
-  // because the defend anchor sits inside the fork range). Two parallel
-  // lanes between fork.startX and fork.endX. Each lane has its own pickup
-  // cluster; the player picks via W/S on the keyboard.
+  // because the defend anchor sits inside the fork range). A concrete
+  // median splits the depth band between fork.startX and fork.endX into
+  // a back road and a front road (update/depth.js), each with its own
+  // pickup cluster: the squad picks one before the median starts.
   //
   // Vaccine campaign segments disable the fork: the player is moving
   // a sample through a scripted route, not picking between loot lanes.
@@ -237,9 +242,9 @@ export function mkMission(soldier, dest, wave = 1, magsPerSoldier = 2, researchC
     ? { startX: MISSION_W * 0.40, endX: MISSION_W * 0.62 }
     : null;
 
-  // Fork pickup clusters: per-lane bonus content. Low lane = combat
-  // resources (ammo / turret ammo / materials), High lane = healing /
-  // sniper ammo / a chance of a survivor pickup.
+  // Fork pickup clusters: per-road bonus content. Front road (lane 0) =
+  // combat resources (ammo / turret ammo / materials), back road
+  // (lane 1) = healing / sniper ammo / food.
   if (fork) {
     const innerStart = fork.startX + 60;
     const innerEnd   = fork.endX   - 60;
@@ -251,8 +256,8 @@ export function mkMission(soldier, dest, wave = 1, magsPerSoldier = 2, researchC
       const thi = hi[Math.floor(Math.random() * hi.length)];
       const vlo = tlo === 'ammo' ? rng(10, 18) : tlo === 'turretAmmo' ? rng(8, 14) : rng(4, 8);
       const vhi = thi === 'medicine' ? rng(4, 8) : thi === 'sniperAmmo' ? rng(2, 4) : rng(5, 10);
-      pickups.push({ id: uid(), x: fx, type: tlo, value: vlo, collected: false, lane: 0, fork: true });
-      pickups.push({ id: uid(), x: fx, type: thi, value: vhi, collected: false, lane: 1, fork: true });
+      pickups.push({ id: uid(), x: fx, depth: forkMid() + 12 + rng(0, 14), type: tlo, value: vlo, collected: false, lane: 0, fork: true });
+      pickups.push({ id: uid(), x: fx, depth: forkMid() - 12 - rng(0, 14), type: thi, value: vhi, collected: false, lane: 1, fork: true });
     }
   }
 
@@ -261,7 +266,7 @@ export function mkMission(soldier, dest, wave = 1, magsPerSoldier = 2, researchC
     const z = ZTP.brute;
     zombies.push({
       id: uid(), type: 'brute', z,
-      x: MISSION_W - 220,
+      x: MISSION_W - 220, depth: Math.round(BAND / 2),
       hp: z.hp, maxHp: z.hp,
       spd: z.spd,
       state: 'idle', facing: -1,
@@ -282,6 +287,7 @@ export function mkMission(soldier, dest, wave = 1, magsPerSoldier = 2, researchC
       id: uid(),
       name: rcNames[Math.floor(Math.random() * rcNames.length)] + '-' + (Math.floor(Math.random() * 90) + 10),
       x: 500 + Math.floor(MISSION_W / (rcCount + 2)) * (i + 1) + rng(-80, 80),
+      depth: anyDepth(),
       hp: 30, maxHp: 30,
       facing: 1,
       state: 'idle',         // 'idle' | 'following' | 'dead'
@@ -325,7 +331,7 @@ export function mkMission(soldier, dest, wave = 1, magsPerSoldier = 2, researchC
     // wrecks have a lower rate.
     const baseChance = useIndoor ? 0.55 : 0.30;
     const searchable = SEARCHABLE_TYPES.has(otype) && Math.random() < baseChance;
-    obstacles.push({ x: ox, type: otype, searchable, searched: false });
+    obstacles.push(placeObstacle({ x: ox, type: otype, searchable, searched: false }));
   }
   // Decorative props every biome.propsPerStep along the road
   // (lampposts, fences, broken streetlights). Stored separately so the
@@ -335,9 +341,9 @@ export function mkMission(soldier, dest, wave = 1, magsPerSoldier = 2, researchC
     // Multi-segment: outdoor props only in the outdoor half; indoor
     // gets its own decor type past the entrance.
     if (indoorBiome && px >= entranceX) {
-      props.push({ x: px + rng(-30, 30), type: indoorBiome.propType });
+      props.push({ x: px + rng(-30, 30), depth: 0, type: indoorBiome.propType });
     } else {
-      props.push({ x: px + rng(-30, 30), type: biome.propType });
+      props.push({ x: px + rng(-30, 30), depth: 0, type: biome.propType });
     }
   }
 
@@ -417,6 +423,7 @@ export function mkMission(soldier, dest, wave = 1, magsPerSoldier = 2, researchC
         const p = candidates[i];
         if (!p) break;
         p.standingY = upperPlat.y - MGY;        // negative
+        p.depth = 0;
         p.value = Math.round((p.value || 1) * 1.4);
       }
     }
@@ -440,6 +447,7 @@ export function mkMission(soldier, dest, wave = 1, magsPerSoldier = 2, researchC
       if (p.x < 200) continue;
       z.x = p.x + 12 + Math.random() * Math.max(8, p.w - 24);
       z.standingY = p.y - MGY;  // negative
+      z.depth = 0;
     }
   }
 
@@ -451,7 +459,7 @@ export function mkMission(soldier, dest, wave = 1, magsPerSoldier = 2, researchC
   for (let i = 0; i < mineCount; i++) {
     hazards.push({
       id: uid(), type: 'mine',
-      x: 350 + Math.random() * (MISSION_W - 600),
+      x: 350 + Math.random() * (MISSION_W - 600), depth: anyDepth(),
       dmg: 30, triggered: false, triggeredAt: 0,
       // Mines are shootable from range. One bullet detonates them.
       hp: 1, radius: 40,
@@ -461,7 +469,7 @@ export function mkMission(soldier, dest, wave = 1, magsPerSoldier = 2, researchC
     const cx = 400 + Math.random() * (MISSION_W - 700);
     hazards.push({
       id: uid(), type: 'acid',
-      x: cx, w: 50 + Math.floor(Math.random() * 40),
+      x: cx, depth: anyDepth(14, BAND - 14), w: 50 + Math.floor(Math.random() * 40),
       dmg: 2, // per tick
     });
   }
@@ -474,7 +482,7 @@ export function mkMission(soldier, dest, wave = 1, magsPerSoldier = 2, researchC
 
   const buildMissionSoldier = (orig, offset) => ({
     id: uid(), origId: orig.id, name: orig.name, weapon: orig.weapon,
-    x: 80 - offset * 30, lane: 0, hp: orig.hp, maxHp: orig.maxHp,
+    x: 80 - offset * 30, depth: formationDepth(Math.round(BAND / 2), offset - 1, BAND), lane: 0, hp: orig.hp, maxHp: orig.maxHp,
     ammo: Math.max(0, orig.ammo | 0),
     maxAmmo: orig.maxAmmo,
     // Spare magazines beyond the one already loaded. When the loaded
@@ -491,16 +499,13 @@ export function mkMission(soldier, dest, wave = 1, magsPerSoldier = 2, researchC
     skills: orig.skills, upgrades: orig.upgrades, _kills: 0,
     // Jump physics: jumpY is the render-only y-offset (negative =
     // above ground), vy is vertical velocity. Followers don't jump,
-    // only the lead reacts to inputUp.
+    // only the lead reacts to inputJump (C).
     jumpY: 0, vy: 0,
     civilian: !!orig.civilian, veteran: !!orig.veteran, jacket: orig.jacket,
     state: 'idle', facing: 1,
     lastShot: 0, reloadStart: 0, shootAt: 0, knifeTimer: 0,
     walkPhase: Math.random() * Math.PI * 2, hurtTimer: 0, reloadTriggered: false,
     onExpedition: true,
-    // Mission fork lane (0 = low / default, 1 = high). _laneY is the
-    // smoothed render offset toward the target lane.
-    forkLane: 0, _laneY: 0,
     ...missionModifiers(orig, researchCompleted),
   });
 
@@ -547,7 +552,7 @@ export function mkMission(soldier, dest, wave = 1, magsPerSoldier = 2, researchC
         const w = weapons[Math.floor(Math.random() * weapons.length)];
         const meta = WPN[w];
         humans.push({
-          id: uid(), x: encounter.x + 40 + i * 18,
+          id: uid(), x: encounter.x + 40 + i * 18, depth: Math.round(10 + (i + Math.random() * 0.6) * (BAND - 20) / count),
           hp: 50, maxHp: 50,
           weapon: w, maxAmmo: meta.ammo, ammo: Math.floor(meta.ammo * 0.7),
           state: 'idle', facing: -1,
@@ -558,7 +563,6 @@ export function mkMission(soldier, dest, wave = 1, magsPerSoldier = 2, researchC
           // check (or trader-refuse) flips them on, which also bumps
           // m.activatedCount toward the goal kill-ratio gate.
           activated: false,
-          forkLane: 0, _laneY: 0,
         });
       }
       encounter.humanIds = humans.map(h => h.id);
@@ -582,7 +586,7 @@ export function mkMission(soldier, dest, wave = 1, magsPerSoldier = 2, researchC
       const z = ZTP[t];
       zombies.push({
         id: uid(), type: t, z,
-        x: defendAnchor + 90 + Math.random() * 220,
+        x: defendAnchor + 90 + Math.random() * 220, depth: anyDepth(),
         hp: z.hp, maxHp: z.hp,
         spd: z.spd * (0.85 + Math.random() * 0.3),
         state: 'idle', facing: -1,
@@ -635,6 +639,18 @@ function alertHumans(m, h) {
   if (!h.activated) { h.activated = true; m.activatedCount++; }
 }
 
+// Standing in an acid pool (an ellipse on the ground at its depth).
+const inAcid = (h, p) => !aloft(p) && ((p.x - h.x) / (h.w / 2)) ** 2 + ((dep(p) - dep(h)) / 12) ** 2 <= 1;
+
+// The stair / ladder the lead can climb from where they stand: at its
+// foot from the back of the band, or at its top on the matching floor.
+export function ladderAt(m, s) {
+  if (!s || s.climbing) return null;
+  const sy = s.standingY || 0;
+  return (m.ladders || []).find(l => Math.abs(s.x - l.x) < 20
+    && ((sy === 0 && dep(s) <= BACK_REACH) || Math.abs(sy - (l.yTop - MGY)) < 6)) || null;
+}
+
 // Returns every living party member (lead + alive followers).
 function aliveParty(m) {
   const out = m.soldier.hp > 0 ? [m.soldier] : [];
@@ -663,10 +679,10 @@ function meleeHit(m, who, tgt, now) {
   const ms = meleeStats(who);
   tgt.hp -= ms.dmg; tgt.hurtTimer = 220;
   m.soundQ.push({ t: ms.type === 'knife' || ms.type === 'machete' ? 'slash' : 'hit', now, x: who.x });
-  m.effects.push({ type: 'slash', x: tgt.x + who.facing * 10, y: MGY - 28 + (tgt.standingY || 0), at: now, dur: 230 });
-  m.effects.push({ type: 'txt', x: tgt.x, y: MGY - 58 + (tgt.standingY || 0), v: `-${ms.dmg}`, col: '#ffcc44', at: now, dur: 600 });
+  m.effects.push({ type: 'slash', x: tgt.x + who.facing * 10, y: MGY - 28 + dep(tgt) + (tgt.standingY || 0), at: now, dur: 230 });
+  m.effects.push({ type: 'txt', x: tgt.x, y: MGY - 58 + dep(tgt) + (tgt.standingY || 0), v: `-${ms.dmg}`, col: '#ffcc44', at: now, dur: 600 });
   const broke = wearMelee(who);
-  if (broke) m.effects.push({ type: 'txt', x: who.x, y: MGY - 90, v: t('{w} BROKE', { w: t(MELEE[broke].name).toUpperCase() }), col: C.dng, at: now, dur: 1200 });
+  if (broke) m.effects.push({ type: 'txt', x: who.x, y: MGY - 90 + dep(who), v: t('{w} BROKE', { w: t(MELEE[broke].name).toUpperCase() }), col: C.dng, at: now, dur: 1200 });
   if (tgt.hp <= 0) {
     tgt.hp = 0; tgt.state = 'dead'; tgt.deadAt = now;
     m.soundQ.push({ t: 'zdie', zt: tgt.type, x: tgt.x }); m.killedCount++;
@@ -685,23 +701,31 @@ function aiShoot(m, who, now, dt) {
   }
   if (who.state === 'reload') return;
 
-  // Pick nearest activated zombie or armed hostile in range
+  // Pick the nearest activated zombie or armed hostile in range; the
+  // depth gap counts double (it has to be walked to line up a shot).
+  // Something up on a floor is out of reach from the street.
   const range = effRange(who, w);
-  const inRange = e => e.state !== 'dead' && e.activated && Math.abs(e.x - who.x) <= range && !barricadeBetween(m, who.x, e.x);
+  const lvl = who.standingY || 0;
+  const inRange = e => e.state !== 'dead' && e.activated && Math.abs(e.x - who.x) <= range && !barricadeBetween(m, who.x, e.x)
+    && Math.abs((e.standingY || 0) - lvl) < 22;
+  const cost = e => Math.abs(e.x - who.x) + 2 * dGap(e, who);
   const tgt = m.zombies.filter(inRange)
     .concat((m.humans || []).filter(h => h.hostile && inRange(h)))
-    .sort((a, b) => Math.abs(a.x - who.x) - Math.abs(b.x - who.x))[0];
+    .sort((a, b) => cost(a) - cost(b))[0];
 
   if (!tgt) {
+    who._aimDepth = undefined;
     if (who.state === 'shoot' && now - who.shootAt > 200) who.state = 'idle';
     return;
   }
   who.facing = tgt.x > who.x ? 1 : -1;
+  // The follower loop walks toward this depth to line the shot up.
+  who._aimDepth = dep(tgt);
 
   if (who.ammo <= 0) {
     // Knife melee fallback (same logic as the lead)
     const meleeTgt = m.zombies.find(z => z.state !== 'dead' && z.activated && Math.abs(z.x - who.x) < 52
-      && Math.abs((z.standingY || 0) - (who.standingY || 0)) < 22);
+      && dGap(z, who) < MELEE_DEPTH && Math.abs((z.standingY || 0) - (who.standingY || 0)) < 22);
     if (meleeTgt) {
       who.facing = meleeTgt.x > who.x ? 1 : -1;
       who.knifeTimer = (who.knifeTimer || 0) + dt;
@@ -715,25 +739,14 @@ function aiShoot(m, who, now, dt) {
     return;
   }
 
+  // Not lined up yet, or a wreck in the way: hold fire (shotguns
+  // spread in depth, so they can open up a little earlier).
+  if (dGap(tgt, who) > (w.pel ? 14 : 9) || coverBetween(m, who.x, tgt.x, dep(who))) return;
   if (now - who.lastShot >= w.rate) {
     who.state = 'shoot'; who.lastShot = now; who.shootAt = now; who.ammo--;
     m.soundQ.push({ t: 'shot', w: who.weapon, x: who.x }); m.soundQ.push({ t: 'shell' });
-    const bx = who.x + who.facing * 38;
-    const shooterY = (who.standingY || 0);
-    const bulletY  = MGY - 42 + shooterY;
-    for (let p = 0; p < (w.pel || 1); p++) {
-      const sp2 = (Math.random() - 0.5) * w.sp * 2;
-      m.bullets.push({
-        id: uid(), x: bx, y: bulletY, src: who,
-        dx: who.facing * w.spd * Math.cos(sp2),
-        dy: w.spd * Math.sin(sp2),
-        dmg: (w.pel ? w.dmg / w.pel : w.dmg) * (who.dmgMul || 1),
-        tankMul: who.tankMul || 1,
-        shooterY,
-        life: Math.ceil(range / w.spd * 1.15),
-      });
-    }
-    m.effects.push({ type: 'shell', x: who.x - who.facing * 8, y: MGY - 26, vx: -who.facing * (1.4 + Math.random()), at: now, dur: 780 });
+    fireGun(m, who, w, range);
+    m.effects.push({ type: 'shell', x: who.x - who.facing * 8, y: MGY - 26 + dep(who), vx: -who.facing * (1.4 + Math.random()), at: now, dur: 780 });
     if (who.ammo === 0) {
       if ((who.magsLeft || 0) > 0) {
         who.state = 'reload'; who.reloadStart = now; who.ammo = who.maxAmmo;
@@ -749,6 +762,33 @@ function aiShoot(m, who, now, dt) {
   }
 }
 
+// Party gunfire: one bullet per pellet, travelling at the shooter's
+// depth. Pellet spread fans out in depth (so a shotgun covers a slice
+// of the band) as well as on screen.
+function fireGun(m, who, w, range) {
+  const bx = who.x + who.facing * 38;
+  // Bullet origin rides the soldier's platform — if they're up on a
+  // ledge / second floor, their muzzle is up there too. shooterY is
+  // kept on each bullet so the collision pass can match it with
+  // targets on the same level.
+  const shooterY = (who.standingY || 0);
+  const d = dep(who);
+  const bulletY = MGY + d - 42 * depthSc(d) + shooterY;
+  for (let p = 0; p < (w.pel || 1); p++) {
+    const sp2 = (Math.random() - 0.5) * w.sp * 2;
+    m.bullets.push({
+      id: uid(), x: bx, y: bulletY, depth: d, ox: who.x, src: who,
+      dx: who.facing * w.spd * Math.cos(sp2), dy: 0,
+      dd: w.spd * Math.sin(sp2) * (w.pel ? 0.55 : 0.3),
+      dmg: (w.pel ? w.dmg / w.pel : w.dmg) * (who.dmgMul || 1),
+      tankMul: who.tankMul || 1,
+      shooterY,
+      life: Math.ceil(range / w.spd * 1.15),
+    });
+  }
+  return bulletY;
+}
+
 export function updateMission(m, now, dt) {
   setMissionWidth(m.W);
   if (m.state !== 'active') return;
@@ -759,7 +799,7 @@ export function updateMission(m, now, dt) {
     // frame so the player knows which leg they just transitioned to.
     if (m._vaccineScenarioName) {
       m.effects.push({
-        type: 'txt', x: m.soldier.x, y: MGY - 140,
+        type: 'txt', x: m.soldier.x, y: MGY - 140 + dep(m.soldier),
         v: t(m._vaccineScenarioName).toUpperCase(),
         col: '#ffcc44', at: now, dur: 3200,
       });
@@ -773,15 +813,19 @@ export function updateMission(m, now, dt) {
     const carrier = [m.soldier, ...(m.followers || [])].find(p => p && p.id === m._vaccineCarrierId);
     if (!carrier || carrier.hp <= 0 || carrier.state === 'dead') {
       const dropX = carrier ? carrier.x : m.soldier.x;
+      // Where they fell: on the street at their depth, or on the floor
+      // they were standing on (a fall from a ladder lands at its foot).
+      const dropD = carrier ? (aloft(carrier) ? 0 : dep(carrier)) : dep(m.soldier);
+      const dropY = carrier && carrier.standingY < 0 && !carrier.climbing ? carrier.standingY : undefined;
       m.pickups.push({
-        id: uid(), x: dropX, type: 'vaccine',
+        id: uid(), x: dropX, depth: dropD, standingY: dropY, type: 'vaccine',
         value: 1, collected: false, lane: 0,
         _vaccine: true, _droppedAt: now,
       });
       m._vaccineDropped = true;
       m._vaccineCarrierId = null;
       m.effects.push({
-        type: 'txt', x: dropX, y: MGY - 60,
+        type: 'txt', x: dropX, y: MGY - 60 + dropD + (dropY || 0),
         v: t('💉 VACCINE DROPPED — RECOVER IT'),
         col: '#ff8844', at: now, dur: 2600,
       });
@@ -828,20 +872,30 @@ export function updateMission(m, now, dt) {
     }
   }
 
-  // Lead movement (player-controlled). Acid pool slows movement to 50%.
-  const onAcid = (m.hazards || []).some(h => h.type === 'acid' && Math.abs(s.x - h.x) <= h.w / 2);
+  // Lead movement (player-controlled): A/D along the street, W/S across
+  // the depth band (ground floor only — a floor or a ladder is a single
+  // line). Acid pool slows movement to 50%.
+  const band = bandOf(m);
+  const onAcid = (m.hazards || []).some(h => h.type === 'acid' && inAcid(h, s));
   const moveSpd = 2.4 * (dt / 16) * (onAcid ? 0.5 : 1);
+  const prevDepth = dep(s);
   if (rollStep(m, s, dt)) {
     // Dodge roll in progress (update/moves.js): no steering.
   } else if (s.state !== 'reload' && s.state !== 'knife') {
     // Holding fire locks the facing so the lead can backpedal while
     // shooting (kiting a Brute / Tank) instead of turning around.
     const lockFacing = m.inputShoot && s.ammo > 0;
-    if (m.inputRight) { s.x += moveSpd * (lockFacing && s.facing < 0 ? 0.7 : 1); if (!lockFacing) s.facing = 1; if (s.state === 'idle') s.state = 'walk'; }
-    else if (m.inputLeft) { s.x -= moveSpd * (lockFacing && s.facing > 0 ? 0.7 : 1); if (!lockFacing) s.facing = -1; if (s.state === 'idle') s.state = 'walk'; }
+    const goD = aloft(s) ? 0 : (m.inputDown ? 1 : 0) - (m.inputUp ? 1 : 0);
+    if (m.inputRight) { s.x += moveSpd * (lockFacing && s.facing < 0 ? 0.7 : 1); if (!lockFacing) s.facing = 1; }
+    else if (m.inputLeft) { s.x -= moveSpd * (lockFacing && s.facing > 0 ? 0.7 : 1); if (!lockFacing) s.facing = -1; }
+    if (goD) s.depth = dep(s) + goD * moveSpd * DEPTH_SPD;
+    if (m.inputRight || m.inputLeft || goD) { if (s.state === 'idle') s.state = 'walk'; }
     else if (s.state === 'walk') s.state = 'idle';
   }
   s.x = Math.max(40, Math.min(MISSION_W - 40, s.x));
+  clampDepth(m, s);
+  holdFork(m, s, prevDepth);
+  noteRoad(m, s);
   // Defend objective: once the hold has started, the lead can't
   // retreat past the anchor — they planted the flag, they hold the
   // line. Prevents the "pace back and forth and let AI followers
@@ -852,10 +906,11 @@ export function updateMission(m, now, dt) {
     if (s.x < minX) s.x = minX;
   }
   // ── JUMP + PLATFORM + LADDER physics ─────────────────────────
-  // UP/W either climbs an adjacent ladder OR jumps if not on one.
-  // While climbing, gravity is off and standingY moves toward the
-  // platform top / ground. While airborne (vy !== 0) we apply
-  // gravity and check for platform collisions on descent.
+  // C jumps (from the street or a floor). E at the foot of a stair or
+  // ladder (from the back of the band) or at its top climbs it; W/S
+  // steer the climb. While climbing, gravity is off and standingY
+  // moves toward the platform top / ground. While airborne (vy !== 0)
+  // we apply gravity and check for platform collisions on descent.
   const JUMP_GRAV = 0.55;
   const JUMP_VEL  = -8.6;
   const CLIMB_SPD = 2.2;
@@ -863,48 +918,48 @@ export function updateMission(m, now, dt) {
   if (s.climbing === undefined) s.climbing = null;
   const onSurface = (s.jumpY || 0) === 0 && (s.vy || 0) === 0;
 
-  // Ladder lookup: which ladder is the soldier "next to"?
-  const nearLadder = (m.ladders || []).find(l => Math.abs(s.x - l.x) < 18);
+  // The stair / ladder the lead can take from here (foot or top).
+  const nearLadder = ladderAt(m, s);
 
-  // Start a climb when pressing UP near a ladder while grounded,
-  // or DOWN at the top of a ladder while on the matching platform.
-  if (!s.climbing) {
-    if (nearLadder && m.inputUp && onSurface && (s.standingY || 0) > nearLadder.yTop - MGY) {
-      s.climbing = { ladder: nearLadder, dir: -1 };
-      s.state = 'walk';
-    } else if (nearLadder && m.inputDown && onSurface && (s.standingY || 0) < 0
-               && Math.abs((s.standingY || 0) - (nearLadder.yTop - MGY)) < 6) {
-      s.climbing = { ladder: nearLadder, dir: 1 };
+  // Start a climb on E (a room door at the same spot wins: doors and
+  // stairs never overlap), or on S at the top of one.
+  if (!s.climbing && nearLadder && onSurface && !dodging(s)) {
+    const atTop = (s.standingY || 0) < 0;
+    if ((m.inputInteract && !doorAt(m)) || (atTop && m.inputDown)) {
+      m.inputInteract = false;
+      s.climbing = { ladder: nearLadder, dir: atTop ? 1 : -1 };
       s.state = 'walk';
     }
   }
 
   // While climbing, ignore gravity, suppress jump, move along the
-  // ladder y. UP/DOWN reverse direction or accelerate. Reaching
-  // either end commits the soldier to that surface.
+  // ladder y. UP/DOWN reverse direction. Reaching either end commits
+  // the soldier to that surface.
   if (s.climbing) {
     const l = s.climbing.ladder;
     const topRel = l.yTop - MGY;  // negative
     const botRel = 0;
-    // Snap soldier x to the ladder so the climb reads cleanly
+    // Snap soldier x to the ladder and slide back against the wall,
+    // so the climb reads cleanly.
     s.x = l.x;
+    stepDepth(s, 0, 4 * (dt / 16));
     // Direction follows current input (UP=up, DOWN=down)
     if (m.inputUp)   s.climbing.dir = -1;
     if (m.inputDown) s.climbing.dir = 1;
     s.standingY = (s.standingY || 0) + s.climbing.dir * CLIMB_SPD * (dt / 16);
     s.jumpY = 0; s.vy = 0;
     if (s.standingY <= topRel) {
-      s.standingY = topRel;
+      s.standingY = topRel; s.depth = 0;
       s.climbing = null;
     } else if (s.standingY >= botRel) {
       s.standingY = 0;
       s.climbing = null;
     }
-  } else if (m.inputUp && onSurface && s.state !== 'knife' && s.state !== 'reload' && !dodging(s) && spendStam(s, JUMP_COST)) {
-    // No ladder under us — UP is a jump from the current surface.
+  } else if (m.inputJump && onSurface && s.state !== 'knife' && s.state !== 'reload' && !dodging(s) && spendStam(s, JUMP_COST)) {
     s.vy = JUMP_VEL;
     s.state = 'walk';
   }
+  m.inputJump = false;
   // Press DOWN to drop off a platform when there's no ladder to
   // climb down (sets vy slightly positive so we fall through).
   const wasOnPlatform = (s.standingY || 0) < 0 && onSurface;
@@ -916,11 +971,12 @@ export function updateMission(m, now, dt) {
   if (!onSurface || (s.vy || 0) !== 0) {
     s.vy = (s.vy || 0) + JUMP_GRAV * (dt / 16);
     s.jumpY = (s.jumpY || 0) + s.vy * (dt / 16);
-    // Platform collision: only when DESCENDING (vy > 0). Check if
-    // the soldier's foot is crossing a platform top this tick. We
-    // ignore platforms above the current standingY (they're already
+    // Platform collision: only when DESCENDING (vy > 0), and only from
+    // the back of the band (floors and ledges are against the wall).
+    // Check if the soldier's foot is crossing a platform top this tick.
+    // We ignore platforms above the current standingY (they're already
     // above us — no upward catch).
-    if (s.vy > 0 && Array.isArray(m.platforms)) {
+    if (s.vy > 0 && Array.isArray(m.platforms) && dep(s) <= LEDGE_REACH) {
       const footYNow  = (s.standingY || 0) + (s.jumpY || 0);
       const footYPrev = footYNow - s.vy * (dt / 16);
       for (const p of m.platforms) {
@@ -931,6 +987,7 @@ export function updateMission(m, now, dt) {
           s.standingY = platTopRelToGround;
           s.jumpY = 0;
           s.vy = 0;
+          s.depth = 0;
           break;
         }
       }
@@ -960,35 +1017,32 @@ export function updateMission(m, now, dt) {
   }
   m.cameraX = Math.max(0, Math.min(MISSION_W - MISSION_VIEW, s.x - MISSION_VIEW / 2));
 
-  // ── FORK LANE SWITCHING ──────────────────────────────────────
-  // Inside the fork range the lead can switch between low (0) and high
-  // (1) lanes via W/S. Outside the fork everything snaps back to lane 0.
-  const inFork = m.fork && s.x >= m.fork.startX && s.x <= m.fork.endX;
-  if (inFork) {
-    if (m.inputUp)   s.forkLane = 1;
-    if (m.inputDown) s.forkLane = 0;
-  } else {
-    s.forkLane = 0;
-  }
-  // Smooth y-offset interp for the lead and every follower
-  const targetY = s.forkLane === 1 ? -34 : 0;
-  s._laneY = s._laneY + (targetY - s._laneY) * Math.min(1, dt / 90);
-  (m.followers || []).forEach(f => {
-    f.forkLane = inFork ? s.forkLane : 0;
-    const fy = f.forkLane === 1 ? -34 : 0;
-    f._laneY = (f._laneY ?? 0) + (fy - (f._laneY ?? 0)) * Math.min(1, dt / 90);
-  });
-
-  // Followers: chase the lead at a small offset, ~1.6 px/frame.
+  // Followers: chase the lead at a small offset, ~1.6 px/frame, spread
+  // across the band in formation. With a target they walk to its depth
+  // to line up the shot (see aiShoot). In a fork they keep to the
+  // lead's road.
+  const leadD = dep(s);
   (m.followers || []).forEach((f, i) => {
     if (f.hp <= 0 || f.state === 'dead') return;
     if (f.state === 'reload' || f.state === 'knife') return;
     const desired = s.x - (i + 1) * 36 * s.facing;
     const dx = desired - f.x;
     const followSpd = 2.0 * (dt / 16);
-    if (Math.abs(dx) > 4) {
-      f.x += Math.sign(dx) * Math.min(Math.abs(dx), followSpd);
+    const prev = dep(f);
+    let want = f._aimDepth ?? formationDepth(leadD, i, band);
+    want = roadClamp(m, f.x, want);
+    stepDepth(f, want, followSpd * DEPTH_SPD * 1.2);
+    clampDepth(m, f);
+    holdFork(m, f, prev);
+    const movedD = Math.abs(dep(f) - prev) > 0.05;
+    // Don't step past the median's end on the wrong road: wait there
+    // until lined up with the lead's side.
+    const nx = f.x + Math.sign(dx) * Math.min(Math.abs(dx), followSpd);
+    if (Math.abs(dx) > 4 && !wrongRoad(m, f, nx)) {
+      f.x = nx;
       f.facing = s.facing;
+      if (f.state === 'idle') f.state = 'walk';
+    } else if (movedD) {
       if (f.state === 'idle') f.state = 'walk';
     } else if (f.state === 'walk') {
       f.state = 'idle';
@@ -998,26 +1052,34 @@ export function updateMission(m, now, dt) {
 
   // Rescuable civilians: tick, follow the lead when triggered, die
   // gracefully when hit. They never overtake the lead.
+  let nFollow = 0;
   (m.rescuables || []).forEach(r => {
     if (r.state === 'dead' || r.hp <= 0) return;
     r.hurtTimer = Math.max(0, r.hurtTimer - dt);
     if (r.state === 'idle') {
-      // Trip on contact with any party member
-      if (aliveParty(m).some(p => Math.abs(p.x - r.x) < 32)) {
+      // Trip on contact with any party member (on the street, roughly
+      // lined up in depth).
+      if (aliveParty(m).some(p => Math.abs(p.x - r.x) < 32 && dGap(p, r) < 26 && !aloft(p))) {
         r.state = 'following';
-        m.effects.push({ type: 'txt', x: r.x, y: MGY - 70, v: t('{name} JOINED', { name: r.name }), col: '#88ddff', at: now, dur: 1100 });
+        m.effects.push({ type: 'txt', x: r.x, y: MGY - 70 + dep(r), v: t('{name} JOINED', { name: r.name }), col: '#88ddff', at: now, dur: 1100 });
       }
     } else if (r.state === 'following') {
       // Stay ~70 px behind the lead's facing
       const desired = s.x - 70 * s.facing;
       const dx = desired - r.x;
       const followSpd = 1.8 * (dt / 16);
-      if (Math.abs(dx) > 6) { r.x += Math.sign(dx) * Math.min(Math.abs(dx), followSpd); r.facing = s.facing; }
+      const nx = r.x + Math.sign(dx) * Math.min(Math.abs(dx), followSpd);
+      if (Math.abs(dx) > 6 && !wrongRoad(m, r, nx)) { r.x = nx; r.facing = s.facing; }
+      const prev = dep(r);
+      stepDepth(r, roadClamp(m, r.x, formationDepth(leadD, 2 + (nFollow++ % 2), band)), followSpd * DEPTH_SPD);
+      clampDepth(m, r);
+      holdFork(m, r, prev);
     }
   });
 
   tickMissionExtras(m, now, dt, aliveParty(m));
   tickCity(m, now, dt, aliveParty(m));
+  m.inputInteract = false;             // E did nothing here (no door, stair or ladder)
   tickObjectives(m, now);
   if (m.state !== 'active') return;
 
@@ -1037,18 +1099,22 @@ export function updateMission(m, now, dt) {
     if (near.length) { const z = near[Math.floor(Math.random() * near.length)]; m.soundQ.push({ t: 'groan', now, zt: z.type, x: z.x }); }
   }
 
-  // Zombies AI: pick the closest target (party + rescuables)
+  // Zombies AI: pick the closest target (party + rescuables) — distance
+  // along the street with the depth gap and the floor weighted in. They
+  // close in on both axes and only bite once lined up in depth.
   m.zombies.forEach(z => {
     if (z.state === 'dead' || !z.activated) return;
     z.hurtTimer = Math.max(0, z.hurtTimer - dt);
     const targets = aliveTargets(m);
     if (aliveParty(m).length === 0) { m.state = 'lost'; m.endedAt = now; return; }
     if (targets.length === 0) return;
-    const tgt = targets.reduce((a, b) => Math.abs(a.x - z.x) < Math.abs(b.x - z.x) ? a : b);
+    const cost = p => Math.abs(p.x - z.x) + 1.5 * dGap(p, z) + Math.abs((p.standingY || 0) - (z.standingY || 0));
+    const tgt = targets.reduce((a, b) => cost(a) < cost(b) ? a : b);
     const dx = tgt.x - z.x;
     const meta = z.z;
     const zStandingY = z.standingY || 0;
     const tStandingY = tgt.standingY || 0;
+    const step = z.spd * (dt / 16);
 
     // ── Vertical pursuit: climb ladders when the target is on a
     // different level. Tanks are too heavy to climb (they shamble
@@ -1062,7 +1128,7 @@ export function updateMission(m, now, dt) {
         // target if they jump back down.
         if (tStandingY < zStandingY - 2) z.climbing.dir = -1;
         else if (tStandingY > zStandingY + 2) z.climbing.dir = 1;
-        z.x = l.x;
+        z.x = l.x; z.depth = 0;
         const climbSpd = z.type === 'runner' ? 1.6 : 1.1;
         z.standingY = zStandingY + z.climbing.dir * climbSpd * (dt / 16);
         z.state = 'walk';
@@ -1071,7 +1137,8 @@ export function updateMission(m, now, dt) {
         return;
       }
       // Target on a different surface? Seek a ladder that bridges
-      // our current level to the target's level.
+      // our current level to the target's level (stairs and ladders
+      // stand against the back wall: head there too).
       const wantUp   = tStandingY < zStandingY - 5;
       const wantDown = tStandingY > zStandingY + 5;
       if (wantUp || wantDown) {
@@ -1087,8 +1154,9 @@ export function updateMission(m, now, dt) {
         if (ladder) {
           const ldx = ladder.ladder.x - z.x;
           z.facing = ldx > 0 ? 1 : -1;
-          if (Math.abs(ldx) > 6) {
-            z.x += z.spd * z.facing * (dt / 16);
+          stepDepth(z, 0, step * 0.8);
+          if (Math.abs(ldx) > 6 || dep(z) > 6) {
+            if (Math.abs(ldx) > 6) z.x += step * z.facing;
             z.state = 'walk';
             return;
           }
@@ -1104,30 +1172,37 @@ export function updateMission(m, now, dt) {
       const absDx = Math.abs(dx);
       const idealMin = meta.spitRange * 0.5;
       const idealMax = meta.spitRange * 0.95;
+      // Drift toward the target's depth: the spit flies along the band.
+      if (!aloft(z)) stepDepth(z, dep(tgt), step * 0.6);
       if (absDx > idealMax) {
         // Close in to range
-        z.x += z.spd * z.facing * (dt / 16);
+        z.x += step * z.facing;
         z.state = 'walk';
       } else if (absDx < idealMin) {
         // Back away
-        z.x -= z.spd * 0.6 * z.facing * (dt / 16);
+        z.x -= step * 0.6 * z.facing;
         z.state = 'walk';
       } else {
-        z.state = 'attack';
+        z.state = dGap(tgt, z) < 22 ? 'attack' : 'walk';
       }
+      clampDepth(m, z);
       if (z.state === 'attack') {
         z.atkTimer += dt;
         const rate = z._spitRate ?? meta.spitRate;
         if (z.atkTimer >= rate) {
           z.atkTimer = 0;
           const dxr = tgt.x - z.x;
+          const ddr = dep(tgt) - dep(z);
           const dyr = -10;
           const len = Math.hypot(dxr, dyr);
+          const vx = (dxr / len) * meta.spitSpd;
           m.bullets.push({
             id: uid(),
-            x: z.x + z.facing * 14, y: MGY - 24,
-            dx: (dxr / len) * meta.spitSpd,
+            x: z.x + z.facing * 14, y: MGY + dep(z) - 24, depth: dep(z), ox: z.x,
+            dx: vx,
             dy: (dyr / len) * meta.spitSpd + 0.06, // slight gravity arc
+            // Across the band in the time it takes to cover the gap.
+            dd: ddr * Math.abs(vx) / Math.max(40, Math.abs(dxr)),
             dmg: z._spitDmg ?? meta.dmg,
             life: Math.ceil(meta.spitRange / meta.spitSpd * 1.4),
             spit: true,
@@ -1143,17 +1218,24 @@ export function updateMission(m, now, dt) {
     // the zombie has to find a ladder first (handled above).
     const dy = Math.abs(tStandingY - zStandingY);
     const sameLevel = dy < 18;
+    // A pack far off keeps a personal depth offset so it comes in
+    // spread over the band; close up each one lines up on its target.
+    const off = Math.abs(dx) > 140 ? (z._dOff ?? (z._dOff = Math.round((Math.random() - 0.5) * 36))) : 0;
+    const gap = dGap(tgt, z);
 
     if (z.state === 'idle' || z.state === 'walk') {
       z.facing = dx > 0 ? 1 : -1;
-      if (Math.abs(dx) > 40 || !sameLevel) {
-        z.x += z.spd * z.facing * (dt / 16);
+      if (Math.abs(dx) > 40 || !sameLevel || gap >= BITE_DEPTH) {
+        // Hold a little short while still lining up in depth.
+        if (Math.abs(dx) > 34 || !sameLevel) z.x += step * z.facing;
+        if (!aloft(z)) stepDepth(z, dep(tgt) + off, step * 0.75);
         if (z.state === 'idle') z.state = 'walk';
       } else { z.state = 'attack'; }
     } else if (z.state === 'attack') {
       z.atkTimer += dt;
       z.facing = dx > 0 ? 1 : -1;
-      if (Math.abs(dx) > 50 || !sameLevel) { z.state = 'walk'; z.atkTimer = 0; return; }
+      if (Math.abs(dx) > 50 || !sameLevel || gap > BITE_DEPTH + 6) { z.state = 'walk'; z.atkTimer = 0; return; }
+      if (!aloft(z)) stepDepth(z, dep(tgt), step * 0.5);
       if (z.atkTimer > (meta.atkRate || 1000)) {
         z.atkTimer = 0;
         // A dodge roll slips under the swing.
@@ -1168,8 +1250,8 @@ export function updateMission(m, now, dt) {
         }
       }
     }
+    clampDepth(m, z);
   });
-
   // ── LEAD: player-driven shoot / knife ───────────────────────────
   const w = WPN[s.weapon];
   if (m.inputShoot && s.state !== 'reload' && s.ammo > 0 && !s.knifeReady && !dodging(s)) {
@@ -1177,24 +1259,7 @@ export function updateMission(m, now, dt) {
       s.state = 'shoot'; s.lastShot = now; s.shootAt = now; s.ammo--;
       m.soundQ.push({ t: 'shot', w: s.weapon, x: s.x }); m.soundQ.push({ t: 'shell' });
       kick(m, s.weapon);
-      const bx = s.x + s.facing * 38;
-      // Bullet origin Y rides the soldier's platform — if the lead
-      // is up on a ledge / second floor, their muzzle is up there
-      // too. shooterY is tracked on each bullet so the collision
-      // pass can match them with zombies on the same level.
-      const shooterY = (s.standingY || 0);
-      const bulletY  = MGY - 42 + shooterY;
-      for (let p = 0; p < (w.pel || 1); p++) {
-        const sp2 = (Math.random() - 0.5) * w.sp * 2;
-        m.bullets.push({
-          id: uid(), x: bx, y: bulletY, src: s,
-          dx: s.facing * w.spd * Math.cos(sp2), dy: w.spd * Math.sin(sp2),
-          dmg: (w.pel ? w.dmg / w.pel : w.dmg) * (s.dmgMul || 1),
-          tankMul: s.tankMul || 1,
-          life: Math.ceil(effRange(s, w) / w.spd * 1.15),
-          shooterY,
-        });
-      }
+      const bulletY = fireGun(m, s, w, effRange(s, w));
       m.effects.push({ type: 'shell', x: s.x - s.facing * 8, y: bulletY, vx: -s.facing * (1.4 + Math.random()), at: now, dur: 780 });
       if (s.ammo === 0) {
         if ((s.magsLeft || 0) > 0) {
@@ -1218,7 +1283,7 @@ export function updateMission(m, now, dt) {
   // Dry, or the gun is slung (Q): the melee weapon takes over.
   if ((s.ammo <= 0 || s.knifeReady) && s.state !== 'reload' && !dodging(s)) {
     const meleeTgt = m.zombies.find(z => z.state !== 'dead' && z.activated && Math.abs(z.x - s.x) < 52
-      && Math.abs((z.standingY || 0) - ((s.standingY || 0) + (s.jumpY || 0))) < 22);
+      && dGap(z, s) < MELEE_DEPTH && Math.abs((z.standingY || 0) - ((s.standingY || 0) + (s.jumpY || 0))) < 22);
     if (meleeTgt) {
       s.facing = meleeTgt.x > s.x ? 1 : -1;
       s.knifeTimer = (s.knifeTimer || 0) + dt;
@@ -1248,7 +1313,7 @@ export function updateMission(m, now, dt) {
     if (!m.defendStartedAt && Math.abs(s.x - m.defendAnchor) < 32) {
       m.defendStartedAt = now;
       m.defendNextSpawn = now + 800;
-      m.effects.push({ type: 'txt', x: s.x, y: MGY - 80, v: t('HOLD POSITION!'), col: '#ff8800', at: now, dur: 1800 });
+      m.effects.push({ type: 'txt', x: s.x, y: MGY - 80 + dep(s), v: t('HOLD POSITION!'), col: '#ff8800', at: now, dur: 1800 });
     }
     if (m.defendStartedAt) {
       const elapsed = now - m.defendStartedAt;
@@ -1264,7 +1329,7 @@ export function updateMission(m, now, dt) {
         const z = ZTP[t];
         m.zombies.push({
           id: uid(), type: t, z,
-          x: m.defendAnchor + 260 + Math.random() * 60,
+          x: m.defendAnchor + 260 + Math.random() * 60, depth: anyDepth(),
           hp: z.hp, maxHp: z.hp,
           spd: z.spd * (0.85 + Math.random() * 0.3),
           state: 'walk', facing: -1,
@@ -1285,7 +1350,7 @@ export function updateMission(m, now, dt) {
         const bz = ZTP.brute;
         m.zombies.push({
           id: uid(), type: 'brute', z: bz,
-          x: m.defendAnchor + 360,
+          x: m.defendAnchor + 360, depth: Math.round(BAND / 2),
           hp: bz.hp, maxHp: bz.hp,
           spd: bz.spd,
           state: 'walk', facing: -1,
@@ -1318,12 +1383,14 @@ export function updateMission(m, now, dt) {
           // stops a few pixels short of the defend anchor.
           x: -180,
           stopX: m.defendAnchor - 80,
+          // Drives up the middle of the street.
+          depth: Math.round(BAND * 0.55),
           boardStart: 0,
           boardDur: 2600,
           soldierEmbarked: { [m.soldier.id]: false },
         };
         (m.followers || []).forEach(f => { m.extraction.soldierEmbarked[f.id] = false; });
-        m.effects.push({ type: 'txt', x: s.x, y: MGY - 100, v: t('EXTRACTION INBOUND'), col: '#88ddff', at: now, dur: 2400 });
+        m.effects.push({ type: 'txt', x: s.x, y: MGY - 100 + dep(s), v: t('EXTRACTION INBOUND'), col: '#88ddff', at: now, dur: 2400 });
         pushRadio(m, 'evacIn', { line: 'Convoy rolling in!', speaker: m.soldier });
       }
     }
@@ -1340,7 +1407,7 @@ export function updateMission(m, now, dt) {
         e.x = e.stopX;
         e.phase = 'boarding';
         e.boardStart = now;
-        m.effects.push({ type: 'txt', x: s.x, y: MGY - 90, v: t('BOARD UP!'), col: '#88ee99', at: now, dur: 1800 });
+        m.effects.push({ type: 'txt', x: s.x, y: MGY - 90 + dep(s), v: t('BOARD UP!'), col: '#88ee99', at: now, dur: 1800 });
         pushRadio(m, 'evacBoard', { line: 'Mount up! Move move move!', urgent: true, speaker: m.soldier });
       }
     } else if (e.phase === 'boarding') {
@@ -1353,9 +1420,10 @@ export function updateMission(m, now, dt) {
         if (e.soldierEmbarked[p.id]) return;
         const dx = (e.x + 30) - p.x;
         const step = 2.4 * (dt / 16) * Math.sign(dx);
-        if (Math.abs(dx) <= 4) {
+        stepDepth(p, e.depth, 2.4 * DEPTH_SPD * (dt / 16));
+        if (Math.abs(dx) <= 4 && dGap(p, e) <= 4) {
           e.soldierEmbarked[p.id] = true;
-        } else {
+        } else if (Math.abs(dx) > 4) {
           p.x += step;
           p.facing = step > 0 ? 1 : -1;
           if (p.state === 'idle') p.state = 'walk';
@@ -1383,14 +1451,19 @@ export function updateMission(m, now, dt) {
   }
 
   // ── HOSTILE HUMANS AI ────────────────────────────────────────
-  // Bandits / refused-trader survivors walk into shooting range, hold
-  // position, and fire at the closest party member. Their bullets hit
-  // party members through the same b.hostile pathway used by spitters.
+  // Bandits / refused-trader survivors walk into shooting range, line
+  // up on their target's depth, hold position and fire at the closest
+  // party member. Their bullets hit party members through the same
+  // b.hostile pathway used by spitters. They only fire once roughly
+  // lined up and their aim wobbles in depth (troopers less than
+  // bandits), so a soldier who keeps moving across the band is harder
+  // to hit.
   (m.humans || []).forEach(h => {
     if (h.state === 'dead' || !h.hostile || !h.activated) return;
+    const cost = p => Math.abs(p.x - h.x) + 1.5 * dGap(p, h);
     const tgt = aliveParty(m).reduce((best, p) => {
       if (!best) return p;
-      return Math.abs(p.x - h.x) < Math.abs(best.x - h.x) ? p : best;
+      return cost(p) < cost(best) ? p : best;
     }, null);
     if (!tgt) return;
     const dx = tgt.x - h.x;
@@ -1398,10 +1471,16 @@ export function updateMission(m, now, dt) {
     h.facing = dx >= 0 ? 1 : -1;
     const wMeta = WPN[h.weapon];
     const idealRange = (wMeta.range || 220) * 0.7;
+    const gap = dGap(tgt, h);
+    if (h.state !== 'reload') {
+      stepDepth(h, dep(tgt), (h.compact ? 1.0 : 0.8) * (dt / 16));
+      clampDepth(m, h);
+    }
     if (h.state === 'reload') {
       if (now - h.reloadStart >= wMeta.rl) { h.state = 'idle'; h.ammo = h.maxAmmo; }
-    } else if (dist > idealRange + 30) {
-      // Under fire from beyond their reach: close the distance fast.
+    } else if (dist > idealRange + 30 || (dist > 60 && coverBetween(m, h.x, tgt.x, dep(h)))) {
+      // Under fire from beyond their reach (or with a wreck between
+      // them and their target): close the distance fast.
       const pressed = now - (h._hitAt || -1e9) < 3000;
       h.x += (pressed ? 1.5 : 0.9) * (h.compact ? 1.15 : 1) * h.facing * (dt / 16);
       h.state = 'walk';
@@ -1409,26 +1488,26 @@ export function updateMission(m, now, dt) {
       h.x -= 0.6 * h.facing * (dt / 16);
       h.state = 'walk';
     } else {
-      h.state = 'idle';
+      h.state = gap > 3 ? 'walk' : 'idle';
       if (h.ammo <= 0) { h.state = 'reload'; h.reloadStart = now; }
       // Bandits are panicked civilians, not trained marksmen: their
       // fire rate is 1.6x slower than the gun's spec and their per-
       // shot damage is multiplied by 0.55 to keep multi-bandit
       // firefights from one-shotting the player's squad.
       // Compact soldiers are trained: faster, steadier fire.
-      else if (now - h.lastShot > wMeta.rate * (h.compact ? 1.25 : 1.6)) {
+      else if (gap < (h.compact ? 9 : 11) && now - h.lastShot > wMeta.rate * (h.compact ? 1.25 : 1.6)) {
         h.lastShot = now; h.state = 'shoot'; h.ammo--;
         const pellets = wMeta.pel || 1;
         const baseDmg = (wMeta.pel ? wMeta.dmg / wMeta.pel : wMeta.dmg) * (h.compact ? 0.7 : 0.55);
         for (let p = 0; p < pellets; p++) {
           // Wider aim cone — they're not pros.
           const spread = (Math.random() - 0.5) * ((wMeta.spread || 0.04) * 2.2);
-          const ang = spread;
+          const d = dep(h) + (Math.random() - 0.5) * (h.compact ? 6 : 10);
           m.bullets.push({
             id: uid(),
-            x: h.x + h.facing * 10, y: MGY - 26,
-            dx: h.facing * wMeta.spd * Math.cos(ang),
-            dy: wMeta.spd * Math.sin(ang),
+            x: h.x + h.facing * 10, y: MGY + d - 26, depth: d, ox: h.x,
+            dx: h.facing * wMeta.spd * Math.cos(spread),
+            dy: 0, dd: wMeta.spd * Math.sin(spread) * 0.4,
             dmg: baseDmg,
             life: Math.ceil(wMeta.range / wMeta.spd * 1.15),
             hostile: true,
@@ -1468,11 +1547,11 @@ export function updateMission(m, now, dt) {
         return;
       }
     }
-    // Pick the closest active zombie within weapon range.
+    // Pick the closest active zombie within weapon range (on the street).
     const wMeta = WPN[h.weapon];
     const tgt = m.zombies
-      .filter(z => z.state !== 'dead' && z.activated && Math.abs(z.x - h.x) <= (wMeta.range || 220))
-      .sort((a, b) => Math.abs(a.x - h.x) - Math.abs(b.x - h.x))[0];
+      .filter(z => z.state !== 'dead' && z.activated && !aloft(z) && Math.abs(z.x - h.x) <= (wMeta.range || 220))
+      .sort((a, b) => Math.abs(a.x - h.x) + 1.5 * dGap(a, h) - Math.abs(b.x - h.x) - 1.5 * dGap(b, h))[0];
     if (!tgt) {
       // No zombie in range — drop back to idle but keep activated.
       if (h.state === 'shoot' && now - h.lastShot > 200) h.state = 'idle';
@@ -1483,12 +1562,14 @@ export function updateMission(m, now, dt) {
       if (now - h.reloadStart >= wMeta.rl) { h.state = 'idle'; h.ammo = h.maxAmmo; }
       return;
     }
+    stepDepth(h, dep(tgt), 0.8 * (dt / 16));
+    clampDepth(m, h);
     if (h.ammo <= 0) { h.state = 'reload'; h.reloadStart = now; return; }
     // Friendly fire cadence: same 1.6× slowdown as bandits (these are
     // panicked civilians too) and 0.55× per-shot damage — they're
     // supportive backup, not pro shooters. Their bullets are NOT
     // hostile (b.hostile = false) so they only damage zombies.
-    if (now - h.lastShot > wMeta.rate * 1.6) {
+    if (dGap(tgt, h) < 11 && now - h.lastShot > wMeta.rate * 1.6) {
       h.lastShot = now; h.state = 'shoot'; h.ammo--;
       const pellets = wMeta.pel || 1;
       const baseDmg = (wMeta.pel ? wMeta.dmg / wMeta.pel : wMeta.dmg) * 0.55;
@@ -1496,9 +1577,9 @@ export function updateMission(m, now, dt) {
         const spread = (Math.random() - 0.5) * ((wMeta.spread || 0.04) * 2.2);
         m.bullets.push({
           id: uid(),
-          x: h.x + h.facing * 10, y: MGY - 26,
+          x: h.x + h.facing * 10, y: MGY + dep(h) - 26, depth: dep(h), ox: h.x,
           dx: h.facing * wMeta.spd * Math.cos(spread),
-          dy: wMeta.spd * Math.sin(spread),
+          dy: 0, dd: wMeta.spd * Math.sin(spread) * 0.4,
           dmg: baseDmg,
           life: Math.ceil(wMeta.range / wMeta.spd * 1.15),
           // Not hostile — these bullets damage zombies via the same
@@ -1509,7 +1590,6 @@ export function updateMission(m, now, dt) {
       m.soundQ.push({ t: 'fire', w: h.weapon, x: h.x });
     }
   });
-
   // ── HAZARDS ──────────────────────────────────────────────────
   // Mine detonation helper. Used by both the proximity trigger
   // (party member walks on it) and the bullet-shot trigger
@@ -1521,16 +1601,16 @@ export function updateMission(m, now, dt) {
     addShake(m, Math.max(0, 6 - Math.abs(m.soldier.x - h.x) / 120));
     const radius = h.radius || 40;
     aliveParty(m).forEach(p => {
-      if (Math.abs(p.x - h.x) > radius || dodging(p)) return;
+      if (Math.hypot(p.x - h.x, (dep(p) - dep(h)) * 1.5) > radius || aloft(p) || dodging(p)) return;
       p.hp -= h.dmg; p.hurtTimer = 320;
-      m.effects.push({ type: 'txt', x: p.x, y: MGY - 70, v: t('MINE -{n}', { n: h.dmg }), col: '#ff4400', at: now, dur: 1200 });
+      m.effects.push({ type: 'txt', x: p.x, y: MGY - 70 + dep(p), v: t('MINE -{n}', { n: h.dmg }), col: '#ff4400', at: now, dur: 1200 });
       if (p.hp <= 0) {
         p.hp = 0; p.state = 'dead';
         if (p.id === s.id) promoteLeadOnDeath(m, now);
       } else missionHurtCallout(m, p);
     });
-    m.effects.push({ type: 'hit', x: h.x, y: MGY - 12, at: now, dur: 480 });
-    m.effects.push({ type: 'blood', x: h.x, y: MGY - 12,
+    m.effects.push({ type: 'hit', x: h.x, y: MGY - 12 + dep(h), at: now, dur: 480 });
+    m.effects.push({ type: 'blood', x: h.x, y: MGY - 12 + dep(h),
       drops: Array.from({ length: 12 }, () => ({ x: 0, y: 0, vx: (Math.random() - 0.5) * 5, vy: -Math.random() * 3 - 0.5, r: 2 + Math.random() * 4 })),
       at: now, dur: 700 });
   };
@@ -1540,16 +1620,16 @@ export function updateMission(m, now, dt) {
   // Acid pools: tick damage every 500 ms while standing on them.
   (m.hazards || []).forEach(h => {
     if (h.type === 'mine' && !h.triggered) {
-      const stepper = aliveParty(m).find(p => Math.abs(p.x - h.x) < 18);
+      const stepper = aliveParty(m).find(p => Math.abs(p.x - h.x) < 18 && dGap(p, h) < 14 && !aloft(p));
       if (stepper) detonateMine(h);
     } else if (h.type === 'acid') {
       h._lastTick = h._lastTick || 0;
       if (now - h._lastTick > 500) {
         h._lastTick = now;
         aliveParty(m).forEach(p => {
-          if (Math.abs(p.x - h.x) > h.w / 2 || dodging(p)) return;
+          if (!inAcid(h, p) || dodging(p)) return;
           p.hp -= h.dmg; p.hurtTimer = 200;
-          m.effects.push({ type: 'txt', x: p.x, y: MGY - 60, v: `-${h.dmg}`, col: '#88cc44', at: now, dur: 600 });
+          m.effects.push({ type: 'txt', x: p.x, y: MGY - 60 + dep(p), v: `-${h.dmg}`, col: '#88cc44', at: now, dur: 600 });
           if (p.hp <= 0) {
             p.hp = 0; p.state = 'dead';
             if (p.id === s.id) promoteLeadOnDeath(m, now);
@@ -1562,21 +1642,32 @@ export function updateMission(m, now, dt) {
   // Bullets step per frame; m._ts slows them with the rest of the
   // world during slow motion (update/moves.js juiceStep).
   const bts = m._ts ?? 1;
+  // A bullet travels at a depth (b.depth; pellets drift across it with
+  // b.dd) and only hits what is within a few px of that depth.
   m.bullets = m.bullets.filter(b => {
     trackShot(m, b);
-    b.x += b.dx * bts; b.y += b.dy * bts; b.life -= bts;
-    if (b.life <= 0 || b.x < 0 || b.x > MISSION_W) return false;
+    if (b.depth === undefined) b.depth = 0;
+    const dd = (b.dd || 0) * bts;
+    b.x += b.dx * bts; b.y += b.dy * bts + dd; b.depth += dd; b.life -= bts;
+    if (b.life <= 0 || b.x < 0 || b.x > MISSION_W || b.depth < -6 || b.depth > band + 6) return false;
     if (barricadeStops(m, b)) {
       m.effects.push({ type: 'hit', x: b.x, y: b.y, at: now, dur: 160 });
+      return false;
+    }
+    // A wrecked car in the way takes the round.
+    if (coverStops(m, b)) {
+      m.effects.push({ type: 'hit', x: b.x, y: b.y, at: now, dur: 160 });
+      if (now - (m._ricAt || -1e9) > 90) { m._ricAt = now; m.soundQ.push({ t: 'clink', x: b.x }); }
       return false;
     }
 
     if (b.spit) {
       // Acid spit hits any living party member or rescuable in its path.
-      const hit = aliveTargets(m).find(p => !dodging(p) && Math.abs(p.x - b.x) < 18 && b.y > MGY - 38);
+      const hit = aliveTargets(m).find(p => !dodging(p) && Math.abs(p.x - b.x) < 18 && Math.abs(dep(p) - b.depth) < HIT_TOL
+        && b.y > MGY + b.depth - 38 + (p.standingY || 0));
       if (hit) {
         hit.hp -= b.dmg; hit.hurtTimer = 240;
-        m.effects.push({ type: 'txt', x: hit.x, y: MGY - 60, v: `-${b.dmg}`, col: '#88cc44', at: now, dur: 700 });
+        m.effects.push({ type: 'txt', x: hit.x, y: MGY - 60 + dep(hit), v: `-${b.dmg}`, col: '#88cc44', at: now, dur: 700 });
         m.effects.push({ type: 'hit', x: b.x, y: b.y, at: now, dur: 220 });
         if (hit.hp <= 0) {
           hit.hp = 0; hit.state = 'dead';
@@ -1585,8 +1676,8 @@ export function updateMission(m, now, dt) {
         return false;
       }
       // Splash on the ground
-      if (b.y >= MGY - 2) {
-        m.effects.push({ type: 'hit', x: b.x, y: MGY - 2, at: now, dur: 260 });
+      if (b.y >= MGY + b.depth - 2) {
+        m.effects.push({ type: 'hit', x: b.x, y: MGY + b.depth - 2, at: now, dur: 260 });
         return false;
       }
       return true;
@@ -1594,10 +1685,10 @@ export function updateMission(m, now, dt) {
 
     // Hostile-human bullets damage the party / rescuables / civilians.
     if (b.hostile) {
-      const hit = aliveTargets(m).find(p => !dodging(p) && Math.abs(p.x - b.x) < 18);
+      const hit = aliveTargets(m).find(p => !dodging(p) && Math.abs(p.x - b.x) < 18 && Math.abs(dep(p) - b.depth) < HOSTILE_TOL);
       if (hit) {
         hit.hp -= b.dmg; hit.hurtTimer = 220;
-        m.effects.push({ type: 'txt', x: hit.x, y: MGY - 60, v: `-${Math.round(b.dmg)}`, col: '#ff6644', at: now, dur: 700 });
+        m.effects.push({ type: 'txt', x: hit.x, y: MGY - 60 + dep(hit), v: `-${Math.round(b.dmg)}`, col: '#ff6644', at: now, dur: 700 });
         m.effects.push({ type: 'hit', x: b.x, y: b.y, at: now, dur: 200 });
         if (hit.hp <= 0) {
           hit.hp = 0; hit.state = 'dead';
@@ -1612,8 +1703,8 @@ export function updateMission(m, now, dt) {
     // ground level detonates it (lets the player clear hazards from a
     // safe distance outside the 40 px blast radius).
     const mineHit = (m.hazards || []).find(h =>
-      h.type === 'mine' && !h.triggered &&
-      Math.abs(h.x - b.x) < 14 && b.y >= MGY - 50 && b.y <= MGY
+      h.type === 'mine' && !h.triggered && (b.shooterY || 0) === 0 &&
+      Math.abs(h.x - b.x) < 14 && Math.abs(dep(h) - b.depth) < 12
     );
     if (mineHit) {
       m._detonateMine(mineHit);
@@ -1623,7 +1714,7 @@ export function updateMission(m, now, dt) {
     // Friendly bullets hit hostile humans before zombies (humans are
     // typically closer once an engagement starts).
     const humanHit = (m.humans || []).find(h =>
-      h.state !== 'dead' && h.hostile && Math.abs(h.x - b.x) < 16
+      h.state !== 'dead' && h.hostile && Math.abs(h.x - b.x) < 16 && Math.abs(dep(h) - b.depth) < HIT_TOL
     );
     if (humanHit) {
       humanHit.hp -= b.dmg; humanHit.hurtTimer = 210;
@@ -1633,13 +1724,13 @@ export function updateMission(m, now, dt) {
       m.soundQ.push({ t: 'hit', now, x: b.x });
       m.effects.push({ type: 'blood', x: b.x, y: b.y, drops: Array.from({ length: 5 }, () => ({ x: 0, y: 0, vx: (Math.random() - 0.5) * 3, vy: -Math.random() * 2 - 0.5, r: 1.4 + Math.random() * 2.4 })), at: now, dur: 580 });
       m.effects.push({ type: 'hit', x: b.x, y: b.y, at: now, dur: 200 });
-      m.effects.push({ type: 'txt', x: humanHit.x, y: MGY - 60, v: `-${Math.round(b.dmg)}`, col: C.bld, at: now, dur: 680 });
+      m.effects.push({ type: 'txt', x: humanHit.x, y: MGY - 60 + dep(humanHit), v: `-${Math.round(b.dmg)}`, col: C.bld, at: now, dur: 680 });
       if (humanHit.hp <= 0) {
         humanHit.hp = 0; humanHit.state = 'dead'; humanHit.deadAt = now;
         m.killedCount++;
         if (b.src) b.src._kills = (b.src._kills || 0) + 1;
         if (humanHit.colonel) {
-          m.effects.push({ type: 'txt', x: humanHit.x, y: MGY - 110, v: t('★ COL. VOSS DOWN'), col: '#ffd54a', at: now, dur: 2600 });
+          m.effects.push({ type: 'txt', x: humanHit.x, y: MGY - 110 + dep(humanHit), v: t('★ COL. VOSS DOWN'), col: '#ffd54a', at: now, dur: 2600 });
           pushRadio(m, 'kill', { line: 'The colonel is down! Their line is breaking!', speaker: m.soldier, cooldown: 0 });
         }
         missionKillChatter(m, m.soldier);
@@ -1653,9 +1744,12 @@ export function updateMission(m, now, dt) {
     // same level as the zombie to hit. Otherwise a soldier shooting
     // sideways from a ledge would clip ground-level walkers
     // standing far below. Bullets without a shooterY (older entries)
-    // default to ground level for back-compat.
+    // default to ground level for back-compat. Then the depth: big
+    // bodies (Tank, Brute) are a few px easier to line up.
     const hit = m.zombies.find(z => {
       if (z.state === 'dead' || Math.abs(z.x - b.x) >= 20) return false;
+      const tol = HIT_TOL + (z.type === 'brute' ? 6 : z.type === 'tank' ? 3 : 0);
+      if (Math.abs(dep(z) - b.depth) >= tol) return false;
       const zStandingY = z.standingY || 0;
       const shooterY = b.shooterY || 0;
       return Math.abs(zStandingY - shooterY) < 22;
@@ -1672,13 +1766,13 @@ export function updateMission(m, now, dt) {
       trackHit(m, b);
       m.effects.push({ type: 'blood', x: b.x, y: b.y, drops: Array.from({ length: 6 }, () => ({ x: 0, y: 0, vx: (Math.random() - 0.5) * 3.5, vy: -Math.random() * 2.5 - 0.5, r: 1.5 + Math.random() * 3 })), at: now, dur: 600 });
       m.effects.push({ type: 'hit', x: b.x, y: b.y, at: now, dur: 200 });
-      m.effects.push({ type: 'txt', x: hit.x, y: MGY - 60 + (hit.standingY || 0), v: `-${Math.round(dmg)}`, col: C.bld, at: now, dur: 680 });
+      m.effects.push({ type: 'txt', x: hit.x, y: MGY - 60 + dep(hit) + (hit.standingY || 0), v: `-${Math.round(dmg)}`, col: C.bld, at: now, dur: 680 });
       if (hit.hp <= 0) {
         hit.hp = 0; hit.state = 'dead'; hit.deadAt = now;
         if (b.src) b.src._kills = (b.src._kills || 0) + 1;
         m.soundQ.push({ t: 'zdie', zt: hit.type, x: hit.x });
         if (hit.type === 'brute') {
-          m.effects.push({ type: 'txt', x: hit.x, y: MGY - 110, v: t('☠ BRUTE DOWN'), col: '#ffcc44', at: now, dur: 2400 });
+          m.effects.push({ type: 'txt', x: hit.x, y: MGY - 110 + dep(hit), v: t('☠ BRUTE DOWN'), col: '#ffcc44', at: now, dur: 2400 });
           pushRadio(m, 'kill', { line: 'Big one is down!', speaker: m.soldier, cooldown: 0 });
         }
         m.killedCount++;
@@ -1691,7 +1785,6 @@ export function updateMission(m, now, dt) {
 
   clampCity(m);
 
-  // Pickups can be grabbed by any party member. Pickups with a fork
   // Searchable obstacles (TLS Union City style looting). When a
   // party member stays within ~30 px of an un-searched container
   // for ~700 ms, it opens and drops a small resource pickup.
@@ -1700,7 +1793,7 @@ export function updateMission(m, now, dt) {
   (m.obstacles || []).forEach(o => {
     if (!o.searchable || o.searched) return;
     const member = aliveParty(m).find(p =>
-      Math.abs(p.x - o.x) < 30 && Math.abs((p.standingY || 0) - 0) < 18,
+      Math.abs(p.x - o.x) < 30 && dGap(p, o) < SEARCH_DEPTH && Math.abs((p.standingY || 0) - 0) < 18,
     );
     if (!member) {
       // Drop the search timer if the player walks away
@@ -1738,7 +1831,7 @@ export function updateMission(m, now, dt) {
       m.collected[type] = (m.collected[type] || 0) + value;
       m.effects.push({
         type: 'txt',
-        x: o.x, y: MGY - 70,
+        x: o.x, y: MGY - 70 + dep(o),
         v: t('+{n} {res}', { n: value, res: t(type) }),
         col: type === 'ammo' || type === 'sniperAmmo' || type === 'turretAmmo' ? '#88ddff' : C.acc,
         at: now, dur: 1200,
@@ -1748,15 +1841,12 @@ export function updateMission(m, now, dt) {
     }
   });
 
-  // lane only count if the picker is on the matching lane.
+  // Pickups can be grabbed by any party member standing on them (in
+  // depth too; a fork pickup is on one road or the other).
   m.pickups.forEach(p => {
     if (p.collected) return;
     const grabber = aliveParty(m).find(member => {
-      if (Math.abs(p.x - member.x) >= 28) return false;
-      // Fork pickups require lane match.
-      const memberLane = member.forkLane || 0;
-      const pLane = p.lane || 0;
-      if (memberLane !== pLane) return false;
+      if (Math.abs(p.x - member.x) >= 28 || dGap(p, member) >= GRAB_DEPTH) return false;
       // Upper-floor pickups (standingY < 0) require the grabber to
       // also be on that floor — you can't grab loot from the second
       // floor while standing on the ground.
@@ -1767,25 +1857,25 @@ export function updateMission(m, now, dt) {
     if (grabber) {
       if (p.type === 'grenade') {
         // Left on the floor when the squad can't carry more.
-        if (giveNade(m, p.x, now)) p.collected = true;
+        if (giveNade(m, p.x, now, dep(p))) p.collected = true;
         return;
       }
       p.collected = true;
       if (p.type === 'civilian') {
         m.collected.civilian = true;
-        m.effects.push({ type: 'txt', x: p.x, y: MGY - 70, v: t('CIVILIAN!'), col: '#88ddff', at: now, dur: 1000 });
+        m.effects.push({ type: 'txt', x: p.x, y: MGY - 70 + dep(p), v: t('CIVILIAN!'), col: '#88ddff', at: now, dur: 1000 });
       } else if (p.type === 'lostSoldier') {
         m.collected.lostSoldier = true;
-        m.effects.push({ type: 'txt', x: p.x, y: MGY - 70, v: t('LOST SOLDIER!'), col: '#ffd54a', at: now, dur: 1200 });
+        m.effects.push({ type: 'txt', x: p.x, y: MGY - 70 + dep(p), v: t('LOST SOLDIER!'), col: '#ffd54a', at: now, dur: 1200 });
       } else if (p.type === 'quest') {
         (m.collected.quests || (m.collected.quests = [])).push(p.questId);
         m.soundQ.push({ t: 'pickup', x: p.x });
-        m.effects.push({ type: 'txt', x: p.x, y: MGY - 96 + (p.standingY || 0), v: t('📋 {item} — BRING IT HOME', { item: t(p.label).toUpperCase() }), col: '#ffd54a', at: now, dur: 2400 });
+        m.effects.push({ type: 'txt', x: p.x, y: MGY - 96 + dep(p) + (p.standingY || 0), v: t('📋 {item} — BRING IT HOME', { item: t(p.label).toUpperCase() }), col: '#ffd54a', at: now, dur: 2400 });
         pushRadio(m, 'kill', { line: 'Got the {item}. Back to the van!', params: { item: t(p.label).toLowerCase() }, speaker: grabber, cooldown: 0 });
       } else if (p.type === 'gear') {
         (m.collected.gear || (m.collected.gear = [])).push(p.item);
         m.soundQ.push({ t: 'pickup', x: p.x });
-        m.effects.push({ type: 'txt', x: p.x, y: MGY - 80 + (p.standingY || 0), v: `${gearIcon(p.item)} ${t(gearName(p.item)).toUpperCase()}!`, col: '#ffd54a', at: now, dur: 1800 });
+        m.effects.push({ type: 'txt', x: p.x, y: MGY - 80 + dep(p) + (p.standingY || 0), v: `${gearIcon(p.item)} ${t(gearName(p.item)).toUpperCase()}!`, col: '#ffd54a', at: now, dur: 1800 });
       } else if (p.type === 'vaccine') {
         // Vaccine sample (hospital scenario): stamp the carrier so
         // the renderer can draw the vial above their head, and so
@@ -1794,10 +1884,10 @@ export function updateMission(m, now, dt) {
         m._vaccineCollected = true;
         m._vaccineCarrierId = grabber.id;
         m._vaccineDropped = false;
-        m.effects.push({ type: 'txt', x: p.x, y: MGY - 70, v: t('💉 VACCINE SECURED'), col: '#88ff88', at: now, dur: 1800 });
+        m.effects.push({ type: 'txt', x: p.x, y: MGY - 70 + dep(p), v: t('💉 VACCINE SECURED'), col: '#88ff88', at: now, dur: 1800 });
       } else {
         m.collected[p.type] += p.value;
-        m.effects.push({ type: 'txt', x: p.x, y: MGY - 70, v: t('+{n} {res}', { n: p.value, res: t(p.type) }), col: C.acc, at: now, dur: 900 });
+        m.effects.push({ type: 'txt', x: p.x, y: MGY - 70 + dep(p), v: t('+{n} {res}', { n: p.value, res: t(p.type) }), col: C.acc, at: now, dur: 900 });
       }
     }
   });
@@ -1826,7 +1916,7 @@ export function updateMission(m, now, dt) {
         m._lastGoalHint = now;
         const left = need - m.killedCount;
         m.effects.push({
-          type: 'txt', x: s.x, y: MGY - 70,
+          type: 'txt', x: s.x, y: MGY - 70 + dep(s),
           v: left > 0 ? (left === 1 ? t('{n} HOSTILE LEFT', { n: left }) : t('{n} HOSTILES LEFT', { n: left })) : t('BRUTE BLOCKS THE EXIT'),
           col: '#cc3333', at: now, dur: 1400,
         });
@@ -2638,12 +2728,175 @@ function dDoorway(ctx, x, indoor) {
   ctx.fillStyle = '#2a2018'; ctx.fillRect(fx + 8, fy - 24, 2, 2); ctx.fillRect(fx + doorW - 10, fy - 24, 2, 2);
 }
 
+// The depth band's surface, over the backdrop's ground: a sidewalk
+// along the buildings, the road with its centre dashes and the front
+// kerb, or an indoor floor with seams in perspective (they fan out from
+// the middle of the screen, so the floor reads as receding when the
+// camera moves). Darker at the back.
+function dBand(ctx, m, biome) {
+  const band = bandOf(m);
+  const x0 = m.cameraX - 40, x1 = m.cameraX + MISSION_VIEW + 40;
+  const cx = m.cameraX + MISSION_VIEW / 2;
+  const front = MGY + band + 6;
+  const fan = (x, k) => x + (x - cx) * k;
+  // Indoor stretches of this world (x ranges).
+  const indoor = m.room || biome.indoor ? [[x0, x1]]
+    : m.segs ? m.segs.map(sg => [sg.x0, sg.x1])
+      : m.indoorBiomeKey && m.entranceX > 0 ? [[m.entranceX, MISSION_W]] : [];
+  const street = (x0, x1) => {
+    // Sidewalk slabs
+    ctx.fillStyle = 'rgba(200,200,180,0.06)'; ctx.fillRect(x0, MGY, x1 - x0, 14);
+    ctx.strokeStyle = 'rgba(0,0,0,0.28)'; ctx.lineWidth = 1;
+    for (let x = Math.floor(x0 / 48) * 48; x < x1; x += 48) {
+      ctx.beginPath(); ctx.moveTo(x, MGY + 1); ctx.lineTo(fan(x, 0.03), MGY + 14); ctx.stroke();
+    }
+    // Kerb: a dark drop and a lit edge
+    ctx.fillStyle = 'rgba(0,0,0,0.42)'; ctx.fillRect(x0, MGY + 14, x1 - x0, 3);
+    ctx.fillStyle = 'rgba(220,220,200,0.10)'; ctx.fillRect(x0, MGY + 13, x1 - x0, 1);
+    // Road: asphalt cracks fanning out, centre dashes
+    ctx.strokeStyle = 'rgba(0,0,0,0.16)';
+    for (let x = Math.floor(x0 / 130) * 130; x < x1; x += 130) {
+      ctx.beginPath(); ctx.moveTo(x + 20, MGY + 18); ctx.lineTo(fan(x + 20, 0.2), front); ctx.stroke();
+    }
+    const dy = MGY + Math.round(band * 0.62);
+    ctx.fillStyle = 'rgba(210,200,150,0.16)';
+    for (let x = Math.floor(x0 / 70) * 70; x < x1; x += 70) ctx.fillRect(x, dy, 30, 2);
+    // Front kerb and the gutter beyond
+    ctx.fillStyle = 'rgba(220,220,200,0.09)'; ctx.fillRect(x0, front, x1 - x0, 1);
+    ctx.fillStyle = 'rgba(0,0,0,0.30)'; ctx.fillRect(x0, front + 1, x1 - x0, CH - front);
+  };
+  const floor = (a, b) => {
+    ctx.save(); ctx.beginPath(); ctx.rect(a, MGY, b - a, CH - MGY); ctx.clip();
+    // Floor boards / tiles in perspective
+    ctx.strokeStyle = 'rgba(0,0,0,0.22)'; ctx.lineWidth = 1;
+    for (let k = 1; k <= 4; k++) {
+      const y = MGY + Math.round(band * Math.pow(k / 4.4, 1.15));
+      ctx.beginPath(); ctx.moveTo(a, y); ctx.lineTo(b, y); ctx.stroke();
+    }
+    ctx.strokeStyle = 'rgba(255,255,255,0.05)';
+    for (let x = Math.floor(a / 60) * 60; x < b; x += 60) {
+      ctx.beginPath(); ctx.moveTo(x, MGY + 2); ctx.lineTo(fan(x, 0.14), front); ctx.stroke();
+    }
+    // Skirting shadow at the wall, the floor's front edge
+    ctx.fillStyle = 'rgba(0,0,0,0.22)'; ctx.fillRect(a, MGY, b - a, 4);
+    ctx.fillStyle = 'rgba(255,255,255,0.07)'; ctx.fillRect(a, front, b - a, 1);
+    ctx.fillStyle = 'rgba(0,0,0,0.34)'; ctx.fillRect(a, front + 1, b - a, CH - front);
+    ctx.restore();
+  };
+  // Street between the indoor stretches, floors inside them.
+  let from = x0;
+  indoor.slice().sort((p, q) => p[0] - q[0]).forEach(([a, b]) => {
+    const l = Math.max(a, x0), r = Math.min(b, x1);
+    if (l > from) street(from, l);
+    if (r > l) floor(l, r);
+    from = Math.max(from, r);
+  });
+  if (from < x1) street(from, x1);
+  // Depth shading: the back of the band sits in the buildings' shadow.
+  const g = ctx.createLinearGradient(0, MGY, 0, front);
+  g.addColorStop(0, 'rgba(0,0,0,0.22)'); g.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = g; ctx.fillRect(x0, MGY, x1 - x0, front - MGY);
+}
+
+// The fork's median: a row of concrete barriers along the middle of
+// the band (update/depth.js holds the squad on its side of it).
+function dForkMedian(ctx, m) {
+  const f = m.fork, d = forkMid();
+  for (let x = f.startX + 21; x < f.endX; x += 46) {
+    atDepth(ctx, x, d, () => {
+      ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.fillRect(x - 21, MGY - 1, 42, 4);
+      ctx.fillStyle = '#6a6a62';
+      ctx.beginPath(); ctx.moveTo(x - 21, MGY); ctx.lineTo(x - 17, MGY - 9); ctx.lineTo(x - 14, MGY - 18);
+      ctx.lineTo(x + 14, MGY - 18); ctx.lineTo(x + 17, MGY - 9); ctx.lineTo(x + 21, MGY); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#8a8a80'; ctx.fillRect(x - 14, MGY - 18, 28, 2);
+      ctx.fillStyle = 'rgba(200,150,40,0.55)'; ctx.fillRect(x - 12, MGY - 12, 24, 2);
+    });
+  }
+  // Sign at the split
+  const sx = f.startX - 10;
+  atDepth(ctx, sx, d, () => {
+    ctx.fillStyle = '#1a1a1a'; ctx.fillRect(sx - 1.5, MGY - 52, 3, 52);
+    ctx.fillStyle = '#cc8800'; ctx.fillRect(sx - 20, MGY - 70, 40, 18);
+    ctx.fillStyle = '#fff'; ctx.font = 'bold 7px monospace'; ctx.textAlign = 'center';
+    ctx.fillText(t('FORK'), sx, MGY - 61);
+    ctx.fillText('↑W ↓S', sx, MGY - 54);
+    ctx.textAlign = 'left';
+  });
+}
+
+// DEFEND emplacement: a sandbag wall across the street on the side the
+// horde comes from, a short stub on the near side, the flag mid-street.
+function defendDrawables(m, now) {
+  const ax = m.defendAnchor, out = [];
+  const drawBag = (ctx, bx, by) => {
+    ctx.fillStyle = '#7a5a32';
+    ctx.beginPath();
+    // Rounded rectangle (manual since roundRect isn't everywhere yet).
+    const w = 11, h = 7, r = 2.5;
+    ctx.moveTo(bx - w / 2 + r, by);
+    ctx.lineTo(bx + w / 2 - r, by);
+    ctx.quadraticCurveTo(bx + w / 2, by, bx + w / 2, by + r);
+    ctx.lineTo(bx + w / 2, by + h - r);
+    ctx.quadraticCurveTo(bx + w / 2, by + h, bx + w / 2 - r, by + h);
+    ctx.lineTo(bx - w / 2 + r, by + h);
+    ctx.quadraticCurveTo(bx - w / 2, by + h, bx - w / 2, by + h - r);
+    ctx.lineTo(bx - w / 2, by + r);
+    ctx.quadraticCurveTo(bx - w / 2, by, bx - w / 2 + r, by);
+    ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#a07b48'; ctx.fillRect(bx - 4, by + 0.5, 8, 1.5);
+    ctx.strokeStyle = '#4a3820'; ctx.lineWidth = 0.6;
+    ctx.beginPath(); ctx.moveTo(bx - 4, by + 4); ctx.lineTo(bx + 4, by + 4); ctx.stroke();
+  };
+  // Right wall: 3 high, a stack every ~14 px of depth (faces the horde)
+  for (let d = 4; d <= BAND - 2; d += 14) {
+    const x = ax + 34;
+    out.push({ x, d, draw: ctx => {
+      for (let row = 0; row < 3; row++) {
+        const y = MGY - 7 - row * 7, offset = (row % 2) * 5;
+        for (let col = 0; col < 2; col++) drawBag(ctx, x - 6 + offset + col * 11, y);
+      }
+    } });
+  }
+  // Left stubs: hip-high, at the back and the front (the gap faces the squad)
+  [6, BAND - 8].forEach(d => {
+    const x = ax - 30;
+    out.push({ x, d, draw: ctx => {
+      for (let row = 0; row < 2; row++) { drawBag(ctx, x - 5 + (row % 2) * 5, MGY - 7 - row * 7); drawBag(ctx, x + 6 + (row % 2) * 5, MGY - 7 - row * 7); }
+    } });
+  });
+  // Defense anchor flag, in the middle of the street
+  const fd = Math.round(BAND / 2);
+  out.push({ x: ax, d: fd, draw: ctx => {
+    const pulse = 0.6 + 0.4 * Math.sin(now / 280);
+    for (let col = 0; col < 3; col++) drawBag(ctx, ax - 8 + col * 11, MGY - 7);
+    ctx.fillStyle = '#1a1a1a'; ctx.fillRect(ax - 1, MGY - 64, 2, 58);
+    ctx.fillStyle = `rgba(255,140,40,${0.5 + pulse * 0.4})`;
+    ctx.beginPath();
+    ctx.moveTo(ax + 1, MGY - 62); ctx.lineTo(ax + 26, MGY - 54); ctx.lineTo(ax + 1, MGY - 46);
+    ctx.closePath(); ctx.fill();
+    ctx.fillStyle = C.acc; ctx.font = 'bold 10px monospace'; ctx.textAlign = 'center';
+    ctx.fillText(t('★ LAST STAND ★'), ax, MGY - 74); ctx.textAlign = 'left';
+  } });
+  return out;
+}
+
+// Climb prompt at the stair / ladder the lead can take.
+function dClimbPrompt(ctx, m, now) {
+  const s = m.soldier;
+  if (!s || s.hp <= 0 || s.climbing || (s.jumpY || 0) !== 0 || doorAt(m)) return;
+  const l = ladderAt(m, s);
+  if (!l) return;
+  const top = (s.standingY || 0) < 0;
+  prompt(ctx, l.x, top ? l.yTop - 70 : MGY - 96, top ? t('GO DOWN') : l.type === 'stairs' ? t('UPSTAIRS') : t('CLIMB'), now);
+}
+
 export function dMissionWorld(ctx, m, now) {
   setMissionWidth(m.W);
   ctx.save();
   ctx.translate(-m.cameraX, 0);
 
   const biome = BIOMES[m.biomeKey] || BIOMES[DEFAULT_BIOME];
+  const band = bandOf(m);
 
   if (m.segs) {
     // City explore mission: open street with several enterable
@@ -2685,36 +2938,9 @@ export function dMissionWorld(ctx, m, now) {
     dOutdoorBackdrop(ctx, m, biome);
   }
   dRoomDecor(ctx, m, now);
+  dBand(ctx, m, biome);
 
-  // Branching path (high lane road)
-  if (m.fork) {
-    const f = m.fork;
-    // Upper road segment
-    ctx.fillStyle = biome.ground[0];
-    ctx.fillRect(f.startX, MGY - 38, f.endX - f.startX, 8);
-    ctx.strokeStyle = biome.groundLine; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(f.startX, MGY - 30); ctx.lineTo(f.endX, MGY - 30); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(f.startX, MGY - 38); ctx.lineTo(f.endX, MGY - 38); ctx.stroke();
-    // Diagonal connectors at fork start (split) and end (merge)
-    ctx.fillStyle = biome.ground[0];
-    ctx.beginPath();
-    ctx.moveTo(f.startX - 30, MGY); ctx.lineTo(f.startX, MGY - 38);
-    ctx.lineTo(f.startX, MGY - 30); ctx.lineTo(f.startX - 30, MGY);
-    ctx.closePath(); ctx.fill();
-    ctx.beginPath();
-    ctx.moveTo(f.endX, MGY - 38); ctx.lineTo(f.endX + 30, MGY);
-    ctx.lineTo(f.endX, MGY - 30); ctx.closePath(); ctx.fill();
-    // Entry / exit signs
-    ctx.fillStyle = '#1a1a1a'; ctx.fillRect(f.startX - 1.5, MGY - 70, 3, 35);
-    ctx.fillStyle = '#cc8800';
-    ctx.fillRect(f.startX - 18, MGY - 88, 36, 18);
-    ctx.fillStyle = '#fff'; ctx.font = 'bold 7px monospace'; ctx.textAlign = 'center';
-    ctx.fillText(t('FORK'), f.startX, MGY - 78);
-    ctx.fillText('↑W ↓S', f.startX, MGY - 71);
-    ctx.textAlign = 'left';
-  }
-
-  // Decorative props (lampposts, fences, neon poles)
+  // Decorative props (lampposts, fences, neon poles) along the back.
   (m.props || []).forEach(p => dProp(ctx, p));
 
   // Building architecture first (columns, back wall, far door) so
@@ -2728,13 +2954,41 @@ export function dMissionWorld(ctx, m, now) {
   // Platforms / ledges — drawn before obstacles so a sandbag or
   // wreck sitting near a platform pillar still renders on top.
   (m.platforms || []).forEach(p => dPlatform(ctx, p));
+  dCityBack(ctx, m, now);
 
-  // Hazards (acid pools first so obstacles draw on top, then mines).
-  (m.hazards || []).filter(h => h.type === 'acid').forEach(h => dHazard(ctx, h, now));
+  // Goal: a beam at the back and a lit line across the street.
+  if (m.objective !== 'defend' && m.objective !== 'explore') {   // explore: you leave by the van
+    const goalX = MISSION_W - 30;
+    const pulse = 0.6 + 0.4 * Math.sin(now / 300);
+    ctx.fillStyle = `rgba(114,188,64,${pulse * 0.4})`;
+    ctx.fillRect(goalX - 3, MGY - 120, 6, 120);
+    ctx.fillStyle = `rgba(114,188,64,${pulse * 0.22})`;
+    ctx.beginPath(); ctx.moveTo(goalX - 3, MGY); ctx.lineTo(goalX + 3, MGY); ctx.lineTo(goalX + 5, MGY + band + 6); ctx.lineTo(goalX - 5, MGY + band + 6); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = C.acc; ctx.font = 'bold 11px monospace';
+    ctx.fillText(t('★ GOAL ★'), goalX - 26, MGY - 128);
+  }
+
+  // On the ground: acid pools, then mines (low-contrast — hidden by
+  // design), then the fallen. All at their depth, back to front.
+  const onGround = (list, fn) => list.slice().sort((a, b) => dep(a) - dep(b))
+    .forEach(o => atDepth(ctx, o.x, dep(o), () => fn(o), o.standingY || 0));
+  onGround((m.hazards || []).filter(h => h.type === 'acid'), h => dHazard(ctx, h, now));
+  onGround((m.hazards || []).filter(h => h.type === 'mine'), h => dHazard(ctx, h, now));
+  onGround(m.zombies.filter(z => z.state === 'dead'), z => { z.lane = 0; dZombie(ctx, z, now); });
+
+  // Everything standing in the band, sorted by depth: containers and
+  // wrecks, the van and barricades, side objectives, pickups, the
+  // dead walking, survivors, the squad. Each item draws as if it stood
+  // at (x, MGY); atDepth places and scales it.
+  const items = [];
+  const add = (x, d, draw, yOff = 0) => items.push({ x, d, draw, yOff });
+
   // Foreground obstacles (biome-aware). Searchable containers get
   // a "loot ready" hint above them, an in-progress bar while the
   // player is searching, and a darker / open-lid look after looting.
-  m.obstacles.forEach(o => {
+  m.obstacles.forEach(o => add(o.x, dep(o), () => {
+    const sw = o.type === 'car' ? 28 : o.type === 'container' ? 30 : 16;
+    ctx.fillStyle = 'rgba(0,0,0,0.28)'; ctx.beginPath(); ctx.ellipse(o.x, MGY + 1, sw, 3.5, 0, 0, Math.PI * 2); ctx.fill();
     if (o.searched) {
       // Drained look — drawn at 0.55 alpha + a tiny "(empty)"
       ctx.save(); ctx.globalAlpha = 0.55;
@@ -2762,82 +3016,72 @@ export function dMissionWorld(ctx, m, now) {
         }
       }
     }
-  });
-  // Mines drawn after obstacles so the player can spot them on the road
-  // (still low-contrast — they're hidden by design).
-  (m.hazards || []).filter(h => h.type === 'mine').forEach(h => dHazard(ctx, h, now));
-
-  for (let mx = 200; mx < MISSION_W; mx += 200) {
-    ctx.fillStyle = 'rgba(80,80,60,0.3)'; ctx.fillRect(mx - 1, MGY + 2, 2, 8);
-  }
-
-  dMissionExtras(ctx, m, now);
-  dCityWorld(ctx, m, now);
+  }));
+  extrasDrawables(m, now).concat(cityDrawables(m, now)).forEach(e => add(e.x, e.d, () => e.draw(ctx)));
+  if (m.fork && !m.room) items.push({ d: forkMid(), raw: () => dForkMedian(ctx, m) });
+  if (m.objective === 'defend') defendDrawables(m, now).forEach(e => add(e.x, e.d, () => e.draw(ctx)));
 
   m.pickups.forEach(p => {
     if (p.collected) return;
-    const bob = Math.sin(now / 300 + p.x * 0.01) * 3;
-    // Fork lane vs upper-floor pickups: lane 1 = the legacy high
-    // road (-34), standingY = the new upper building floor (~-80).
-    const yOff = (p.standingY || 0) + ((p.lane === 1) ? -34 : 0);
-    ctx.save(); ctx.translate(p.x, MGY - 30 + bob + yOff);
-    // Vaccine vial gets a bigger, brighter pulsing halo so the player
-    // can find it through the hospital interior clutter — and so a
-    // dropped vial is impossible to miss in the middle of a fight.
-    if (p.type === 'vaccine') {
-      const pulse = 0.55 + 0.45 * (Math.sin(now / 180) * 0.5 + 0.5);
-      ctx.fillStyle = `rgba(120,255,140,${0.22 * pulse})`;
-      ctx.beginPath(); ctx.arc(0, 0, 28 + pulse * 4, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = `rgba(120,255,140,${0.45 * pulse})`;
-      ctx.beginPath(); ctx.arc(0, 0, 16, 0, Math.PI * 2); ctx.fill();
-    } else {
-      ctx.fillStyle = p.type === 'civilian' ? 'rgba(136,221,255,0.18)' : 'rgba(114,188,64,0.18)';
-      ctx.beginPath(); ctx.arc(0, 0, 18, 0, Math.PI * 2); ctx.fill();
-    }
-    ctx.fillStyle = 'rgba(20,30,15,0.85)'; ctx.fillRect(-12, -12, 24, 24);
-    ctx.strokeStyle = p.type === 'vaccine' ? '#88ff88' : p.type === 'gear' || p.type === 'quest' ? '#ffd54a' : p.type === 'civilian' ? '#88ddff' : C.acc; ctx.lineWidth = 1.5;
-    ctx.strokeRect(-12, -12, 24, 24);
-    ctx.font = '14px monospace'; ctx.textAlign = 'center'; ctx.fillStyle = '#fff';
-    ctx.fillText(p.type === 'gear' ? gearIcon(p.item) : p.type === 'quest' ? '📋' : (objIcons[p.type] || '?'), 0, 5);
-    ctx.textAlign = 'left'; ctx.restore();
+    add(p.x, dep(p), () => {
+      const bob = Math.sin(now / 300 + p.x * 0.01) * 3;
+      ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.beginPath(); ctx.ellipse(p.x, MGY + 1, 11 - bob, 3, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.save(); ctx.translate(p.x, MGY - 30 + bob);
+      // Vaccine vial gets a bigger, brighter pulsing halo so the player
+      // can find it through the hospital interior clutter — and so a
+      // dropped vial is impossible to miss in the middle of a fight.
+      if (p.type === 'vaccine') {
+        const pulse = 0.55 + 0.45 * (Math.sin(now / 180) * 0.5 + 0.5);
+        ctx.fillStyle = `rgba(120,255,140,${0.22 * pulse})`;
+        ctx.beginPath(); ctx.arc(0, 0, 28 + pulse * 4, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = `rgba(120,255,140,${0.45 * pulse})`;
+        ctx.beginPath(); ctx.arc(0, 0, 16, 0, Math.PI * 2); ctx.fill();
+      } else {
+        ctx.fillStyle = p.type === 'civilian' ? 'rgba(136,221,255,0.18)' : 'rgba(114,188,64,0.18)';
+        ctx.beginPath(); ctx.arc(0, 0, 18, 0, Math.PI * 2); ctx.fill();
+      }
+      ctx.fillStyle = 'rgba(20,30,15,0.85)'; ctx.fillRect(-12, -12, 24, 24);
+      ctx.strokeStyle = p.type === 'vaccine' ? '#88ff88' : p.type === 'gear' || p.type === 'quest' ? '#ffd54a' : p.type === 'civilian' ? '#88ddff' : C.acc; ctx.lineWidth = 1.5;
+      ctx.strokeRect(-12, -12, 24, 24);
+      ctx.font = '14px monospace'; ctx.textAlign = 'center'; ctx.fillStyle = '#fff';
+      ctx.fillText(p.type === 'gear' ? gearIcon(p.item) : p.type === 'quest' ? '📋' : (objIcons[p.type] || '?'), 0, 5);
+      ctx.textAlign = 'left'; ctx.restore();
+    }, p.standingY || 0);
   });
 
-  m.zombies.filter(z => z.state === 'dead').forEach(z => { z.lane = 0; dZombie(ctx, z, now); });
-  // Living zombies — apply standingY offset so climbers and the
-  // ones standing on platforms render at the correct height. The
-  // dZombie helper draws at lane Y by default; ctx.translate
-  // shifts the whole sprite up to the platform-top.
+  // Living zombies — standingY lifts climbers and the ones standing
+  // on platforms to the right height (the floors are at the back).
   m.zombies.filter(z => z.state !== 'dead' && z.activated).forEach(z => {
     z.lane = 0;
-    const dy = z.standingY || 0;
-    if (dy !== 0) { ctx.save(); ctx.translate(0, dy); dZombie(ctx, z, now); ctx.restore(); }
-    else dZombie(ctx, z, now);
+    add(z.x, dep(z), () => dZombie(ctx, z, now), z.standingY || 0);
   });
 
-  // Rescuable civilians (drawn before the party so they read as on-stage)
+  // Rescuable civilians
   (m.rescuables || []).forEach(r => {
     if (r.state === 'dead' || r.hp <= 0) return;
-    const rc = {
-      id: r.id, name: r.name, weapon: 'pistol',
-      x: r.x, lane: 0, hp: r.hp, maxHp: r.maxHp,
-      ammo: 0, maxAmmo: 1,
-      state: r.state === 'following' ? 'walk' : 'idle',
-      facing: r.facing,
-      walkPhase: r.walkPhase, hurtTimer: r.hurtTimer,
-      // Job targets (a named soldier) wear fatigues, not civvies.
-      civilian: !r.questId, veteran: !!r.questId, onRoof: false, onExpedition: false, unarmed: true, npc: true,
-    };
-    dSoldier(ctx, rc, now);
-    if (r.questId && r.state !== 'dead') {
-      ctx.fillStyle = '#ffd54a'; ctx.font = 'bold 9px monospace'; ctx.textAlign = 'center';
-      ctx.fillText(`📋 ${r.name}`, r.x, MGY - 92); ctx.textAlign = 'left';
-    }
-    // Floating "?" / "!" marker over their head so the player notices them
-    if (r.state === 'idle') {
-      ctx.fillStyle = '#88ddff'; ctx.font = 'bold 14px monospace'; ctx.textAlign = 'center';
-      const bob = Math.sin(now / 240) * 2;
-      ctx.fillText('!', r.x, MGY - 60 + bob); ctx.textAlign = 'left';
-    }
+    add(r.x, dep(r), () => {
+      const rc = {
+        id: r.id, name: r.name, weapon: 'pistol',
+        x: r.x, lane: 0, hp: r.hp, maxHp: r.maxHp,
+        ammo: 0, maxAmmo: 1,
+        state: r.state === 'following' ? 'walk' : 'idle',
+        facing: r.facing,
+        walkPhase: r.walkPhase, hurtTimer: r.hurtTimer,
+        // Job targets (a named soldier) wear fatigues, not civvies.
+        civilian: !r.questId, veteran: !!r.questId, onRoof: false, onExpedition: false, unarmed: true, npc: true,
+      };
+      dSoldier(ctx, rc, now);
+      if (r.questId && r.state !== 'dead') {
+        ctx.fillStyle = '#ffd54a'; ctx.font = 'bold 9px monospace'; ctx.textAlign = 'center';
+        ctx.fillText(`📋 ${r.name}`, r.x, MGY - 92); ctx.textAlign = 'left';
+      }
+      // Floating "!" marker over their head so the player notices them
+      if (r.state === 'idle') {
+        ctx.fillStyle = '#88ddff'; ctx.font = 'bold 14px monospace'; ctx.textAlign = 'center';
+        const bob = Math.sin(now / 240) * 2;
+        ctx.fillText('!', r.x, MGY - 60 + bob); ctx.textAlign = 'left';
+      }
+    }, r.standingY || 0);
   });
 
   // Survivor humans (bandits when hostile, neutral traders before they
@@ -2845,130 +3089,70 @@ export function dMissionWorld(ctx, m, now) {
   // only surviving organised military force is Fort Omega + lost
   // soldiers), bandits use the dark bandit palette.
   (m.humans || []).forEach(h => {
-    const hc = {
-      ...h, lane: 0, onExpedition: false, npc: true,
-      civilian: !h.bandit && !h.compact,  // peaceful = civilian look
-      bandit: !!h.bandit,                 // hostile  = bandit look
-      swat: !!h.compact, police: !!h.compact,   // Compact soldiers: tactical kit
-      maxHp: h.maxHp, hp: h.hp,
-    };
-    dSoldier(ctx, hc, now);
-    // Tiny status pip above their head: red for hostile, green for trader
-    const px = h.x, py = MGY - 64;
-    ctx.fillStyle = h.hostile ? '#cc2222' : '#44bb44';
-    ctx.beginPath(); ctx.arc(px, py, 2, 0, Math.PI * 2); ctx.fill();
-    if (h.colonel && h.state !== 'dead') {
-      ctx.fillStyle = '#ffd54a'; ctx.font = 'bold 9px monospace'; ctx.textAlign = 'center';
-      ctx.fillText('★ COL. VOSS', px, py - 6); ctx.textAlign = 'left';
-    }
-    if (h.state !== 'dead' && h.hp < h.maxHp) {
-      // small hp bar
-      ctx.fillStyle = 'rgba(20,20,20,0.7)'; ctx.fillRect(px - 11, py + 4, 22, 3);
+    const draw = () => {
+      const hc = {
+        ...h, lane: 0, onExpedition: false, npc: true,
+        civilian: !h.bandit && !h.compact,  // peaceful = civilian look
+        bandit: !!h.bandit,                 // hostile  = bandit look
+        swat: !!h.compact, police: !!h.compact,   // Compact soldiers: tactical kit
+        maxHp: h.maxHp, hp: h.hp,
+      };
+      dSoldier(ctx, hc, now);
+      if (h.state === 'dead') return;
+      // Tiny status pip above their head: red for hostile, green for trader
+      const px = h.x, py = MGY - 64;
       ctx.fillStyle = h.hostile ? '#cc2222' : '#44bb44';
-      ctx.fillRect(px - 11, py + 4, 22 * (h.hp / h.maxHp), 3);
-    }
+      ctx.beginPath(); ctx.arc(px, py, 2, 0, Math.PI * 2); ctx.fill();
+      if (h.colonel) {
+        ctx.fillStyle = '#ffd54a'; ctx.font = 'bold 9px monospace'; ctx.textAlign = 'center';
+        ctx.fillText('★ COL. VOSS', px, py - 6); ctx.textAlign = 'left';
+      }
+      if (h.hp < h.maxHp) {
+        // small hp bar
+        ctx.fillStyle = 'rgba(20,20,20,0.7)'; ctx.fillRect(px - 11, py + 4, 22, 3);
+        ctx.fillStyle = h.hostile ? '#cc2222' : '#44bb44';
+        ctx.fillRect(px - 11, py + 4, 22 * (h.hp / h.maxHp), 3);
+      }
+    };
+    // The fallen lie flat: drawn just behind anyone at the same depth.
+    add(h.x, dep(h) - (h.state === 'dead' ? 0.5 : 0), draw);
   });
 
   // Embarked-soldier check: during a defend extraction, party
   // members who've stepped into the APC are hidden by the render
   // (the truck rolls them off-screen).
   const embarked = (m.extraction && m.extraction.soldierEmbarked) || {};
-  // Draw followers first so the lead reads as in front of them.
-  (m.followers || []).forEach(f => {
-    if (embarked[f.id]) return;
-    const fc = { ...f, lane: 0, onExpedition: false, state: f.state };
-    ctx.save(); ctx.translate(0, f._laneY || 0);
-    dSoldier(ctx, fc, now);
-    if (m._vaccineCarrierId === f.id) dVaccineVial(ctx, f.x, now);
-    ctx.restore();
-  });
-
-  if (!embarked[m.soldier.id]) {
-    const sCopy = { ...m.soldier, lane: 0, onExpedition: false, state: m.soldier.state };
-    // Render y offset = fork-lane offset + jump arc + platform stand
-    // height. standingY is negative when on a platform (above ground).
-    ctx.save(); ctx.translate(0,
-      (m.soldier._laneY || 0)
-      + (m.soldier.jumpY || 0)
-      + (m.soldier.standingY || 0),
-    );
-    dSoldier(ctx, sCopy, now, true); // pass selection ring to mark the lead
-    if (m._vaccineCarrierId === m.soldier.id) dVaccineVial(ctx, m.soldier.x, now);
-    ctx.restore();
-  }
+  const squad = (p, lead) => {
+    if (embarked[p.id] || p.x < -1000) return;
+    const lift = (p.standingY || 0) + (p.jumpY || 0);
+    // In the air: the shadow stays on the ground.
+    if ((p.jumpY || 0) < -2) add(p.x, dep(p) - 0.1, () => dContactShadow(ctx, p.x, MGY + 1, 1 + (p.jumpY || 0) / 160, 15), p.standingY || 0);
+    add(p.x, dep(p) + (lead ? 0.05 : 0), () => {
+      dSoldier(ctx, { ...p, lane: 0, onExpedition: false, state: p.state }, now, lead);
+      if (m._vaccineCarrierId === p.id) dVaccineVial(ctx, p.x, now);
+    }, lift);
+  };
+  (m.followers || []).forEach(f => squad(f, false));
+  squad(m.soldier, true);
 
   // Extraction APC — rolls in from the Fort Omega side, soldiers
-  // board, then it drives back. Drawn AFTER party members so they
-  // visually approach (and disappear into) the truck.
-  if (m.extraction) {
-    dExtractionAPC(ctx, m.extraction, now);
-  }
+  // board, then it drives back.
+  if (m.extraction) add(m.extraction.x, m.extraction.depth ?? 0, () => dExtractionAPC(ctx, m.extraction, now));
+
+  items.sort((a, b) => a.d - b.d);
+  items.forEach(it => {
+    if (it.raw) it.raw();
+    else atDepth(ctx, it.x, Math.max(0, it.d), it.draw, it.yOff);
+  });
 
   m.effects.forEach(e => dFx(ctx, e, now));
   m.bullets.forEach(b => dBlt(ctx, b));
   dNades(ctx, m, now);
 
-  if (m.objective === 'defend') {
-    // Sandbag emplacement: a U-shaped barricade around the anchor with
-    // the gap facing the player (left). The right wall is the tallest
-    // since that's where the zombies are pouring in from. Each bag is
-    // a rounded brown sack with a tan top stripe.
-    const ax = m.defendAnchor;
-    const drawBag = (bx, by) => {
-      ctx.fillStyle = '#7a5a32';
-      ctx.beginPath();
-      // Rounded rectangle (manual since roundRect isn't everywhere yet).
-      const w = 11, h = 7, r = 2.5;
-      ctx.moveTo(bx - w / 2 + r, by);
-      ctx.lineTo(bx + w / 2 - r, by);
-      ctx.quadraticCurveTo(bx + w / 2, by, bx + w / 2, by + r);
-      ctx.lineTo(bx + w / 2, by + h - r);
-      ctx.quadraticCurveTo(bx + w / 2, by + h, bx + w / 2 - r, by + h);
-      ctx.lineTo(bx - w / 2 + r, by + h);
-      ctx.quadraticCurveTo(bx - w / 2, by + h, bx - w / 2, by + h - r);
-      ctx.lineTo(bx - w / 2, by + r);
-      ctx.quadraticCurveTo(bx - w / 2, by, bx - w / 2 + r, by);
-      ctx.closePath(); ctx.fill();
-      ctx.fillStyle = '#a07b48'; ctx.fillRect(bx - 4, by + 0.5, 8, 1.5);
-      ctx.strokeStyle = '#4a3820'; ctx.lineWidth = 0.6;
-      ctx.beginPath(); ctx.moveTo(bx - 4, by + 4); ctx.lineTo(bx + 4, by + 4); ctx.stroke();
-    };
-    // Right wall: 3 high, 4 wide (faces the zombie horde)
-    for (let row = 0; row < 3; row++) {
-      const y = MGY - 7 - row * 7;
-      const offset = (row % 2) * 5;
-      for (let col = 0; col < 4; col++) {
-        drawBag(ax + 20 + offset + col * 11, y);
-      }
-    }
-    // Left wall: short stub, just hip-high (player can see / shoot over)
-    for (let row = 0; row < 2; row++) {
-      const y = MGY - 7 - row * 7;
-      drawBag(ax - 32 + (row % 2) * 5, y);
-      drawBag(ax - 21 + (row % 2) * 5, y);
-    }
-    // Back wall (behind the flag): 1 row, 3 bags
-    for (let col = 0; col < 3; col++) {
-      drawBag(ax - 8 + col * 11, MGY - 14);
-    }
-
-    // Defense anchor flag (sits on top of the back wall)
-    const pulse = 0.6 + 0.4 * Math.sin(now / 280);
-    ctx.fillStyle = '#1a1a1a'; ctx.fillRect(ax - 1, MGY - 70, 2, 56);
-    ctx.fillStyle = `rgba(255,140,40,${0.5 + pulse * 0.4})`;
-    ctx.beginPath();
-    ctx.moveTo(ax + 1, MGY - 68); ctx.lineTo(ax + 26, MGY - 60); ctx.lineTo(ax + 1, MGY - 52);
-    ctx.closePath(); ctx.fill();
-    ctx.fillStyle = C.acc; ctx.font = 'bold 10px monospace'; ctx.textAlign = 'center';
-    ctx.fillText(t('★ LAST STAND ★'), ax, MGY - 80); ctx.textAlign = 'left';
-  } else if (m.objective !== 'explore') {   // explore: you leave by the van
-    const goalX = MISSION_W - 30;
-    const pulse = 0.6 + 0.4 * Math.sin(now / 300);
-    ctx.fillStyle = `rgba(114,188,64,${pulse * 0.4})`;
-    ctx.fillRect(goalX - 3, MGY - 120, 6, 120);
-    ctx.fillStyle = C.acc; ctx.font = 'bold 11px monospace';
-    ctx.fillText(t('★ GOAL ★'), goalX - 26, MGY - 128);
-  }
+  // Labels over the action: SOS timer, door / stair prompts, van sign.
+  dMissionExtras(ctx, m, now);
+  dCityWorld(ctx, m, now);
+  dClimbPrompt(ctx, m, now);
 
   ctx.restore();
 }
@@ -2977,7 +3161,9 @@ export function dMissionHUD(ctx, m, now) {
   const CW_ = 900;
   // Night raid: a dark veil (the HD pass also lowers the ambient light).
   if (m.cond === 'night') { ctx.fillStyle = 'rgba(2,4,14,0.22)'; ctx.fillRect(0, 0, CW_, 600); }
-  dRadioSubtitle(ctx, m, now);
+  // The radio panel goes up top, under the objective toast: the bottom
+  // of the screen is the street.
+  dRadioSubtitle(ctx, m, now, 122);
   const hg = ctx.createLinearGradient(0, 0, 0, 40);
   hg.addColorStop(0, 'rgba(6,10,6,0.94)'); hg.addColorStop(1, 'rgba(0,0,0,0.74)');
   ctx.fillStyle = hg; ctx.fillRect(0, 0, CW_, 40);
@@ -3149,9 +3335,9 @@ export function dMissionHUD(ctx, m, now) {
 
   ctx.fillStyle = 'rgba(160,170,120,0.55)'; ctx.font = '9px monospace';
   ctx.fillText(
-    m.fork && m.soldier.x >= m.fork.startX - 80 && m.soldier.x <= m.fork.endX
-      ? t('A/D MOVE · SPACE FIRE · W/S SWITCH ROAD · ESC PAUSE')
-      : t('A/D MOVE · SPACE FIRE (hold = strafe) · W JUMP/CLIMB · S DOWN · ESC PAUSE'),
+    m.fork && m.soldier.x >= m.fork.startX - 240 && m.soldier.x <= m.fork.endX
+      ? t('A/D MOVE · W/S PICK A ROAD (back or front) · SPACE FIRE · ESC PAUSE')
+      : t('A/D MOVE · W/S DEPTH · SPACE FIRE · C JUMP · E STAIRS/DOORS · ESC PAUSE'),
     12, CH - 12,
   );
 

@@ -35,7 +35,8 @@ export function dMovesHUD(ctx, m, now) {
   if (m.state !== 'active') return;
   const s = m.soldier;
   if (!s || s.hp <= 0) return;
-  const w = 196, h = 50, x = CW - w - 8, y = CH - h - 22;
+  // Bottom-right corner, under the street's depth band.
+  const w = 196, h = 50, x = CW - w - 8, y = CH - h - 3;
   ctx.fillStyle = 'rgba(4,10,4,0.72)'; ctx.fillRect(x, y, w, h);
   ctx.strokeStyle = 'rgba(114,188,64,0.35)'; ctx.lineWidth = 1; ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
   ctx.textAlign = 'left';

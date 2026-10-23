@@ -5,6 +5,10 @@ import { C } from '../constants.js';
 import { MGY } from '../data/expeditions.js';
 import { VAN_X, leaveProgress } from '../update/cityMission.js';
 import { dRoomsWorld } from './rooms.js';
+import { BAND } from '../update/depth.js';
+
+// The van is parked against the buildings, at the back of the street.
+export const VAN_DEPTH = 6;
 import { t } from '../i18n/index.js';
 
 function dVan(ctx, x, now, lit) {
@@ -79,22 +83,60 @@ function dBarricade(ctx, s, now) {
   ctx.textAlign = 'left';
 }
 
-// World pass (camera space).
+// A barricade runs across the whole street: past the gate (against the
+// building) a line of sandbag stacks and posts carries it to the kerb.
+function dBarricadeStack(ctx, x, k) {
+  const y = MGY;
+  ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.beginPath(); ctx.ellipse(x, y + 1, 24, 4, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#7a6a48';
+  for (let r = 0; r < 3; r++) for (let j = 0; j < 2 - (r === 2 ? 1 : 0); j++) {
+    ctx.beginPath(); ctx.ellipse(x - 9 + j * 18 + (r === 2 ? 9 : 0), y - 6 - r * 10, 11, 6.5, 0, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.strokeStyle = 'rgba(0,0,0,0.35)'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(x - 20, y - 6); ctx.lineTo(x + 20, y - 6); ctx.moveTo(x - 18, y - 16); ctx.lineTo(x + 18, y - 16); ctx.stroke();
+  ctx.fillStyle = '#3a2a18'; ctx.fillRect(x - 3, y - 54 - (k % 2) * 8, 6, 54 + (k % 2) * 8);
+  ctx.fillStyle = '#6a4c2c';
+  ctx.save(); ctx.translate(x, y - 38); ctx.rotate(k % 2 ? 0.22 : -0.18); ctx.fillRect(-22, -3, 44, 6); ctx.restore();
+  ctx.strokeStyle = '#8a8a80';
+  ctx.beginPath(); for (let i = 0; i <= 5; i++) ctx.lineTo(x - 16 + i * 6.5, y - 58 - (k % 2) * 8 + Math.sin(i * 1.7 + k) * 3); ctx.stroke();
+}
+
+// Back layer (camera space, before the actors): the barricade gates.
+export function dCityBack(ctx, m, now) {
+  if (m.objective !== 'explore' || m.room) return;
+  (m.segs || []).forEach(s => { if (s.locked) dBarricade(ctx, s, now); });
+}
+
+// What stands in the band: [{ x, d, draw }] for the mission's
+// depth-sorted pass.
+export function cityDrawables(m, now) {
+  if (m.objective !== 'explore' || m.room) return [];
+  const out = [{ x: VAN_X, d: VAN_DEPTH, draw: ctx => dVan(ctx, VAN_X, now, true) }];
+  (m.segs || []).forEach(s => {
+    if (!s.locked) return;
+    for (let k = 1; k <= 4; k++) {
+      const d = Math.round(k * BAND / 4.4), x = s.x0 + k * 3;
+      out.push({ x, d, draw: ctx => dBarricadeStack(ctx, x, k) });
+    }
+  });
+  return out;
+}
+
+// World pass over the actors (camera space): door / stair prompts, the
+// "leave here" sign over the van.
 export function dCityWorld(ctx, m, now) {
   if (m.objective !== 'explore') return;
   dRoomsWorld(ctx, m, now);
   if (m.room) return;
-  dVan(ctx, VAN_X, now, true);
-  (m.segs || []).forEach(s => { if (s.locked) dBarricade(ctx, s, now); });
   const p = leaveProgress(m, now);
   if (m._ventured) {
     const b = Math.sin(now / 240) * 2;
     ctx.font = 'bold 9px monospace'; ctx.textAlign = 'center';
     ctx.fillStyle = p > 0 ? '#88ee99' : 'rgba(200,220,180,0.8)';
-    ctx.fillText(p > 0 ? t('LOADING UP…') : t('🚐 LEAVE HERE'), VAN_X, MGY - 62 + b);
+    ctx.fillText(p > 0 ? t('LOADING UP…') : t('🚐 LEAVE HERE'), VAN_X, MGY - 62 + VAN_DEPTH + b);
     if (p > 0) {
-      ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(VAN_X - 30, MGY - 56, 60, 5);
-      ctx.fillStyle = '#88ee99'; ctx.fillRect(VAN_X - 30, MGY - 56, 60 * p, 5);
+      ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(VAN_X - 30, MGY - 56 + VAN_DEPTH, 60, 5);
+      ctx.fillStyle = '#88ee99'; ctx.fillRect(VAN_X - 30, MGY - 56 + VAN_DEPTH, 60 * p, 5);
     }
     ctx.textAlign = 'left';
   }

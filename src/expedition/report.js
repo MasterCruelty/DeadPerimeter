@@ -44,13 +44,15 @@ export function trackHit(m, b) {
 }
 
 // Par time: walking the map at the lead's pace (150 px/s) plus room to
-// fight, search and hold.
+// fight, search and hold. Fights take a little longer since the street
+// became a depth band (lining up a shot, walking to a container at the
+// back), hence the extra share on explore and reach.
 function sortiePar(m) {
   const st = streetOf(m);
   const walk = ((st.W || 1900) / 150) * 1000;
   if (m.objective === 'defend') return (m.defendDuration || 60000) + walk * 1.5 + 25000;
-  if (m.objective === 'explore') return walk * 4.4 + 45000 + (st.rdoors || []).length * 12000 + (m.compactAssault ? 60000 : 0);
-  return walk * 3 + 20000;
+  if (m.objective === 'explore') return walk * 4.8 + 45000 + (st.rdoors || []).length * 12000 + (m.compactAssault ? 60000 : 0);
+  return walk * 3.3 + 20000;
 }
 
 const lootUnits = c => Object.entries(c || {}).reduce((n, [k, v]) => n + (typeof v === 'number' && k !== 'rescuedCivs' ? v : 0), 0);

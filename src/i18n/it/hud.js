@@ -104,8 +104,6 @@ export default {
   "🚚 EXTRACTION": "🚚 ESTRAZIONE",
   "⌛ DEFEND {s}s": "⌛ DIFENDI {s}s",
   "REACH THE DEFEND FLAG →": "RAGGIUNGI LA BANDIERA →",
-  "A/D MOVE · SPACE FIRE · W/S SWITCH ROAD · ESC PAUSE": "A/D MUOVI · SPAZIO SPARA · W/S CAMBIA STRADA · ESC PAUSA",
-  "A/D MOVE · SPACE FIRE (hold = strafe) · W JUMP/CLIMB · S DOWN · ESC PAUSE": "A/D MUOVI · SPAZIO SPARA (tieni = mitraglia) · W SALTA/SALI · S SCENDI · ESC PAUSA",
   "★ MISSION SUCCESS ★": "★ MISSIONE COMPIUTA ★",
   "✖ MISSION FAILED": "✖ MISSIONE FALLITA",
   "Returning to Fort Omega...": "Rientro a Fort Omega...",

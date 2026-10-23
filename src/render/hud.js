@@ -301,7 +301,9 @@ function wrapText(ctx, text, maxW) {
 
 const rgba = (hex, a) => `rgba(${parseInt(hex.slice(1, 3), 16)},${parseInt(hex.slice(3, 5), 16)},${parseInt(hex.slice(5, 7), 16)},${a})`;
 
-export function dRadioSubtitle(ctx, state) {
+// top: y of the panel; by default it sits low, over the siege lanes.
+// Sorties put it up top so it never covers the street's depth band.
+export function dRadioSubtitle(ctx, state, _now, top = null) {
   const rm = state && state.radioMsg;
   if (!rm) return;
   // pushRadio stamps radioMsg.at with performance.now(); read the same
@@ -319,7 +321,7 @@ export function dRadioSubtitle(ctx, state) {
   ctx.font = 'bold 12px monospace';
   const lines = wrapText(ctx, text, w - 82).slice(0, 3);
   const h = Math.max(PANEL.h, 30 + lines.length * 15);
-  const x = (CW - w) / 2, y = CH - 40 - h;
+  const x = (CW - w) / 2, y = top ?? CH - 40 - h;
   ctx.globalAlpha = alpha;
   ctx.fillStyle = 'rgba(6,10,6,0.86)'; ctx.fillRect(x, y, w, h);
   ctx.strokeStyle = 'rgba(120,180,100,0.55)'; ctx.lineWidth = 1; ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);

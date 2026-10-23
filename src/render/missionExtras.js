@@ -1,7 +1,10 @@
 // Mission extras (see update/missionExtras.js): cache, nest, car alarm
 // and SOS timer in the world. Their HUD lines are in render/objectives.js.
+// The cache, the nest and the car stand at a depth on the street: they
+// are handed to the mission's depth-sorted pass (extrasDrawables).
 import { MGY } from '../data/expeditions.js';
 import { sosLeft } from '../update/missionExtras.js';
+import { dep } from '../update/depth.js';
 import { t } from '../i18n/index.js';
 
 function label(ctx, x, y, text, col, now) {
@@ -100,17 +103,24 @@ function dAlarmCar(ctx, al, now) {
   }
 }
 
-// World pass (camera space), before pickups and actors.
-export function dMissionExtras(ctx, m, now) {
-  if (m.alarm) dAlarmCar(ctx, m.alarm, now);
+// What stands in the band: [{ x, d, draw }] (drawn standing at MGY,
+// the mission pass places and scales them at their depth).
+export function extrasDrawables(m, now) {
+  const out = [];
+  if (m.alarm) out.push({ x: m.alarm.x, d: dep(m.alarm), draw: ctx => dAlarmCar(ctx, m.alarm, now) });
   const sd = m.side;
-  if (!sd) return;
-  if (sd.type === 'cache') dCache(ctx, sd, now);
-  else if (sd.type === 'nest') dNest(ctx, sd, now);
-  else if (sd.type === 'sos' && sd.state === 'active') {
+  if (sd && sd.type === 'cache') out.push({ x: sd.x, d: dep(sd), draw: ctx => dCache(ctx, sd, now) });
+  else if (sd && sd.type === 'nest') out.push({ x: sd.x, d: dep(sd), draw: ctx => dNest(ctx, sd, now) });
+  return out;
+}
+
+// World pass (camera space), over the actors: the SOS timer.
+export function dMissionExtras(ctx, m, now) {
+  const sd = m.side;
+  if (sd && sd.type === 'sos' && sd.state === 'active') {
     const r = (m.rescuables || []).find(q => q.id === sd.rid);
     const left = sosLeft(m, now);
-    if (r && left !== null) label(ctx, r.x, MGY - 96, `🆘 ${left}s`, left < 15 ? '#ff5544' : '#88ddff', now);
+    if (r && left !== null) label(ctx, r.x, MGY - 96 + dep(r), `🆘 ${left}s`, left < 15 ? '#ff5544' : '#88ddff', now);
   }
 }
 

@@ -1,8 +1,10 @@
 // Sortie moveset for the lead soldier, on top of walk / jump / fire:
 //
 //   Shift  dodge roll: a short dash with invulnerability frames,
-//          costs stamina, has a cooldown.
-//   G      frag grenade: thrown in an arc, bounces, goes off after a
+//          costs stamina, has a cooldown. Rolls across the depth band
+//          too (W/S held), diagonally with A/D.
+//   G      frag grenade: thrown in an arc (W/S throw it toward the
+//          back / the front of the band), bounces, goes off after a
 //          fuse. Radius damage to the dead, hostile survivors and (at
 //          a reduced rate) the squad. Loud: it wakes everything around.
 //   R      manual reload. Rounds left in the old magazine are kept
@@ -21,6 +23,7 @@ import { WPN, wbase } from '../data/weapons.js';
 import { meleeStats, spendStam, SWING_COST } from '../entities/gear.js';
 import { MISSION_W, MGY } from '../data/expeditions.js';
 import { barricadeBetween } from './cityMission.js';
+import { DEPTH_SPD, MELEE_DEPTH, LEDGE_REACH, dep, bandOf, aloft, clampDepth, holdFork } from './depth.js';
 import { pushRadio } from '../audio/radio.js';
 import { t } from '../i18n/index.js';
 
@@ -96,8 +99,17 @@ export function juiceWatch(m) {
 export function rollStep(m, s, dt) {
   if (!dodging(s)) return false;
   s.rollT = Math.max(0, s.rollT - dt);
-  s.x += s.rollDir * 0.36 * dt * (s.rollT > ROLL_MS * 0.25 ? 1 : 0.5);
-  s.facing = s.rollDir;
+  const v = 0.36 * dt * (s.rollT > ROLL_MS * 0.25 ? 1 : 0.5);
+  // Diagonal rolls cover a bit less of each axis.
+  const k = s.rollDir && s.rollDirD ? 0.75 : 1;
+  s.x += s.rollDir * v * k;
+  if (s.rollDirD && !aloft(s)) {
+    const prev = dep(s);
+    s.depth = prev + s.rollDirD * v * k * DEPTH_SPD;
+    clampDepth(m, s);
+    holdFork(m, s, prev);
+  }
+  if (s.rollDir) s.facing = s.rollDir;
   return true;
 }
 
@@ -105,7 +117,10 @@ function tryRoll(m, s, now) {
   const onSurface = (s.jumpY || 0) === 0 && (s.vy || 0) === 0;
   if (dodging(s) || (s.rollCd || 0) > 0 || s.climbing || !onSurface || s.state === 'knife') return;
   if (!spendStam(s, ROLL_COST)) { note(m, s, now, t('TOO WINDED'), '#ffaa33'); return; }
-  s.rollDir = m.inputRight ? 1 : m.inputLeft ? -1 : s.facing || 1;
+  // W/S roll across the band (alone: straight in depth; with A/D:
+  // diagonally). Up on a floor it's along the floor only.
+  s.rollDirD = aloft(s) ? 0 : m.inputDown ? 1 : m.inputUp ? -1 : 0;
+  s.rollDir = m.inputRight ? 1 : m.inputLeft ? -1 : s.rollDirD ? 0 : s.facing || 1;
   s.rollT = ROLL_MS; s.rollCd = ROLL_MS + ROLL_CD; s.rollAt = now;
   if (s.state === 'shoot' || s.state === 'walk') s.state = 'idle';
   m.soundQ.push({ t: 'roll', x: s.x });
@@ -118,54 +133,71 @@ function throwNade(m, s, now) {
   m.grenades = nadesOf(m) - 1;
   s.throwCd = THROW_CD; s.throwAt = now;
   const moving = m.inputLeft || m.inputRight;
+  // W/S lob it toward the back / the front of the band.
+  const vd = aloft(s) ? 0 : m.inputUp ? -1.1 : m.inputDown ? 1.1 : 0;
   (m.nades || (m.nades = [])).push({
-    id: uid(), x: s.x + s.facing * 10, y: MGY - 44 + (s.standingY || 0) + (s.jumpY || 0) + (s._laneY || 0),
-    vx: s.facing * (moving ? 5.8 : 4.9), vy: -4.7, at: now, src: s, spin: 0,
+    id: uid(), x: s.x + s.facing * 10, y: MGY + dep(s) - 44 + (s.standingY || 0) + (s.jumpY || 0),
+    depth: dep(s), vd,
+    vx: s.facing * (moving ? 5.8 : 4.9) * (vd ? 0.8 : 1), vy: -4.7, at: now, src: s, spin: 0,
   });
   m.soundQ.push({ t: 'pin', x: s.x });
   pushRadio(m, 'kill', { line: 'Frag out!', speaker: s, cooldown: 2500 });
 }
 
+// A grenade keeps its depth (g.depth, drifting with g.vd); g.y is its
+// screen height, so a change of depth moves it on screen as well.
 function stepNades(m, now, dt, H) {
   const f = dt / 16;
+  const band = bandOf(m);
   m.nades = (m.nades || []).filter(g => {
     const ox = g.x, oy = g.y;
+    if (g.depth === undefined) { g.depth = 0; g.vd = 0; }
     g.vy += NADE_GRAV * f;
     g.x += g.vx * f; g.y += g.vy * f;
+    if (g.vd) {
+      // The band's edges throw it back.
+      let nd = g.depth + g.vd * f;
+      if (nd < 0 || nd > band) { g.vd *= -0.35; nd = Math.max(0, Math.min(band, nd)); }
+      g.y += nd - g.depth; g.depth = nd;
+    }
     g.spin += g.vx * 0.12 * f;
     // A standing barricade or the map edge throws it back.
     if (barricadeBetween(m, ox, g.x) || g.x < 8 || g.x > MISSION_W - 8) { g.x = ox; g.vx *= -0.35; }
-    // Land on a floor / ledge on the way down, or on the street.
-    let floor = MGY - 6;
-    if (g.vy > 0) {
+    // Land on a floor / ledge on the way down (they stand against the
+    // back wall), or on the street at its depth.
+    const ground = MGY + g.depth - 6;
+    let floor = ground;
+    if (g.vy > 0 && g.depth <= LEDGE_REACH) {
       for (const p of (m.platforms || [])) {
-        if (g.x >= p.x && g.x <= p.x + p.w && oy <= p.y - 6 && g.y >= p.y - 6) { floor = p.y - 6; break; }
+        if (g.x >= p.x && g.x <= p.x + p.w && oy <= p.y - 6 && g.y >= p.y - 6) { floor = p.y - 6; g.depth = 0; g.vd = 0; break; }
       }
     }
     if (g.y >= floor) {
       g.y = floor;
       if (Math.abs(g.vy) > 1.2) m.soundQ.push({ t: 'clink', x: g.x });
       g.vy = Math.abs(g.vy) > 1.2 ? -g.vy * 0.33 : 0;
-      g.vx *= 0.55;
+      g.vx *= 0.55; g.vd *= 0.55;
     }
     if (g.vy === 0) {
-      g.vx *= Math.pow(0.86, f);
+      g.vx *= Math.pow(0.86, f); g.vd *= Math.pow(0.86, f);
       // Rolled off a ledge.
-      if (g.y < MGY - 7 && !(m.platforms || []).some(p => g.x >= p.x && g.x <= p.x + p.w && Math.abs(p.y - 6 - g.y) < 2)) g.vy = 0.5;
+      if (g.y < ground - 1 && !(m.platforms || []).some(p => g.x >= p.x && g.x <= p.x + p.w && Math.abs(p.y - 6 - g.y) < 2)) g.vy = 0.5;
     }
-    if (now - g.at >= NADE_FUSE) { blast(m, g.x, g.y, now, g.src, H); return false; }
+    if (now - g.at >= NADE_FUSE) { blast(m, g.x, g.y, g.depth, now, g.src, H); return false; }
     return true;
   });
 }
 
-// Radius damage + knockback + noise around (x, y).
-function blast(m, x, y, now, src, H) {
+// Radius damage + knockback + noise around (x, y) at depth d: the
+// distance counts the depth gap (weighted: the band is shallow) and
+// the height gap (a floor above or below).
+function blast(m, x, y, d, now, src, H) {
   const R = NADE_R;
-  const fall = (tx, ty) => {
-    const d = Math.hypot(tx - x, (ty - y) * 1.3);
-    return d > R ? 0 : 1 - 0.6 * (d / R);
+  const lvl = y + 6 - (MGY + d);                 // 0 on the street, < 0 on a floor
+  const fall = p => {
+    const dist = Math.hypot(p.x - x, ((p.standingY || 0) + (p.jumpY || 0) - 24 - lvl) * 1.3, (dep(p) - d) * 1.5);
+    return dist > R ? 0 : 1 - 0.6 * (dist / R);
   };
-  const bodyY = p => MGY - 30 + (p.standingY || 0) + (p.jumpY || 0);
   m.soundQ.push({ t: 'grenade', x });
   m.effects.push({ type: 'blast', x, y, r: R, at: now, dur: 720, seed: Math.random() * 1000 });
   const lead = m.soldier;
@@ -174,34 +206,34 @@ function blast(m, x, y, now, src, H) {
   const credit = () => { m.killedCount++; if (src) src._kills = (src._kills || 0) + 1; };
   m.zombies.forEach(z => {
     if (z.state === 'dead') return;
-    const k = fall(z.x, bodyY(z));
+    const k = fall(z);
     if (k <= 0) return;
     const dmg = Math.round(NADE_DMG * k);
     z.hp -= dmg; z.hurtTimer = 260; z.atkTimer = 0;
     if (!z.activated) { z.activated = true; m.activatedCount++; }
     z.x = Math.max(20, Math.min(MISSION_W - 20, z.x + Math.sign(z.x - x || 1) * (z.type === 'brute' ? 6 : 26) * k));
-    m.effects.push({ type: 'txt', x: z.x, y: MGY - 60 + (z.standingY || 0), v: `-${dmg}`, col: '#ffaa33', at: now, dur: 700 });
+    m.effects.push({ type: 'txt', x: z.x, y: MGY - 60 + dep(z) + (z.standingY || 0), v: `-${dmg}`, col: '#ffaa33', at: now, dur: 700 });
     if (z.hp <= 0) {
       z.hp = 0; z.state = 'dead'; z.deadAt = now; credit();
       m.soundQ.push({ t: 'zdie', zt: z.type, x: z.x });
       if (z.type === 'brute') {
-        m.effects.push({ type: 'txt', x: z.x, y: MGY - 110, v: t('☠ BRUTE DOWN'), col: '#ffcc44', at: now, dur: 2400 });
+        m.effects.push({ type: 'txt', x: z.x, y: MGY - 110 + dep(z), v: t('☠ BRUTE DOWN'), col: '#ffcc44', at: now, dur: 2400 });
         pushRadio(m, 'kill', { line: 'Big one is down!', speaker: lead, cooldown: 0 });
       }
     }
   });
   (m.humans || []).forEach(h => {
     if (h.state === 'dead' || !h.hostile) return;
-    const k = fall(h.x, bodyY(h));
+    const k = fall(h);
     if (k <= 0) return;
     const dmg = Math.round(NADE_DMG * 0.8 * k);
     h.hp -= dmg; h.hurtTimer = 260; h._hitAt = now;
     h.x = Math.max(20, Math.min(MISSION_W - 20, h.x + Math.sign(h.x - x || 1) * 18 * k));
-    m.effects.push({ type: 'txt', x: h.x, y: MGY - 60, v: `-${dmg}`, col: '#ffaa33', at: now, dur: 700 });
+    m.effects.push({ type: 'txt', x: h.x, y: MGY - 60 + dep(h), v: `-${dmg}`, col: '#ffaa33', at: now, dur: 700 });
     if (h.hp <= 0) {
       h.hp = 0; h.state = 'dead'; h.deadAt = now; credit();
       if (h.colonel) {
-        m.effects.push({ type: 'txt', x: h.x, y: MGY - 110, v: t('★ COL. VOSS DOWN'), col: '#ffd54a', at: now, dur: 2600 });
+        m.effects.push({ type: 'txt', x: h.x, y: MGY - 110 + dep(h), v: t('★ COL. VOSS DOWN'), col: '#ffd54a', at: now, dur: 2600 });
         pushRadio(m, 'kill', { line: 'The colonel is down! Their line is breaking!', speaker: lead, cooldown: 0 });
       }
     }
@@ -209,11 +241,11 @@ function blast(m, x, y, now, src, H) {
   // Friendly fire: the squad takes a third of it (a roll dodges it).
   [m.soldier, ...(m.followers || [])].forEach(p => {
     if (!p || p.hp <= 0 || p.state === 'dead' || dodging(p)) return;
-    const k = fall(p.x, bodyY(p));
+    const k = fall(p);
     if (k <= 0) return;
     const dmg = Math.round(NADE_DMG * 0.33 * k);
     p.hp -= dmg; p.hurtTimer = 320;
-    m.effects.push({ type: 'txt', x: p.x, y: MGY - 70, v: `-${dmg}`, col: '#ff4400', at: now, dur: 900 });
+    m.effects.push({ type: 'txt', x: p.x, y: MGY - 70 + dep(p), v: `-${dmg}`, col: '#ff4400', at: now, dur: 900 });
     if (p.hp <= 0) {
       p.hp = 0; p.state = 'dead';
       if (p.id === m.soldier.id) H.promoteLeadOnDeath(m, now);
@@ -221,7 +253,7 @@ function blast(m, x, y, now, src, H) {
   });
   // Mines in the blast go off too.
   (m.hazards || []).forEach(h => {
-    if (h.type === 'mine' && !h.triggered && Math.abs(h.x - x) < R && m._detonateMine) m._detonateMine(h);
+    if (h.type === 'mine' && !h.triggered && Math.hypot(h.x - x, (dep(h) - d) * 1.5) < R && m._detonateMine) m._detonateMine(h);
   });
   // Noise: the dead far around come for it, hostiles on alert.
   m.zombies.forEach(z => {
@@ -240,7 +272,7 @@ function tryMelee(m, s, now, H) {
   const sy = (s.standingY || 0) + (s.jumpY || 0);
   const inReach = e => e.state !== 'dead' && e.hp > 0
     && Math.abs(e.x - s.x) < MELEE_REACH && (e.x - s.x) * s.facing > -12
-    && Math.abs((e.standingY || 0) - sy) < 24;
+    && Math.abs(dep(e) - dep(s)) < MELEE_DEPTH && Math.abs((e.standingY || 0) - sy) < 24;
   const tgt = m.zombies.filter(inReach).concat((m.humans || []).filter(h => h.hostile && inReach(h)))
     .sort((a, b) => Math.abs(a.x - s.x) - Math.abs(b.x - s.x))[0];
   if (!tgt) {
@@ -296,7 +328,7 @@ function swap(m, s, now) {
 function note(m, s, now, v, col) {
   if (now - (m._moveNoteAt || -1e9) < 700) return;
   m._moveNoteAt = now;
-  m.effects.push({ type: 'txt', x: s.x, y: MGY - 84 + (s.standingY || 0), v, col, at: now, dur: 900 });
+  m.effects.push({ type: 'txt', x: s.x, y: MGY - 84 + dep(s) + (s.standingY || 0), v, col, at: now, dur: 900 });
 }
 
 // Per-frame tick, called from updateMission after the lead's own
@@ -330,18 +362,18 @@ const NADE_BOX = { 'ammo-crate': 0.3, 'gun-rack': 0.3, 'evidence-box': 0.22, loc
 export function nadeFind(m, o, now) {
   const p = (NADE_BOX[o.type] || 0.04) * (o.rich ? 1.5 : 1);
   if (Math.random() >= p) return;
-  giveNade(m, o.x, now);
+  giveNade(m, o.x, now, dep(o));
 }
 
-export function giveNade(m, x, now) {
+export function giveNade(m, x, now, d = 0) {
   if (nadesOf(m) >= NADE_MAX) {
     if (now - (m._nadeFullAt || -1e9) < 1500) return false;
     m._nadeFullAt = now;
-    m.effects.push({ type: 'txt', x, y: MGY - 92, v: t('💣 GRENADES FULL'), col: 'rgba(184,204,170,0.8)', at: now, dur: 1000 });
+    m.effects.push({ type: 'txt', x, y: MGY - 92 + d, v: t('💣 GRENADES FULL'), col: 'rgba(184,204,170,0.8)', at: now, dur: 1000 });
     return false;
   }
   m.grenades = nadesOf(m) + 1;
   m.soundQ.push({ t: 'pickup', x });
-  m.effects.push({ type: 'txt', x, y: MGY - 92, v: t('+1 💣 GRENADE'), col: '#ffd54a', at: now, dur: 1300 });
+  m.effects.push({ type: 'txt', x, y: MGY - 92 + d, v: t('+1 💣 GRENADE'), col: '#ffd54a', at: now, dur: 1300 });
   return true;
 }
