@@ -123,5 +123,3 @@ export function dMissionExtras(ctx, m, now) {
     if (r && left !== null) label(ctx, r.x, MGY - 96 + dep(r), `🆘 ${left}s`, left < 15 ? '#ff5544' : '#88ddff', now);
   }
 }
-
-// Screen-space tags under the mission HUD bar.

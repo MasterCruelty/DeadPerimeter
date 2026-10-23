@@ -57,10 +57,8 @@ export function mkVaccineCampaign(gs, mags = 3) {
     current: null,
     currentIndex: 0,
     scenariosCleared: 0,
-    // Carrier / pickup state — wired in a later commit. Kept here so
-    // the renderer and finalizer can already read it without crashing.
+    // Whether the vial was ever picked up (the carrier lives on the mission).
     vaccinePickedUp: false,
-    vaccineCarrierId: null,
     // Act checkpoints: unlimited retries, every one counted. The finale
     // closes a 30-wave run, so a hard cap would push the player into an
     // ending for running out of tries rather than for how they played;
@@ -178,7 +176,9 @@ export function advanceVaccineScenario(campaign, gs) {
       // Carry the spare magazines over too — there is no resupply
       // between legs, but mkMission re-seeds magsLeft from _sortieMags,
       // which used to hand out a full fresh loadout every scenario.
-      orig._sortieMags = 1 + Math.max(0, ms.magsLeft | 0);
+      // Loose rounds kept by a manual reload go back into magazines.
+      const loose = Math.max(0, ms._loose | 0), mag = ms.maxAmmo || orig.maxAmmo || 30;
+      orig._sortieMags = 1 + Math.max(0, ms.magsLeft | 0) + Math.floor(loose / mag);
     }
   }
   const nextIdx = campaign.currentIndex + 1;
@@ -209,7 +209,7 @@ export function advanceVaccineScenario(campaign, gs) {
 // (so the victory screen survivor count still matches), tally lost
 // soldiers, and surface the outcome tier (plus the retry count).
 //
-// Outcome tiers — three endings, to be expanded in the next commit:
+// Outcome tiers:
 //   gold:    all scenarios cleared, ≥4 survivors                (full win)
 //   silver:  all scenarios cleared, 1-3 survivors               (pyrrhic win)
 //   bronze:  partial — at least the hospital was cleared

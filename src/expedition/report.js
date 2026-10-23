@@ -2,7 +2,7 @@
 //
 // Grades come from points (S ≥ 100, A ≥ 80, B ≥ 60, C below):
 //   sortie    50 + lead accuracy × 45 (max 30; 15 if the lead never fired)
-//             + side objective (+15 done, −5 failed, +8 when there is none)
+//             + side objective (+15 done, −5 failed, +8 when there is none or it was left alone)
 //             + 8 per job finished here, −20 if the main goal was missed
 //               (Compact still standing, vaccine vial lost)
 //             + 10 under par time − 15 per soldier lost
@@ -76,7 +76,8 @@ export function sortieReport(m) {
   const acc = st.shots > 0 ? st.hits / st.shots : null;
   const pts = 50
     + (acc === null ? 15 : Math.min(30, acc * 45))
-    + (side ? (side.state === 'done' ? 15 : side.state === 'failed' ? -5 : 0) : 8)
+    // A side objective left alone counts like none; failing one costs.
+    + (side ? (side.state === 'done' ? 15 : side.state === 'failed' ? -5 : 8) : 8)
     + 8 * jobs.filter(j => j.state === 'done').length
     + (won && main.some(o => o.state !== 'done') ? -20 : 0)
     + (won && time <= par ? 10 : 0)
