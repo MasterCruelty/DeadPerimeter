@@ -15,7 +15,7 @@
 | ![Siege](docs/screenshots/siege.jpg) | ![City map](docs/screenshots/city-map.jpg) |
 | **Siege** — three lanes, radar, wave conditions, radio events | **City map** — 17 places that remember infestation and loot |
 | ![Sortie](docs/screenshots/sortie.jpg) | ![Room](docs/screenshots/room.jpg) |
-| **Sortie** — walk into buildings, climb, loot, get back to the van | **Rooms** — press E at a door: apartments, clinics, storage, armories |
+| **Sortie** — a street with depth: line up to hit, loot, get back to the van | **Rooms** — press E at a door: apartments, clinics, storage, armories |
 | ![Compound assault](docs/screenshots/assault.jpg) | ![Command center](docs/screenshots/command-center.jpg) |
 | **Assault on the Northgate Compact** — soldiers, not zombies | **Command center** — survivors' jobs, main story, journal |
 | ![Italian title screen](docs/screenshots/italian-menu.jpg) | ![Italian sortie](docs/screenshots/italian-room.jpg) |
