@@ -587,15 +587,21 @@ Order of operations in one call:
 - Follower AI: track lead in a formation spread across the band, walk
   to the target's depth to line up the shot (`_aimDepth`), hold fire
   while misaligned or with a wreck in the way, switch to knife on dry
-  mag.
+  mag. When the lead is on another level they take the stairs / ladder
+  to it (`update/levels.js`); rescued civilians following the party do
+  the same.
 - Zombie AI: close in on both axes (a pack far off keeps a personal
   depth offset), bite only when lined up in depth, ranged spitter logic
   (the spit flies across the band toward the target). Zombies on
   platforms or with ladders below them will climb to reach party
-  members on a different floor (heading to the back wall first).
+  members on a different floor (heading to the back wall first). In a
+  fork, a target on the other road means going round the median's
+  end (`forkWay`).
 - Hostile-human AI: walk to weapon's ideal range, line up on the
   target's depth, fire only when roughly aligned (aim wobbles in
-  depth); close in when a wreck is in the way.
+  depth); close in when a wreck is in the way, round the fork's median
+  when the target is on the other road. Their shots stay on the street
+  (someone up on a floor is out of reach and only a last-resort target).
 - Bullet loop with branches: barricade / wreck (`coverStops`) → spit →
   damage party / rescuables; hostile → damage party; friendly → mine
   detonate → human → zombie. Every bullet carries `depth` (+ `dd`
@@ -652,7 +658,36 @@ line at depth 0 (`aloft`, `clampDepth`).
 | `placeObstacle(o, r)` | Cars anywhere (cover), furniture / searchables at the back, clutter anywhere. |
 | `coverStops(m, b)`, `coverBetween` | Wrecked cars (and the alarm car) stop bullets along their depth unless fired point-blank over them. |
 | `forkMid, holdFork, noteRoad, roadClamp, wrongRoad` | The fork's concrete median: the squad keeps to the road the lead took. |
+| `holdMedian(m, list)`, `forkWay(m, e, tx, td)` | The median holds zombies and survivors on the ground too (each keeps the side it was on while the median spans its x, run after their movement); `forkWay` is the waypoint round the near end when the target is on the other road. It's low: bullets fly over it, but a shot has to be lined up in depth and the median (14 px) is wider than `HIT_TOL`, so only big bodies and pellet fringes get hit across; spitters lob over it. |
 | `atDepth(ctx, x, d, fn, yOff)` | Draw something authored standing at `(x, MGY)` at depth `d`, scaled. |
+
+#### `update/levels.js` — followers between levels
+
+A level is the street (`null`) or one platform (upper floor or
+ledge). `levelOf(m, e)` is the one someone stands on, or is heading to
+while on a ladder. `followLevel(m, e, lead, now, dt, opts)` runs at the
+top of each follower's (and following civilian's) move and returns
+false when both are on the street, leaving the ground formation code
+in charge:
+
+- Same floor as the lead: a single line at depth 0, spaced along x
+  behind the lead (ahead of it when the floor ends), kept on the floor.
+- Lead on another level: pick the nearest stair / ladder that leads
+  there (down from the current floor first; one inside the fork is
+  skipped from its front road), walk to it heading to the back of the
+  band, wait for anyone just setting off on it the same way, then
+  climb with the lead's speed and slide (`CLIMB_SPD`). A climb follows
+  the lead: it turns round if the lead's level changes.
+- No stair reaches the lead's level, or no progress toward it for
+  4 s: stay on the current level and fight there (the street
+  formation under the lead, or as close as the floor allows), look
+  again after 1.5 s.
+- Reloading or swinging holds them in place, except halfway up a
+  ladder. `aiShoot` keeps firing at whatever is on their level.
+
+Rooms reset everyone to the room's floor (`placeParty`), so a climb
+in progress ends there. A follower carrying the vaccine climbs like
+the rest; if they fall up there the vial drops on that floor.
 
 ### 2.7 `src/expedition/`
 
@@ -954,7 +989,7 @@ are right next to the constants.
 | Camera scroll | `constants.js` (`WORLD_W`), `update/siege.js` (cameraX clamp), `DeadPerimeter.jsx` (pan key handlers) |
 | Playable missions | `update/mission.js`, `expedition/missionFinish.js`, `DeadPerimeter.jsx` (`playMission`, `finalizeMission`) |
 | Pre-mission magazine loadout | `DeadPerimeter.jsx` (`magsRef`, `magsPerSoldier` state, `playMission` ammo issue), `update/mission.js` (`buildMissionSoldier` reads `_sortieMags`) |
-| Multi-floor + platforms + ladders + jump | `update/mission.js` (platforms[], ladders[], `ladderAt` + E to climb, C jump impulse, climb checks, Y-level combat), `update/depth.js` (`aloft`, `LEDGE_REACH`, `BACK_REACH`) |
+| Multi-floor + platforms + ladders + jump | `update/mission.js` (platforms[], ladders[], `ladderAt` + E to climb, C jump impulse, climb checks, Y-level combat), `update/depth.js` (`aloft`, `LEDGE_REACH`, `BACK_REACH`), `update/levels.js` (followers and civilians take the stairs after the lead) |
 | Sortie depth band | `update/depth.js` (band, tolerances, formation, cover, fork median, `atDepth`), `update/mission.js` (movement / AI / bullets on both axes, `dBand`, depth-sorted world pass), `update/moves.js` (roll and grenades in depth), `update/cityMission.js` + `update/rooms.js` + `update/missionExtras.js` + `update/faction.js` (spawn depths), `render/cityMission.js` + `render/missionExtras.js` (drawables for the sorted pass), `render/lighting.js`, `DeadPerimeter.jsx` (W/S, C, E, ▲ ▼ touch buttons) |
 | Indoor multi-segment missions | `data/biomes.js` (`*_interior`), `data/expeditions.js` (indoor dests), `update/mission.js` (entranceX + indoor generator) |
 | Searchable loot containers | `update/mission.js` (`obstacles[].searchable`, progress bar, on-complete loot roll) |
@@ -962,7 +997,7 @@ are right next to the constants.
 | Mines / acid pools | `update/mission.js` (`mkMission` hazards, hazard loop, bullet → mine check) |
 | Spitter / Brute | `data/zombies.js`, `update/mission.js` (mkMission spawn + spitter AI block + scripted rooftop brute) |
 | DEFEND objective | `update/mission.js` (objective rolling + ambush spawn + defend tick + sandbag render + APC dispatch) |
-| Fork (back / front road) | `update/mission.js` (fork rolling, pickups on each road, `dForkMedian`), `update/depth.js` (median: `holdFork`, `noteRoad`, `roadClamp`, `wrongRoad`) |
+| Fork (back / front road) | `update/mission.js` (fork rolling, pickups on each road, `dForkMedian`, zombie / hostile detours), `update/depth.js` (median: `holdFork`, `noteRoad`, `roadClamp`, `wrongRoad` for the squad, `holdMedian`, `forkWay` for everyone else) |
 | Survivor encounters | `data/expeditions.js` (`TRADE_OFFERS`, `rollEncounter`), `update/mission.js` (humans block, AI loop, trade dialog), `DeadPerimeter.jsx` (`resolveTrade`) |
 | Lead promotion | `update/mission.js` (`promoteLeadOnDeath` + top-of-frame guard) |
 | Wave conditions / surge pacing / mini-boss | `data/waveMods.js`, `entities/wave.js` (`mkWave(n, mod)`), `entities/zombie.js` (boss), `update/siege.js` (`modRange`, `spitterTick`, boss spawn + bounty, `nextWaveMod` roll), `render/weather.js`, `render/hud.js` (tag + boss bar), `render/lighting.js`, `DeadPerimeter.jsx` (`ensureNextWaveMod`, intel panel) |

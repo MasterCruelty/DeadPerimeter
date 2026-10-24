@@ -15,7 +15,7 @@
 | ![Siege](docs/screenshots/siege.jpg) | ![City map](docs/screenshots/city-map.jpg) |
 | **Siege** — three lanes, radar, wave conditions, radio events | **City map** — 17 places that remember infestation and loot |
 | ![Sortie](docs/screenshots/sortie.jpg) | ![Room](docs/screenshots/room.jpg) |
-| **Sortie** — walk into buildings, climb, loot, get back to the van | **Rooms** — press E at a door: apartments, clinics, storage, armories |
+| **Sortie** — a street with depth: line up to hit, loot, get back to the van | **Rooms** — press E at a door: apartments, clinics, storage, armories |
 | ![Compound assault](docs/screenshots/assault.jpg) | ![Command center](docs/screenshots/command-center.jpg) |
 | **Assault on the Northgate Compact** — soldiers, not zombies | **Command center** — survivors' jobs, main story, journal |
 | ![Italian title screen](docs/screenshots/italian-menu.jpg) | ![Italian sortie](docs/screenshots/italian-room.jpg) |
@@ -54,7 +54,8 @@ points before the next wave.
   beat-'em-up: walk across it with `W` / `S`. Shots, bites and blows
   only land when lined up, and wrecked cars stop bullets. The street
   has 2–4 buildings with upper floors, stairs and searchable
-  containers. Doors in their back
+  containers; the squad takes the stairs after you and lines up on the
+  floor. Doors in their back
   walls lead to **rooms** (press `E`): apartments, offices, clinics,
   storage and arms lockers, each with its own dead and better loot.
   Some streets are blocked by a **chained barricade**: find bolt cutters
