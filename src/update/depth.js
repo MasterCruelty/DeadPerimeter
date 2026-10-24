@@ -15,7 +15,10 @@
 //
 // Rooms are narrower (ROOM_BAND). The fork of reach missions is a
 // concrete median along the middle of the band: the squad picks the
-// back or the front road before it starts and can't cross mid-way.
+// back or the front road before it starts and can't cross mid-way;
+// the dead and hostile survivors can't either, they go round its ends.
+// It is low: bullets fly over it (a shot still has to be lined up in
+// depth, and the median is wider than that), spit is lobbed over it.
 import { MGY } from '../data/expeditions.js';
 
 export const BAND = 68;
@@ -114,6 +117,38 @@ export function roadClamp(m, x, d) {
 }
 export const wrongRoad = (m, p, nx) => !!m.fork && m.fork.road !== undefined
   && inForkAt(m, nx) && !inForkAt(m, p.x) && roadOf(dep(p)) !== m.fork.road;
+
+// The dead and the survivors on the ground are held by it too: each
+// keeps to the side it was on when the median started spanning its x
+// (run after their movement).
+const sideDepth = road => (road === 0 ? forkMid() - FORK_HALF : forkMid() + FORK_HALF);
+export function holdMedian(m, list) {
+  (list || []).forEach(e => {
+    if (e.state === 'dead' || e.hp <= 0) return;
+    if (aloft(e) || !inForkAt(m, e.x)) { e._road = undefined; return; }
+    if (e._road === undefined) e._road = roadOf(dep(e));
+    e.depth = e._road === 0 ? Math.min(dep(e), sideDepth(0)) : Math.max(dep(e), sideDepth(1));
+  });
+}
+
+// Where an actor on the ground heads for a target at (tx, td) on the
+// other road while the median spans the target's x: round the near
+// end of the median (just past it), then across to the target's road
+// before stepping back in. null: straight at the target.
+const END_GAP = 14;
+export function forkWay(m, e, tx, td) {
+  const f = m.fork;
+  if (!f || m.room || aloft(e) || tx < f.startX || tx > f.endX) return null;
+  const want = roadOf(td);
+  const inside = inForkAt(m, e.x);
+  if (inside && (e._road ?? roadOf(dep(e))) === want) return null;
+  // Outside it: clear of the median's width before stepping in.
+  if (!inside && (want === 0 ? dep(e) <= sideDepth(0) : dep(e) >= sideDepth(1))) return null;
+  const d = want === 0 ? sideDepth(0) - 4 : sideDepth(1) + 4;
+  if (!inside) return { x: e.x < f.startX ? Math.min(e.x + 40, f.startX - 2) : Math.max(e.x - 40, f.endX + 2), d };
+  const a = f.startX - END_GAP, b = f.endX + END_GAP;
+  return { x: Math.abs(e.x - a) + Math.abs(tx - a) <= Math.abs(e.x - b) + Math.abs(tx - b) ? a : b, d: dep(e) };
+}
 
 // ── Cover ───────────────────────────────────────────────────────
 // Wrecked cars stop bullets fired along their depth, unless the

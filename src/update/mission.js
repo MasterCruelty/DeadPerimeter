@@ -26,8 +26,10 @@ import { pushRadio } from '../audio/radio.js';
 import { tickMoves, rollStep, dodging, kick, hitstop, addShake, nadeFind, giveNade } from './moves.js';
 import { BAND, DEPTH_SPD, HIT_TOL, HOSTILE_TOL, BITE_DEPTH, MELEE_DEPTH, GRAB_DEPTH, SEARCH_DEPTH, BACK_REACH, LEDGE_REACH,
   dep, dGap, bandOf, depthSc, anyDepth, aloft, stepDepth, clampDepth, holdFork, forkMid, noteRoad, roadClamp, wrongRoad,
+  holdMedian, forkWay,
   coverStops, coverBetween, atDepth, formationDepth, placeObstacle } from './depth.js';
 import { doorAt } from './rooms.js';
+import { followLevel, CLIMB_SPD } from './levels.js';
 import { t } from '../i18n/index.js';
 
 // Hurt-callout helper (same logic as siege): fires once when a party
@@ -642,6 +644,14 @@ function alertHumans(m, h) {
 // Standing in an acid pool (an ellipse on the ground at its depth).
 const inAcid = (h, p) => !aloft(p) && ((p.x - h.x) / (h.w / 2)) ** 2 + ((dep(p) - dep(h)) / 12) ** 2 <= 1;
 
+// Walk toward a waypoint {x, d} on the street (rounding the median).
+function walkTo(e, way, step) {
+  const dx = way.x - e.x;
+  if (Math.abs(dx) > 3) { e.facing = dx > 0 ? 1 : -1; e.x += Math.sign(dx) * Math.min(Math.abs(dx), step); }
+  stepDepth(e, way.d, step * 0.75);
+  e.state = 'walk';
+}
+
 // The stair / ladder the lead can climb from where they stand: at its
 // foot from the back of the band, or at its top on the matching floor.
 export function ladderAt(m, s) {
@@ -918,7 +928,6 @@ export function updateMission(m, now, dt) {
   // we apply gravity and check for platform collisions on descent.
   const JUMP_GRAV = 0.55;
   const JUMP_VEL  = -8.6;
-  const CLIMB_SPD = 2.2;
   if (s.standingY === undefined) s.standingY = 0;
   if (s.climbing === undefined) s.climbing = null;
   const onSurface = (s.jumpY || 0) === 0 && (s.vy || 0) === 0;
@@ -1025,14 +1034,17 @@ export function updateMission(m, now, dt) {
   // Followers: chase the lead at a small offset, ~1.6 px/frame, spread
   // across the band in formation. With a target they walk to its depth
   // to line up the shot (see aiShoot). In a fork they keep to the
-  // lead's road.
+  // lead's road. Up on a floor, or on their way to the lead's level,
+  // update/levels.js moves them.
   const leadD = dep(s);
   (m.followers || []).forEach((f, i) => {
     if (f.hp <= 0 || f.state === 'dead') return;
-    if (f.state === 'reload' || f.state === 'knife') return;
+    const followSpd = 2.0 * (dt / 16);
+    const busy = f.state === 'reload' || f.state === 'knife';
+    if (followLevel(m, f, s, now, dt, { spd: followSpd, slot: (i + 1) * 36, busy })) return;
+    if (busy) return;
     const desired = s.x - (i + 1) * 36 * s.facing;
     const dx = desired - f.x;
-    const followSpd = 2.0 * (dt / 16);
     const prev = dep(f);
     let want = f._aimDepth ?? formationDepth(leadD, i, band);
     want = roadClamp(m, f.x, want);
@@ -1069,14 +1081,17 @@ export function updateMission(m, now, dt) {
         m.effects.push({ type: 'txt', x: r.x, y: MGY - 70 + dep(r), v: t('{name} JOINED', { name: r.name }), col: '#88ddff', at: now, dur: 1100 });
       }
     } else if (r.state === 'following') {
-      // Stay ~70 px behind the lead's facing
+      // Stay ~70 px behind the lead's facing; up and down the stairs
+      // with the squad (a little slower on them).
+      const followSpd = 1.8 * (dt / 16);
+      const k = nFollow++;
+      if (followLevel(m, r, s, now, dt, { spd: followSpd, slot: 36 * ((m.followers || []).length + 1) + 30 * k, climbSpd: 1.7 })) return;
       const desired = s.x - 70 * s.facing;
       const dx = desired - r.x;
-      const followSpd = 1.8 * (dt / 16);
       const nx = r.x + Math.sign(dx) * Math.min(Math.abs(dx), followSpd);
       if (Math.abs(dx) > 6 && !wrongRoad(m, r, nx)) { r.x = nx; r.facing = s.facing; }
       const prev = dep(r);
-      stepDepth(r, roadClamp(m, r.x, formationDepth(leadD, 2 + (nFollow++ % 2), band)), followSpd * DEPTH_SPD);
+      stepDepth(r, roadClamp(m, r.x, formationDepth(leadD, 2 + (k % 2), band)), followSpd * DEPTH_SPD);
       clampDepth(m, r);
       holdFork(m, r, prev);
     }
@@ -1156,6 +1171,12 @@ export function updateMission(m, now, dt) {
           if (!best || d < best.d) return { ladder: l, d };
           return best;
         }, null);
+        // The median in the way: round its end first.
+        const way = ladder && forkWay(m, z, ladder.ladder.x, 0);
+        if (way) {
+          walkTo(z, way, step);
+          return;
+        }
         if (ladder) {
           const ldx = ladder.ladder.x - z.x;
           z.facing = ldx > 0 ? 1 : -1;
@@ -1227,6 +1248,13 @@ export function updateMission(m, now, dt) {
     // spread over the band; close up each one lines up on its target.
     const off = Math.abs(dx) > 140 ? (z._dOff ?? (z._dOff = Math.round((Math.random() - 0.5) * 36))) : 0;
     const gap = dGap(tgt, z);
+    // Target across the fork's median: round its end.
+    const way = sameLevel && forkWay(m, z, tgt.x, dep(tgt));
+    if (way) {
+      walkTo(z, way, step);
+      z.atkTimer = 0;
+      return;
+    }
 
     if (z.state === 'idle' || z.state === 'walk') {
       z.facing = dx > 0 ? 1 : -1;
@@ -1465,7 +1493,8 @@ export function updateMission(m, now, dt) {
   // to hit.
   (m.humans || []).forEach(h => {
     if (h.state === 'dead' || !h.hostile || !h.activated) return;
-    const cost = p => Math.abs(p.x - h.x) + 1.5 * dGap(p, h);
+    // Someone up on a floor is out of reach from the street.
+    const cost = p => Math.abs(p.x - h.x) + 1.5 * dGap(p, h) + 4 * Math.abs(p.standingY || 0);
     const tgt = aliveParty(m).reduce((best, p) => {
       if (!best) return p;
       return cost(p) < cost(best) ? p : best;
@@ -1477,6 +1506,13 @@ export function updateMission(m, now, dt) {
     const wMeta = WPN[h.weapon];
     const idealRange = (wMeta.range || 220) * 0.7;
     const gap = dGap(tgt, h);
+    // Target across the fork's median: no lining up a shot over it,
+    // round its end.
+    const way = h.state !== 'reload' && !aloft(tgt) && forkWay(m, h, tgt.x, dep(tgt));
+    if (way) {
+      walkTo(h, way, 0.9 * (h.compact ? 1.15 : 1) * (dt / 16));
+      return;
+    }
     if (h.state !== 'reload') {
       stepDepth(h, dep(tgt), (h.compact ? 1.0 : 0.8) * (dt / 16));
       clampDepth(m, h);
@@ -1692,7 +1728,8 @@ export function updateMission(m, now, dt) {
 
     // Hostile-human bullets damage the party / rescuables / civilians.
     if (b.hostile) {
-      const hit = aliveTargets(m).find(p => !dodging(p) && Math.abs(p.x - b.x) < 18 && Math.abs(dep(p) - b.depth) < HOSTILE_TOL);
+      const hit = aliveTargets(m).find(p => !dodging(p) && Math.abs(p.x - b.x) < 18 && Math.abs(dep(p) - b.depth) < HOSTILE_TOL
+        && Math.abs(p.standingY || 0) < 22);
       if (hit) {
         hit.hp -= b.dmg; hit.hurtTimer = 220;
         m.effects.push({ type: 'txt', x: hit.x, y: MGY - 60 + dep(hit), v: `-${Math.round(b.dmg)}`, col: '#ff6644', at: now, dur: 700 });
@@ -1791,6 +1828,8 @@ export function updateMission(m, now, dt) {
   });
 
   clampCity(m);
+  holdMedian(m, m.zombies);
+  holdMedian(m, m.humans);
 
   // Searchable obstacles (TLS Union City style looting). When a
   // party member stays within ~30 px of an un-searched container
@@ -2806,7 +2845,7 @@ function dBand(ctx, m, biome) {
 }
 
 // The fork's median: a row of concrete barriers along the middle of
-// the band (update/depth.js holds the squad on its side of it).
+// the band (update/depth.js holds everyone on the ground on their side).
 function dForkMedian(ctx, m) {
   const f = m.fork, d = forkMid();
   for (let x = f.startX + 21; x < f.endX; x += 46) {
