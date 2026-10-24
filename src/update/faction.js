@@ -5,6 +5,7 @@ import { WPN, FOUND_GUNS } from '../data/weapons.js';
 import { COMPACT, COMPACT_STOCK, STANDING_PER_BUY, tierOf, discountOf, mkCompact } from '../data/faction.js';
 import { stashGear } from '../entities/gear.js';
 import { ensureCity } from '../data/city.js';
+import { anyDepth, BAND } from './depth.js';
 import { t } from '../i18n/index.js';
 
 export function ensureCompact(gs) {
@@ -73,20 +74,20 @@ export function setupAssault(m, dest, segs, lockedSeg, wave) {
   }
   const arm = lockedSeg || segs[segs.length - 1];
   const voss = mkTrooper('ak', arm ? arm.x1 - 80 : W - 300, 260);
-  voss.colonel = true; voss.name = COMPACT.leader;
+  voss.colonel = true; voss.name = COMPACT.leader; voss.depth = Math.round(BAND / 2);
   m.humans.push(voss);
   m.compactTotal = n + 1;
   // Armory + treasury: everything behind the barricade.
   if (arm) {
     const at = k => Math.round(arm.x0 + 80 + (arm.x1 - arm.x0 - 160) * k);
     for (let g = 0; g < info.guns; g++) {
-      m.pickups.push({ id: uid(), x: at((g + 0.5) / Math.max(1, info.guns)), type: 'gear', item: { kind: 'gun', w: FOUND_GUNS[g % FOUND_GUNS.length] }, value: 1, collected: false, lane: 0 });
+      m.pickups.push({ id: uid(), x: at((g + 0.5) / Math.max(1, info.guns)), depth: anyDepth(), type: 'gear', item: { kind: 'gun', w: FOUND_GUNS[g % FOUND_GUNS.length] }, value: 1, collected: false, lane: 0 });
     }
     Object.entries(info.treasury).forEach(([k, v], j) => {
       if (!(v > 0)) return;
       const half = Math.ceil(v / 2);
-      m.pickups.push({ id: uid(), x: at(0.15 + j * 0.2), type: k, value: half, collected: false, lane: 0 });
-      m.pickups.push({ id: uid(), x: at(0.25 + j * 0.2), type: k, value: v - half, collected: false, lane: 0 });
+      m.pickups.push({ id: uid(), x: at(0.15 + j * 0.2), depth: anyDepth(), type: k, value: half, collected: false, lane: 0 });
+      m.pickups.push({ id: uid(), x: at(0.25 + j * 0.2), depth: anyDepth(), type: k, value: v - half, collected: false, lane: 0 });
     });
   }
 }
@@ -94,10 +95,10 @@ export function setupAssault(m, dest, segs, lockedSeg, wave) {
 function mkTrooper(weapon, x, hp) {
   const meta = WPN[weapon];
   return {
-    id: uid(), x, hp, maxHp: hp, weapon, maxAmmo: meta.ammo, ammo: meta.ammo,
+    id: uid(), x, depth: anyDepth(), hp, maxHp: hp, weapon, maxAmmo: meta.ammo, ammo: meta.ammo,
     state: 'idle', facing: -1, civilian: false, bandit: false, hostile: true, compact: true,
     walkPhase: Math.random() * Math.PI * 2, lastShot: 0, reloadStart: 0, hurtTimer: 0, deadAt: 0,
-    activated: false, forkLane: 0, _laneY: 0,
+    activated: false,
   };
 }
 

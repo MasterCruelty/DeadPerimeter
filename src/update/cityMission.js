@@ -18,6 +18,7 @@ import { setupAssault } from './faction.js';
 import { MISSION_W, MGY } from '../data/expeditions.js';
 import { pushRadio } from '../audio/radio.js';
 import { placeRoomDoors, tickRooms } from './rooms.js';
+import { BAND, dep, anyDepth, placeObstacle, formationDepth } from './depth.js';
 import { t } from '../i18n/index.js';
 
 export const VAN_X = 96;
@@ -67,6 +68,9 @@ export function isIndoorAt(m, x) {
 // Replaces the generic sortie layout with the location's persistent one.
 export function setupCityMission(m, dest) {
   const W = MISSION_W, r = mulberry32(dest.seed || 1);
+  // Depths come from their own stream, so the rest of the layout stays
+  // what the seed always gave.
+  const rd = mulberry32(((dest.seed || 1) ^ 0x5bd1e995) >>> 0);
   const street = BIOMES[dest.biome] || BIOMES.downtown;
   const interiors = (dest.interiors && dest.interiors.length) ? dest.interiors : ['office_interior'];
   const loot = dest.lootLeft ?? 1;
@@ -118,13 +122,13 @@ export function setupCityMission(m, dest) {
   for (let x = 300 + r() * 80; x < W - 140; x += 200 + r() * 140) {
     if (inSeg(x)) continue;
     const t = street.obstacles[Math.floor(r() * street.obstacles.length)];
-    obstacles.push({ x: Math.round(x), type: t, searchable: SEARCHABLE_TYPES.has(t) && r() < 0.32, searched: false });
+    obstacles.push(placeObstacle({ x: Math.round(x), type: t, searchable: SEARCHABLE_TYPES.has(t) && r() < 0.32, searched: false }, rd));
   }
   segs.forEach(s => {
     const ib = BIOMES[s.biomeKey];
     for (let x = s.x0 + 70 + r() * 40; x < s.x1 - 60; x += 140 + r() * 110) {
       const t = ib.obstacles[Math.floor(r() * ib.obstacles.length)];
-      obstacles.push({ x: Math.round(x), type: t, searchable: SEARCHABLE_TYPES.has(t) && r() < 0.6, searched: false });
+      obstacles.push(placeObstacle({ x: Math.round(x), type: t, searchable: SEARCHABLE_TYPES.has(t) && r() < 0.6, searched: false }, rd));
     }
   });
   // What earlier visits took stays taken.
@@ -138,7 +142,7 @@ export function setupCityMission(m, dest) {
   const props = [];
   for (let px = street.propsPerStep; px < W - 50; px += street.propsPerStep) {
     const s = inSeg(px);
-    props.push({ x: px + Math.round((r() - 0.5) * 60), type: s ? BIOMES[s.biomeKey].propType : street.propType });
+    props.push({ x: px + Math.round((r() - 0.5) * 60), depth: 0, type: s ? BIOMES[s.biomeKey].propType : street.propType });
   }
 
   // Behind a barricade the shelves are untouched: tearing it down costs
@@ -153,7 +157,7 @@ export function setupCityMission(m, dest) {
   rollGear(dest.locId, loot).forEach((item, i) => {
     const s = (lockedSeg && i === 0) ? lockedSeg : segs[segs.length - 1 - (i % segs.length)];
     const x = Math.round(s.x0 + 90 + Math.random() * Math.max(20, s.x1 - s.x0 - 180));
-    m.pickups.push({ id: uid(), x, type: 'gear', item, value: 1, collected: false, lane: 0 });
+    m.pickups.push({ id: uid(), x, depth: anyDepth(), type: 'gear', item, value: 1, collected: false, lane: 0 });
   });
 
   if (dest.faction) setupAssault(m, dest, segs, lockedSeg, m.wave || 1);
@@ -163,8 +167,8 @@ export function setupCityMission(m, dest) {
   (dest.quests || []).forEach((q, i) => {
     const s = lockedSeg || segs[segs.length - 1 - (i % segs.length)];
     const x = Math.round(s.x0 + (s.x1 - s.x0) * (0.45 + 0.1 * i));
-    if (q.kind === 'fetch') m.pickups.push({ id: uid(), x, type: 'quest', questId: q.id, label: q.item, value: 1, collected: false, lane: 0, _questUpper: true });
-    else if (q.kind === 'rescue') m.rescuables.push({ id: uid(), name: q.person, x, hp: 60, maxHp: 60, facing: -1, state: 'idle', hurtTimer: 0, walkPhase: 0, questId: q.id });
+    if (q.kind === 'fetch') m.pickups.push({ id: uid(), x, depth: 0, type: 'quest', questId: q.id, label: q.item, value: 1, collected: false, lane: 0, _questUpper: true });
+    else if (q.kind === 'rescue') m.rescuables.push({ id: uid(), name: q.person, x, depth: anyDepth(), hp: 60, maxHp: 60, facing: -1, state: 'idle', hurtTimer: 0, walkPhase: 0, questId: q.id });
   });
 
   // Loot on the upper floors pays a bit more; some dead wait up there.
@@ -173,13 +177,13 @@ export function setupCityMission(m, dest) {
     const s = segAt({ segs }, p.x);
     if (p._questUpper) { p.standingY = FLOOR_Y - MGY; return; }
     if (s && !p.fork && p.type !== 'vaccine' && Math.random() < 0.38 && p.x > s.x0 + 80 && p.x < s.x1 - 80) {
-      p.standingY = FLOOR_Y - MGY; p.value = Math.round((p.value || 1) * 1.4);
+      p.standingY = FLOOR_Y - MGY; p.depth = 0; p.value = Math.round((p.value || 1) * 1.4);
     }
   });
   m.zombies.forEach(z => {
     z.standingY = 0;
     const s = segAt({ segs }, z.x);
-    if (s && z.type !== 'tank' && z.type !== 'brute' && Math.random() < 0.25) z.standingY = FLOOR_Y - MGY;
+    if (s && z.type !== 'tank' && z.type !== 'brute' && Math.random() < 0.25) { z.standingY = FLOOR_Y - MGY; z.depth = 0; }
   });
 
   // Survivor camps set up on the street, not inside a building.
@@ -198,15 +202,16 @@ export function setupCityMission(m, dest) {
     objective: 'explore', fork: null, entranceX: 0, indoorBiomeKey: null,
     segs, rdoors, buildings, platforms, ladders, obstacles, props, keys: 0, room: null,
   });
-  // Start next to the van.
-  [m.soldier, ...(m.followers || [])].forEach((p, i) => { p.x = 200 - i * 30; });
+  // Start next to the van, spread across the street.
+  const d0 = Math.round(BAND / 2);
+  [m.soldier, ...(m.followers || [])].forEach((p, i) => { p.x = 200 - i * 30; p.depth = formationDepth(d0, i - 1); });
 }
 
 function packAt(m, xs, standingY = 0) {
   xs.forEach((x, i) => {
     const t = i % 3 === 1 ? 'runner' : 'walker', z = ZTP[t];
     m.zombies.push({
-      id: uid(), type: t, z, x, hp: z.hp, maxHp: z.hp, spd: z.spd * (0.85 + Math.random() * 0.3),
+      id: uid(), type: t, z, x, depth: standingY < 0 ? 0 : anyDepth(), hp: z.hp, maxHp: z.hp, spd: z.spd * (0.85 + Math.random() * 0.3),
       state: 'walk', facing: -1, walkPhase: Math.random() * 6, atkTimer: 0, hurtTimer: 0, deadAt: 0,
       lane: 0, activated: true, standingY,
     });
@@ -222,12 +227,12 @@ export function onContainerSearched(m, o, now) {
   if ((gunBox && Math.random() < 0.12) || (meleeBox && Math.random() < 0.1)) {
     const item = gunBox ? { kind: 'gun', w: FOUND_GUNS[Math.floor(Math.random() * FOUND_GUNS.length)] } : { kind: 'melee', type: MELEE_FINDS[Math.floor(Math.random() * MELEE_FINDS.length)] };
     (m.collected.gear || (m.collected.gear = [])).push(item);
-    m.effects.push({ type: 'txt', x: o.x, y: MGY - 100, v: `${gearIcon(item)} ${t(gearName(item)).toUpperCase()}!`, col: '#ffd54a', at: now, dur: 2000 });
+    m.effects.push({ type: 'txt', x: o.x, y: MGY - 100 + dep(o), v: `${gearIcon(item)} ${t(gearName(item)).toUpperCase()}!`, col: '#ffd54a', at: now, dur: 2000 });
   }
   if (!o.hasKey) return;
   o.hasKey = false; m.keys = (m.keys || 0) + 1;
   m.soundQ.push({ t: 'pickup', x: o.x });
-  m.effects.push({ type: 'txt', x: o.x, y: MGY - 90, v: t('✂ BOLT CUTTERS'), col: '#ffd54a', at: now, dur: 2200 });
+  m.effects.push({ type: 'txt', x: o.x, y: MGY - 90 + dep(o), v: t('✂ BOLT CUTTERS'), col: '#ffd54a', at: now, dur: 2200 });
   pushRadio(m, 'kill', { line: 'Bolt cutters. That chained barricade will not hold now.', speaker: m.soldier, cooldown: 0 });
 }
 

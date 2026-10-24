@@ -7,7 +7,8 @@ import { t } from '../i18n/index.js';
 // Small deterministic rng for per-room decor.
 const rng = seed => { let a = seed | 0; return () => { a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; };
 
-function prompt(ctx, x, y, text, now) {
+// "E" key prompt (also used for stairs and ladders, update/mission.js).
+export function prompt(ctx, x, y, text, now) {
   const b = Math.sin(now / 260) * 1.5;
   ctx.font = 'bold 10px monospace';
   const w = ctx.measureText(text).width + 30;

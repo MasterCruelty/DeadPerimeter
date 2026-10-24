@@ -50,8 +50,11 @@ points before the next wave.
   take stays taken) and whether you've **discovered** it yet. Far places
   cost more food and take the whole day (two sortie slots).
 - A sortie is a **side-scrolling mission** played live with up to 5
-  soldiers (the others follow as AI). The street has 2–4 buildings with
-  upper floors, stairs and searchable containers. Doors in their back
+  soldiers (the others follow as AI). The street has **depth**, like a
+  beat-'em-up: walk across it with `W` / `S`. Shots, bites and blows
+  only land when lined up, and wrecked cars stop bullets. The street
+  has 2–4 buildings with upper floors, stairs and searchable
+  containers. Doors in their back
   walls lead to **rooms** (press `E`): apartments, offices, clinics,
   storage and arms lockers, each with its own dead and better loot.
   Some streets are blocked by a **chained barricade**: find bolt cutters
@@ -65,8 +68,10 @@ points before the next wave.
   (crack a military cache, burn a nest, answer an SOS), car alarms,
   traders and bandits.
 - The lead soldier can **roll** out of a bite (a moment of
-  invulnerability, costs stamina), throw **grenades** (two per sortie,
-  more in containers and storerooms; the blast wakes the street),
+  invulnerability, costs stamina; across the street too), throw
+  **grenades** (two per sortie, more in containers and storerooms;
+  `W` / `S` lob them toward the back or the front; the blast wakes the
+  street),
   **reload** by hand, sling the gun for the **melee** weapon and swing
   it at will. Hits land with a short freeze, guns kick the camera and a
   boss going down slows time for a moment.
@@ -204,13 +209,14 @@ The `Dockerfile` is multi-stage (`deps` → `build` → `prod` on
 
 | Action | Input |
 | --- | --- |
-| Move | `←` `→` / `A` `D` |
-| Climb stairs or ladders / go down | `W` `↑` / `S` `↓` |
-| Jump (costs stamina) | `W` `↑` away from stairs and ladders |
+| Move along the street | `←` `→` / `A` `D` |
+| Move in depth (toward the buildings / the kerb) | `↑` `↓` / `W` `S` |
+| Climb stairs or a ladder / go down | `E` at the foot (from the back of the street) or at the top |
+| Jump (costs stamina) | `C` |
 | Fire | Hold `Space` or the left mouse button (keep holding to back off while shooting) |
 | Melee | `F` (automatic when the gun is dry and an enemy is close) |
-| Dodge roll | `Shift` |
-| Grenade | `G` |
+| Dodge roll (hold a direction, `W` `S` included) | `Shift` |
+| Grenade (`W` `S` held: toward the back / the front) | `G` |
 | Reload | `R` |
 | Swap gun / melee weapon | `Q` |
 | Search a container | Stand next to it until the ring fills |
@@ -221,8 +227,8 @@ The `Dockerfile` is multi-stage (`deps` → `build` → `prod` on
 | Pause | `Esc` |
 
 On mobile, tap the left/right thirds of the canvas to move and the
-centre to fire; roll, grenade, melee, reload and swap have their own
-buttons.
+centre to fire; hold ▲ / ▼ to move in depth; jump, E (stairs, ladders,
+doors), roll, grenade, melee, reload and swap have their own buttons.
 
 ---
 

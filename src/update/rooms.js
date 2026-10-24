@@ -16,6 +16,7 @@ import { BIOMES } from '../data/biomes.js';
 import { pickupValue } from '../data/rewards.js';
 import { FOUND_GUNS, MELEE_FINDS } from '../data/weapons.js';
 import { MGY, setMissionWidth } from '../data/expeditions.js';
+import { ROOM_BAND, BACK_REACH, dep, anyDepth, formationDepth } from './depth.js';
 import { t } from '../i18n/index.js';
 
 export const ROOM_W = 900;
@@ -80,30 +81,30 @@ function buildRoom(m, door) {
     const x = Math.round(230 + i * (560 / nBox) + r() * 60);
     const t = K.box[Math.floor(r() * K.box.length)];
     // A detour off the street pays like a locked building.
-    obstacles.push({ x, type: t, searchable: true, searched: r() > 0.25 + 0.75 * lootLeft, rich: true });
+    obstacles.push({ x, depth: Math.round(2 + r() * 10), type: t, searchable: true, searched: r() > 0.25 + 0.75 * lootLeft, rich: true });
   }
   obstacles.forEach(o => { if (o.searched) o._preLooted = true; });
   const nPick = r() < 0.25 + 0.6 * lootLeft ? 1 + Math.floor(r() * 2) : 0;
   for (let i = 0; i < nPick; i++) {
     const type = K.loot[Math.floor(r() * K.loot.length)];
     const x = Math.round(380 + r() * 420);
-    pickups.push({ id: uid(), x, type, value: pickupValue(type, { wave: m.wave || 1, x: 0.8, W: 1, mul: (m.valueMul || 1) * 1.2 }), collected: false, lane: 0 });
+    pickups.push({ id: uid(), x, depth: anyDepth(8, ROOM_BAND - 6, r), type, value: pickupValue(type, { wave: m.wave || 1, x: 0.8, W: 1, mul: (m.valueMul || 1) * 1.2 }), collected: false, lane: 0 });
   }
   if (r() < 0.14 * lootLeft) {
     const item = r() < 0.5 ? { kind: 'gun', w: FOUND_GUNS[Math.floor(r() * FOUND_GUNS.length)] } : { kind: 'melee', type: MELEE_FINDS[Math.floor(r() * MELEE_FINDS.length)] };
-    pickups.push({ id: uid(), x: Math.round(600 + r() * 200), type: 'gear', item, value: 1, collected: false, lane: 0 });
+    pickups.push({ id: uid(), x: Math.round(600 + r() * 200), depth: anyDepth(8, ROOM_BAND - 6, r), type: 'gear', item, value: 1, collected: false, lane: 0 });
   }
   const nZ = Math.round(r() * (1 + 4 * infest));
   for (let i = 0; i < nZ; i++) {
     const t = r() < 0.2 ? 'runner' : 'walker', z = ZTP[t];
     zombies.push({
-      id: uid(), type: t, z, x: Math.round(420 + r() * 420), hp: z.hp, maxHp: z.hp, spd: z.spd * (0.85 + r() * 0.3),
+      id: uid(), type: t, z, x: Math.round(420 + r() * 420), depth: anyDepth(6, ROOM_BAND - 6, r), hp: z.hp, maxHp: z.hp, spd: z.spd * (0.85 + r() * 0.3),
       state: 'idle', facing: -1, walkPhase: r() * 6, atkTimer: 0, hurtTimer: 0, deadAt: 0, lane: 0, activated: false, standingY: 0,
     });
   }
   // Now and then a grenade (update/moves.js), mostly in military stock.
   if (r() < (['storage', 'armory', 'lockers'].includes(door.kind) ? 0.35 : 0.08) * (0.5 + 0.5 * lootLeft)) {
-    pickups.push({ id: uid(), x: Math.round(300 + r() * 480), type: 'grenade', value: 1, collected: false, lane: 0 });
+    pickups.push({ id: uid(), x: Math.round(300 + r() * 480), depth: anyDepth(8, ROOM_BAND - 6, r), type: 'grenade', value: 1, collected: false, lane: 0 });
   }
   return {
     W: ROOM_W, biomeKey: K.biome, segs: null, buildings: [], platforms: [], ladders: [], props: [],
@@ -116,10 +117,13 @@ const WORLD_KEYS = ['W', 'biomeKey', 'segs', 'buildings', 'platforms', 'ladders'
   'hazards', 'humans', 'rescuables', 'encounter', 'side', 'alarm', 'entranceX', 'indoorBiomeKey', 'fork', 'rdoors', 'cameraX'];
 const take = m => Object.fromEntries(WORLD_KEYS.map(k => [k, m[k]]));
 
-function placeParty(party, x, dir) {
+// Lined up at a door: the lead in front of it, the others fanned out
+// across the band behind.
+function placeParty(party, x, dir, d0) {
   party.forEach((p, i) => {
     p.x = x - dir * i * 28; p.facing = dir;
-    p.standingY = 0; p.jumpY = 0; p.vy = 0; p.climbing = null; p.forkLane = 0;
+    p.standingY = 0; p.jumpY = 0; p.vy = 0; p.climbing = null;
+    p.depth = formationDepth(d0, i - 1, ROOM_BAND); p._aimDepth = undefined;
   });
 }
 
@@ -130,7 +134,7 @@ export function enterRoom(m, door, party, now) {
   Object.assign(m, door.world, { cameraX: 0, bullets: [] });
   m.room = { door, street, enteredAt: now };
   setMissionWidth(m.W);
-  placeParty(party, ROOM_EXIT_X + 60, 1);
+  placeParty(party, ROOM_EXIT_X + 60, 1, 16);
   hideFallen(m, true);
   const K = ROOM_KINDS[door.kind];
   m.soundQ.push({ t: 'thud', x: ROOM_EXIT_X });
@@ -145,7 +149,7 @@ export function exitRoom(m, party, now) {
   Object.assign(m, street, { bullets: [] });
   m.room = null;
   setMissionWidth(m.W);
-  placeParty(party, door.x, -1);
+  placeParty(party, door.x, -1, 12);
   hideFallen(m, false);
   // The street is frozen while you're inside: an SOS deadline waits too.
   if (now !== undefined && m.side && m.side.type === 'sos' && m.side.state === 'active') m.side.timeLimit += now - enteredAt;
@@ -166,7 +170,8 @@ function hideFallen(m, entering) {
 // The door the lead is standing at (street), or the exit (room).
 export function doorAt(m) {
   const s = m.soldier;
-  if (!s || Math.abs(s.standingY || 0) >= 18) return null;
+  // Doors are in the back wall: reach them from the back of the band.
+  if (!s || Math.abs(s.standingY || 0) >= 18 || dep(s) > BACK_REACH) return null;
   if (m.room) return s.x < ROOM_EXIT_X + DOOR_REACH + 30 ? 'exit' : null;
   return (m.rdoors || []).find(d => Math.abs(s.x - d.x) < DOOR_REACH) || null;
 }

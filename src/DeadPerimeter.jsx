@@ -1162,7 +1162,7 @@ export default function DeadPerimeter() {
         if (!e.repeat && !e.ctrlKey && !e.metaKey && !e.altKey && !missionRef.current.dialog && !pausedRef.current) {
           const mm = missionRef.current;
           const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
-          const act = { Shift: 'inputRoll', g: 'inputGrenade', r: 'inputReload', q: 'inputSwap', f: 'inputMelee' }[k];
+          const act = { Shift: 'inputRoll', g: 'inputGrenade', r: 'inputReload', q: 'inputSwap', f: 'inputMelee', c: 'inputJump' }[k];
           if (act) { mm[act] = true; e.preventDefault(); }
         }
       } else {
@@ -1516,12 +1516,12 @@ export default function DeadPerimeter() {
           hctx.fillStyle = 'rgba(184,204,170,0.65)'; hctx.font = '10px monospace';
           hctx.fillText(t('A/D or ←/→ move · Space / mouse hold: fire'), CW / 2, CH / 2 + 10);
           hctx.fillText(t('hold fire while moving back = backpedal shooting'), CW / 2, CH / 2 + 26);
-          hctx.fillText(t('W: jump / climb ladder · S: climb down / drop'), CW / 2, CH / 2 + 42);
+          hctx.fillText(t('W/S: move in depth · C: jump · E: stairs, ladders, doors'), CW / 2, CH / 2 + 42);
           hctx.fillText(t('stand by ★ containers to search them'), CW / 2, CH / 2 + 58);
           hctx.fillText(t('Shift: dodge roll · G: grenade · F: melee'), CW / 2, CH / 2 + 74);
           hctx.fillText(t('R: reload · Q: swap gun / melee weapon'), CW / 2, CH / 2 + 90);
           hctx.textAlign = 'left';
-          dRadioLog(hctx, CW / 2 - 260, CH / 2 + 116, 520, 4);   // under the pause box
+          dRadioLog(hctx, CW / 2 - 260, CH / 2 + 118, 520, 6);   // under the pause panel
         }
         hctx.restore();
         return;
@@ -1999,11 +1999,18 @@ export default function DeadPerimeter() {
           <div style={{ display: 'flex', gap: '8px', marginTop: '8px', flexWrap: 'wrap', justifyContent: 'center', alignItems: 'center', width: '100%', maxWidth: CW }}>
             {missionRef.current && missionRef.current.state === 'active' ? (
               <>
-                <span style={{ color: '#888', fontSize: '10px' }}>{t('A/D move · SPACE or hold mouse: fire · W jump/climb · S down · E enter/exit rooms · Esc pause')}</span>
+                <span style={{ color: '#888', fontSize: '10px' }}>{t('A/D move · W/S depth · SPACE or hold mouse: fire · C jump · E stairs, ladders, rooms · Esc pause')}</span>
                 <span style={{ color: '#888', fontSize: '10px' }}>{t('Shift roll · G grenade · F melee · R reload · Q gun/melee')}</span>
-                {missionRef.current.objective === 'explore' && (
-                  <button style={mbtn} onClick={() => { if (missionRef.current) missionRef.current.inputInteract = true; }} title={t('Enter / leave a room (E)')}>🚪 E</button>
-                )}
+                {/* Depth on touch screens: held like the move thirds of the canvas. */}
+                {[['up', '▲', t('Move toward the buildings (W)')], ['down', '▼', t('Move toward the kerb (S)')]].map(([k, icon, tip]) => (
+                  <button key={k} style={{ ...mbtn, touchAction: 'none' }} title={tip}
+                    onPointerDown={e => { e.preventDefault(); inputRef.current[k] = true; }}
+                    onPointerUp={() => { inputRef.current[k] = false; }}
+                    onPointerLeave={() => { inputRef.current[k] = false; }}
+                    onPointerCancel={() => { inputRef.current[k] = false; }}>{icon}</button>
+                ))}
+                <button style={mbtn} onClick={() => { if (missionRef.current) missionRef.current.inputJump = true; }} title={t('Jump (C)')}>⤒ C</button>
+                <button style={mbtn} onClick={() => { if (missionRef.current) missionRef.current.inputInteract = true; }} title={t('Stairs, ladders, room doors (E)')}>🚪 E</button>
                 {[['inputRoll', '🤸', t('Dodge roll (Shift)')], ['inputGrenade', '💣', t('Throw a grenade (G)')], ['inputMelee', '🔪', t('Melee attack (F)')],
                   ['inputReload', '⟳', t('Reload (R)')], ['inputSwap', '⇄', t('Swap gun / melee weapon (Q)')]].map(([k, icon, tip]) => (
                   <button key={k} style={mbtn} onClick={() => { if (missionRef.current && !missionRef.current.dialog && !pausedRef.current) missionRef.current[k] = true; }} title={tip}>{icon}</button>
@@ -2097,8 +2104,9 @@ export default function DeadPerimeter() {
                   <div style={h2}>{t('SORTIE')}</div>
                   {keyRow('A D / ← →', 'move')}
                   {keyRow('Space / hold mouse', 'fire — hold while backing off to strafe')}
-                  {keyRow('W / ↑', 'jump · climb ladder · high road')}
-                  {keyRow('S / ↓', 'climb down · drop · low road')}
+                  {keyRow('W S / ↑ ↓', 'move in depth (toward the buildings / the kerb)')}
+                  {keyRow('C', 'jump (costs stamina)')}
+                  {keyRow('E', 'climb stairs or a ladder · enter / leave a room')}
                   {keyRow('Shift', 'dodge roll — brief invulnerability, costs stamina')}
                   {keyRow('G', 'throw a grenade (loud: draws the dead)')}
                   {keyRow('F', 'melee attack', 'sortie')}
