@@ -42,6 +42,7 @@ import { dBarricade, dBlt, dFx } from './render/effects.js';
 import { dTurret } from './render/turret.js';
 import { dSquadMarker, dHUD, dRadioLog, HUD_MUTE, HUD_SPEED, HUD_RADAR } from './render/hud.js';
 import RadioLog from './ui/RadioLog.jsx';
+import Face from './ui/Face.jsx';
 import { dEvacScene, EVAC_DURATION } from './render/evac.js';
 import { dIntroScene, INTRO_DURATION } from './render/intro.js';
 import { dDefeatScene, DEFEAT_DURATION } from './render/defeat.js';
@@ -2323,13 +2324,18 @@ export default function DeadPerimeter() {
             <div style={row}>
               {gs?.soldiers?.map((s, i) => (
                 <div key={s.id} style={{ ...card, opacity: s.state === 'dead' ? 0.34 : 1, borderColor: s.state === 'dead' ? C.dng : C.uib, minWidth: '130px' }}>
-                  <div style={{ color: s.state === 'dead' ? C.dng : C.acc, fontWeight: 'bold', fontSize: '11px' }}>
-                    {s.name} {s.state === 'dead' && '†'}
-                    {s.civilian && s.state !== 'dead' && <span style={{ color: '#88ddff', fontSize: '9px', marginLeft: '2px' }}>{t('· civ')}</span>}
-                    {s.volunteer && s.state !== 'dead' && <span style={{ color: '#88ddff', fontSize: '9px', marginLeft: '2px' }}>{t('· volunteer')}</span>}
-                    {s.veteran && s.state !== 'dead' && <span style={{ color: '#ffd54a', fontSize: '9px', marginLeft: '2px' }}>{t('· vet')}</span>}
+                  <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                    <Face who={{ soldier: s }} size={30} />
+                    <div>
+                      <div style={{ color: s.state === 'dead' ? C.dng : C.acc, fontWeight: 'bold', fontSize: '11px' }}>
+                        {s.name} {s.state === 'dead' && '†'}
+                        {s.civilian && s.state !== 'dead' && <span style={{ color: '#88ddff', fontSize: '9px', marginLeft: '2px' }}>{t('· civ')}</span>}
+                        {s.volunteer && s.state !== 'dead' && <span style={{ color: '#88ddff', fontSize: '9px', marginLeft: '2px' }}>{t('· volunteer')}</span>}
+                        {s.veteran && s.state !== 'dead' && <span style={{ color: '#ffd54a', fontSize: '9px', marginLeft: '2px' }}>{t('· vet')}</span>}
+                      </div>
+                      <div style={{ fontSize: '9px', color: C.txt }}>{t(WPN[s.weapon]?.name)} · {t('Lane')} {t('FMB')[s.lane || 0]}</div>
+                    </div>
                   </div>
-                  <div style={{ fontSize: '9px', color: C.txt }}>{t(WPN[s.weapon]?.name)} · {t('Lane')} {t('FMB')[s.lane || 0]}</div>
                   {s.state !== 'dead' && (() => {
                     const L = s.level || 1, x0 = xpForLevel(L), x1 = xpForLevel(L + 1);
                     const pct = L >= 10 ? 1 : Math.max(0, Math.min(1, ((s.xp || 0) - x0) / (x1 - x0)));
@@ -2698,12 +2704,18 @@ export default function DeadPerimeter() {
                     const activeFull = gs.soldiers.filter(s => s.state !== 'dead').length >= BALANCE.maxActiveSoldiers;
                     return (
                       <div key={i} style={{ ...card, minWidth: '110px', borderColor: '#1a3a52', background: 'rgba(12,20,30,0.85)' }}>
-                        <div style={{ color: '#88ddff', fontWeight: 'bold', fontSize: '11px' }}>
-                          {r.name}
-                          {r.civilian && <span style={{ color: '#88ddff', fontSize: '8px', marginLeft: '2px' }}>{t('· civ')}</span>}
-                          {r.veteran && <span style={{ color: '#ffd54a', fontSize: '8px', marginLeft: '2px' }}>{t('· vet')}</span>}
+                        <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                          <Face who={{ soldier: r }} size={30} />
+                          <div>
+                            <div style={{ color: '#88ddff', fontWeight: 'bold', fontSize: '11px' }}>
+                              {r.name}
+                              {r.civilian && <span style={{ color: '#88ddff', fontSize: '8px', marginLeft: '2px' }}>{t('· civ')}</span>}
+                              {r.volunteer && <span style={{ color: '#88ddff', fontSize: '8px', marginLeft: '2px' }}>{t('· volunteer')}</span>}
+                              {r.veteran && <span style={{ color: '#ffd54a', fontSize: '8px', marginLeft: '2px' }}>{t('· vet')}</span>}
+                            </div>
+                            <div style={{ fontSize: '9px', color: C.txt }}>{t(WPN[r.weapon]?.name)}</div>
+                          </div>
                         </div>
-                        <div style={{ fontSize: '9px', color: C.txt }}>{t(WPN[r.weapon]?.name)}</div>
                         <div style={{ fontSize: '8px', color: C.txt, opacity: 0.6, marginTop: '2px' }}>{t('standby')}</div>
                         <button
                           style={{ ...btn('#1a3028', '#338866'), fontSize: '8px', padding: '2px 6px', marginTop: '3px', marginRight: 0 }}

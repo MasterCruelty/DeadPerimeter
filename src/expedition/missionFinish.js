@@ -1,4 +1,4 @@
-import { rng } from '../constants.js';
+import { rng, uid } from '../constants.js';
 import { RECRUIT_NAMES, CIVILIAN_WEAPONS, VETERAN_WEAPONS, KIND_HP } from '../data/expeditions.js';
 import { BALANCE } from '../data/difficulty.js';
 import { ammoPool } from '../data/weapons.js';
@@ -99,7 +99,7 @@ export function finishMission(m, gs) {
       // civilian HP cap (they used to arrive with rifles and 100 HP).
       const weapon = CIVILIAN_WEAPONS[Math.floor(Math.random() * CIVILIAN_WEAPONS.length)];
       gs.usedNames.add(name);
-      gs.reserve.push({ name, weapon, civilian: true, hp: KIND_HP.civilian });
+      gs.reserve.push({ name, weapon, civilian: true, hp: KIND_HP.civilian, lookId: uid() });
     }
     reward.rescuedCivs = rescued;
   }
@@ -124,7 +124,7 @@ export function finishMission(m, gs) {
       gs.soldiers.push(ns);
     } else if ((gs.reserve?.length || 0) < BALANCE.maxReserveSoldiers) {
       gs.reserve = gs.reserve || [];
-      gs.reserve.push({ name, weapon, civilian: !isVet, veteran: isVet, hp });
+      gs.reserve.push({ name, weapon, civilian: !isVet, veteran: isVet, hp, lookId: uid() });
     } else {
       return null;
     }

@@ -1,25 +1,11 @@
 // Radio log in the command center: the last lines heard on the net
 // (audio/radio.js), each with the speaker's portrait. Shows the latest
 // few; the toggle opens the rest.
-import { useState, useRef, useEffect } from 'react';
-import { C, DPR } from '../constants.js';
+import { useState } from 'react';
+import { C } from '../constants.js';
 import { radioLog, speakerInfo } from '../audio/radio.js';
-import { portraitCanvas } from '../render/portrait.js';
+import Face from './Face.jsx';
 import { t } from '../i18n/index.js';
-
-function Face({ who, size = 26 }) {
-  const ref = useRef(null);
-  const px = Math.round(size * DPR);
-  useEffect(() => {
-    const c = ref.current; if (!c) return;
-    const g = c.getContext('2d');
-    g.clearRect(0, 0, px, px);
-    g.drawImage(portraitCanvas(who, px), 0, 0);
-    g.fillStyle = 'rgba(0,0,0,0.22)';
-    for (let y = 0; y < px; y += Math.max(2, Math.round(2 * DPR))) g.fillRect(0, y, px, 1);
-  }, [who, px]);
-  return <canvas ref={ref} width={px} height={px} style={{ width: size, height: size, border: '1px solid #3a4a30', flex: 'none' }} />;
-}
 
 export default function RadioLog() {
   const [open, setOpen] = useState(false);

@@ -486,6 +486,7 @@ export function mkMission(soldier, dest, wave = 1, magsPerSoldier = 2, researchC
 
   const buildMissionSoldier = (orig, offset) => ({
     id: uid(), origId: orig.id, name: orig.name, weapon: orig.weapon,
+    ...(orig.lookId != null ? { lookId: orig.lookId } : {}),
     x: 80 - offset * 30, depth: formationDepth(Math.round(BAND / 2), offset - 1, BAND), lane: 0, hp: orig.hp, maxHp: orig.maxHp,
     ammo: Math.max(0, orig.ammo | 0),
     maxAmmo: orig.maxAmmo,

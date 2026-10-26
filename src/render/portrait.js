@@ -4,7 +4,7 @@
 // survivors, Voss and Command have their own. The CRT noise on top is
 // drawn live by dPortrait().
 import { rigGeom, standPose, fkArm, paintTorso, paintHead, paintArm, humanLook, cap, beanie, helmet, hairCut } from './actors/humanoid.js';
-import { actorKind, lookSeed } from './actors/people.js';
+import { actorKind, lookSeed, lookId } from './actors/people.js';
 import { detail } from './actors/paint.js';
 import { DPR } from '../constants.js';
 
@@ -90,7 +90,7 @@ function soldierLook(s) {
 
 // Cache key + look for a radio "who" ({ soldier } | { npc } | null).
 function lookFor(who) {
-  if (who && who.soldier) return [`s|${who.soldier.name}|${who.soldier.id}|${actorKind(who.soldier)}`, () => soldierLook(who.soldier)];
+  if (who && who.soldier) return [`s|${who.soldier.name}|${lookId(who.soldier)}|${actorKind(who.soldier)}|${who.soldier.jacket || ''}`, () => soldierLook(who.soldier)];
   const id = who && who.npc && NPC_LOOKS[who.npc] ? who.npc : 'unknown';
   return [`n|${id}`, NPC_LOOKS[id]];
 }

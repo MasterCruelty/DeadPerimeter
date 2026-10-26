@@ -63,7 +63,7 @@ export function mkExtraction(gs, result = null, party = null) {
   const tier = (result && result.tier) || 'gold';
   const alive = party || (gs.soldiers || []).filter(s => s.state !== 'dead');
   const crew = alive.slice(0, 6).map((s, i) => ({
-    name: s.name, id: s.id ?? i, weapon: s.weapon || 'rifle', jacket: s.jacket,
+    name: s.name, id: s.lookId ?? s.origId ?? s.id ?? i, weapon: s.weapon || 'rifle', jacket: s.jacket,
     civilian: !!s.civilian, veteran: !!s.veteran, police: !!s.police, swat: !!s.swat, bandit: !!s.bandit,
   }));
   return {

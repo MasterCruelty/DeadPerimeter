@@ -36,6 +36,7 @@ export function saveGame(gs) {
         facing: s.facing,
         civilian: !!s.civilian, veteran: !!s.veteran,
         ...(s.volunteer ? { volunteer: true } : {}),
+        ...(s.lookId != null ? { lookId: s.lookId } : {}),
         kind: s.kind,
         onRoof: !!s.onRoof,
         upgrades: { ...(s.upgrades || {}) },
@@ -50,6 +51,7 @@ export function saveGame(gs) {
         name: r.name, weapon: r.weapon,
         civilian: !!r.civilian, veteran: !!r.veteran,
         ...(r.volunteer ? { volunteer: true } : {}),
+        ...(r.lookId != null ? { lookId: r.lookId } : {}),
         hp: r.hp ?? 100,
       })),
       expeditionsToday: gs.expeditionsToday || 0,
@@ -110,6 +112,8 @@ export function loadGame(mkGS) {
         civilian, veteran, kind,
         // Civilians who stepped up for sorties; absent in older saves.
         ...(civilian && s.volunteer ? { volunteer: true } : {}),
+        // Look seed kept across the bench; absent → seeded from id.
+        ...(s.lookId != null ? { lookId: s.lookId } : {}),
         onRoof: s.onRoof,
         lastShot: 0, reloadStart: 0, shootAt: 0, knifeTimer: 0, recoil: 0,
         walkPhase: Math.random() * Math.PI * 2, hurtTimer: 0,

@@ -27,8 +27,11 @@ function lookOf(kind, seed, extra) {
 
 // A sortie works on copies of the soldiers (new id, origId = the
 // soldier at the fort): seed the look from the original so a soldier
-// looks the same at the wall, on a sortie and on the radio.
-export const lookSeed = s => hashOf(`${s.name || ''}|${s.origId ?? s.id ?? 0}`);
+// looks the same at the wall, on a sortie and on the radio. lookId is
+// kept across the bench (reserve entries have no id, and activating
+// one makes a new soldier); soldiers without one keep their old face.
+export const lookId = s => s.lookId ?? s.origId ?? s.id ?? 0;
+export const lookSeed = s => hashOf(`${s.name || ''}|${lookId(s)}`);
 
 export function actorKind(a) {
   if (a.compact) return 'guard';

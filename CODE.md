@@ -173,8 +173,8 @@ button).
 **Persisted fields (v3)**
 `day, wave, baseHp, baseMaxHp, resources, soldiers (with upgrades, kind,
 veteran, civilian, volunteer, onRoof, hp, maxHp, ammo, maxAmmo, weapon, lane, x,
-destX, facing, state, name, id), barricades, turrets, score, kills,
-reserve (name/weapon/civilian/veteran/volunteer/hp), expeditionsToday,
+destX, facing, state, name, id, lookId), barricades, turrets, score, kills,
+reserve (name/weapon/civilian/veteran/volunteer/lookId/hp), expeditionsToday,
 lastEvacWave, lastFoodReport, transmissionsDone, lastSupplyDrop,
 usedNames (serialised as Array), workbench, researchLab, research,
 playMs, soldiersLost, civiliansLost, savedAt, v.`
@@ -389,7 +389,7 @@ Pure factory functions. No rendering, no audio.
 
 | Module | Export | Returns |
 | --- | --- | --- |
-| `soldier.js` | `mkSoldier(name, weapon, destX, hp?, lane?, civilian?, onRoof?, opts?)` | Soldier object. Stamps `kind` (recruit / civilian / veteran), `maxHp` from `KIND_HP`, deterministic `voicePitch`, empty `upgrades: {}` perk map, all transient state zeroed. `opts`: `veteran`, `volunteer`. Also `benchEntry(s)` (soldier → reserve entry) and `reserveOpts(r)` (reserve entry → `mkSoldier` opts). |
+| `soldier.js` | `mkSoldier(name, weapon, destX, hp?, lane?, civilian?, onRoof?, opts?)` | Soldier object. Stamps `kind` (recruit / civilian / veteran), `maxHp` from `KIND_HP`, deterministic `voicePitch`, empty `upgrades: {}` perk map, all transient state zeroed. `opts`: `veteran`, `volunteer`, `lookId` (the look is seeded from `name` + `lookId ?? origId ?? id`; `benchEntry` keeps the soldier's id as `lookId`, reserve entries without one use 0, so a face never changes between squad, bench, wall and sortie). Also `benchEntry(s)` (soldier → reserve entry) and `reserveOpts(r)` (reserve entry → `mkSoldier` opts). |
 | `zombie.js` | `mkZombie(type)` | Zombie object spawning at `x = WORLD_W` (siege edge), random lane, jittered speed. |
 | `human.js` | `mkHuman(type)` | Hostile human with `hostile: true`. |
 | `barricade.js` | `mkBarricade(x)` | 140-HP perspective wall spanning all lanes. |
@@ -1053,7 +1053,8 @@ are right next to the constants.
 | Objectives HUD | `update/objectives.js` (`tickObjectives`: primary / job / side lines with live counters, toasts), `render/objectives.js` (`dObjectives`) |
 | Reports, grades, records | `expedition/report.js` (sortie / wave / finale stats and S-A-B-C grade, records in localStorage `dp-records`), `render/report.js` (grade box on the end overlay), `ui/ReportCard.jsx`, `update/siege.js` (wave report), `entities/persistence.js` (`lastWaveReport`) |
 | Finale checkpoints | `expedition/vaccineCampaign.js` (`saveVaccineCheckpoint` at each act start, `retryVaccineCheckpoint`, `vaccineActFailure`, `retries`), `render/checkpoint.js` (banner), `DeadPerimeter.jsx` (retry / accept panel) |
-| Radio panel + log | `audio/radio.js` (`pushRadio` with `from` for named speakers, radio log), `render/portrait.js` (cached head-and-shoulders portraits from the humanoid painter), `render/hud.js` (`dRadioSubtitle` panel), `ui/RadioLog.jsx` |
+| Radio panel + log | `audio/radio.js` (`pushRadio` with `from` for named speakers, radio log), `render/portrait.js` (cached head-and-shoulders portraits from the humanoid painter), `render/hud.js` (`dRadioSubtitle` panel), `ui/RadioLog.jsx`, `ui/Face.jsx` |
+| Soldier faces in the command center (squad + reserve) | `ui/Face.jsx` (portrait canvas + scanlines), `render/portrait.js`, `render/actors/people.js` (`lookId`, `lookSeed`), `entities/soldier.js` (`lookId` through `benchEntry` / `reserveOpts`), `entities/persistence.js` |
 | Music | `audio/music.js` (tracks per state, scheduled on the AudioContext clock, crossfades, siege / sortie intensity, ducking under radio voices), `DeadPerimeter.jsx` (`tickMusic` interval, MUSIC toggle `dp-music`) |
 | Daily food consumption + starvation | `update/siege.js` (wave-clear tally + per-person deduction + `starveDmg` on zero) |
 
