@@ -352,6 +352,17 @@ Class: `AudioEngine`. Free functions: `getAM()`, `processSounds(q, am, mutedRef)
 
 Event types recognised:
 - Combat: `shot, shell, reload, hit, zdie, groan, zatk, bhit, wclr`.
+  `shot` / `fire` carry the gun key `w` (any `WPN` id, or `mg` for the
+  wall turret; unknown keys fall back on `wbase`) and, on sorties,
+  `in` for rooms and buildings (short boxy tail instead of the outdoor
+  one). Reports come from the `GUN` table: crack, blast, thump, optional
+  receiver clatter / bolt cycle, with pitch, decay, level and noise
+  offset varied per shot. `_shotGate` caps live gunshot voices (extras
+  drop past 8, new shots skipped past 16, same gun in the same 16 ms
+  plays once).
+- Melee: `melee` (hit), `swish` (miss) and `mbreak` (weapon broke)
+  carry the melee type `m` (`knife | machete | bat | axe`, knife when
+  missing); `slash` is kept as an alias of `melee`.
 - Cinematic / ambient: `heliStart, heliStop, siren, scream, crackle,
   windStart, windStop, cityHum, cityHumStop, titleSting, chuteRustle`.
 - Voice: `chatter` (delegates to `radioChatter`).

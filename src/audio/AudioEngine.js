@@ -4,9 +4,36 @@ import { wbase } from '../data/weapons.js';
 
 let _AM = null;
 
+// ±k random factor around 1.
+const vary = k => 1 + (Math.random() * 2 - 1) * k;
+
+// Gun report families (see shot()). crack: high-passed transient
+// [Hz, s, vol]; body: the blast [Hz, Q, s, vol, sweep-to Hz], `boom`
+// makes it a low-pass (shotguns); body2: a second blast band; thump:
+// [f0, f1, s, vol]; tail: send into the shared reverb; mech: receiver
+// clatter partials; bolt: delay of the bolt cycle after the shot; lvl:
+// overall level against the rest of the mix.
+const GUN = {
+  pistol:   { lvl: 1.5, crack: [2800, 0.008, 0.40], body: [1300, 0.9, 0.085, 0.95], thump: [160, 60, 0.07, 0.20], tail: 0.20,
+              mech: [3300, 5200], mechV: 0.07 },
+  revolver: { crack: [2400, 0.012, 0.55], body: [820, 0.8, 0.15, 1.15], body2: [2100, 1.2, 0.05, 0.4], thump: [118, 42, 0.13, 0.45], tail: 0.42 },
+  smg:      { lvl: 2.4, crack: [3400, 0.005, 0.28], body: [1750, 1.1, 0.055, 0.72], thump: [190, 85, 0.045, 0.12], tail: 0.12,
+              mech: [4100, 6300], mechV: 0.06 },
+  rifle:    { lvl: 1.8, crack: [3600, 0.014, 0.55], body: [980, 0.85, 0.13, 0.95], thump: [96, 36, 0.16, 0.36], tail: 0.34 },
+  ak:       { lvl: 1.4, crack: [2700, 0.016, 0.55], body: [700, 0.7, 0.16, 1.0], body2: [330, 1.4, 0.12, 0.55], thump: [78, 30, 0.2, 0.48], tail: 0.4 },
+  // Wall turret: a belt-fed 7.62 with the receiver chattering.
+  mg:       { lvl: 1.5, crack: [3000, 0.012, 0.5], body: [640, 0.75, 0.12, 0.95], body2: [1500, 1.6, 0.04, 0.3], thump: [70, 30, 0.14, 0.5], tail: 0.26,
+              mech: [1850, 3200], mechV: 0.06 },
+  shotgun:  { lvl: 1.15, crack: [2000, 0.01, 0.4], body: [2600, 0.6, 0.28, 1.35, 380], boom: true, thump: [74, 26, 0.26, 0.72], tail: 0.55 },
+  dbarrel:  { crack: [1800, 0.012, 0.45], body: [2200, 0.6, 0.34, 1.45, 300], boom: true, doubled: true, thump: [62, 22, 0.32, 0.85], tail: 0.65 },
+  hunting:  { crack: [3800, 0.02, 0.6], body: [620, 0.75, 0.2, 1.0], thump: [66, 26, 0.24, 0.6], tail: 0.6, bolt: 0.5 },
+  sniper:   { crack: [4400, 0.024, 0.7], body: [540, 0.7, 0.22, 1.05], body2: [1900, 1.0, 0.04, 0.35], thump: [56, 22, 0.28, 0.7], tail: 0.75, bolt: 0.55 },
+};
+
 export class AudioEngine {
-  constructor() {
-    this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+  // `ctx` is only passed to render offline (an OfflineAudioContext).
+  constructor(ctx) {
+    this.ctx = ctx || new (window.AudioContext || window.webkitAudioContext)();
     // Master bus → soft limiter so stacked gunfire (2× speed, big
     // volleys) doesn't clip.
     this.limiter = this.ctx.createDynamicsCompressor();
@@ -20,6 +47,11 @@ export class AudioEngine {
     this.bgRunning = false; this.bgNodes = []; this.beatTO = null; this.lastGroan = 0; this.lastHit = 0;
     const b = this.ctx.createBuffer(1, this.ctx.sampleRate * 4, this.ctx.sampleRate);
     const d = b.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1; this._nb = b;
+    // Gunshot tails go to one shared reverb per space instead of a
+    // delay chain per shot. Outdoors: long and dark, with slap-backs
+    // off the blocks. Indoors: short and boxy.
+    this.tailOut = this._space(1.6, 0.03, [[0.11, 0.5], [0.24, 0.3], [0.43, 0.15]], 1500, 2.4, 0.5);
+    this.tailIn  = this._space(0.4, 0.003, [[0.011, 0.6], [0.019, 0.5], [0.031, 0.4], [0.047, 0.25]], 2400, 1.6, 0.55);
   }
   _ns() { const s = this.ctx.createBufferSource(); s.buffer = this._nb; s.loop = true; return s; }
   resume() { if (this.ctx.state === 'suspended') this.ctx.resume(); }
@@ -73,34 +105,107 @@ export class AudioEngine {
     const g = this.ctx.createGain(); g.gain.setValueAtTime(v, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.50);
     o.connect(g); g.connect(this.bg); o.start(t); o.stop(t + 0.55);
   }
-  shot(wk, pan) {
-    // Found guns borrow their handling class's report; the SMG is a
-    // lighter crack and the double barrel a heavier boom.
-    const w0 = wbase(wk), w = w0 === 'sniper' ? 'rifle' : w0;
-    const light = wk === 'smg', heavy = wk === 'dbarrel' || wk === 'ak' || wk === 'revolver';
-    const t = this.ctx.currentTime; const out = this._out(pan);
-    const dur = w === 'shotgun' ? 0.32 : w === 'rifle' ? 0.22 : 0.13;
-    const vol = (w === 'shotgun' ? 1.25 : w === 'rifle' ? 0.95 : 0.70) * (heavy ? 1.15 : light ? 0.7 : 1);
-    const fc  = (w === 'shotgun' ? 360  : w === 'rifle' ? 880  : 1650) * (light ? 1.4 : heavy ? 0.85 : 1);
-    const len = Math.ceil(this.ctx.sampleRate * dur);
-    const buf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
-    const d = buf.getChannelData(0); for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 1.4);
-    const src = this.ctx.createBufferSource(); src.buffer = buf;
-    const bp = this.ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = fc; bp.Q.value = w === 'shotgun' ? 0.4 : 0.85;
-    const gn = this.ctx.createGain(); gn.gain.setValueAtTime(vol, t); gn.gain.exponentialRampToValueAtTime(0.001, t + dur * 2.4);
-    src.connect(bp); bp.connect(gn); gn.connect(out); src.start(t);
-    if (w !== 'pistol') {
-      const s = this.ctx.createOscillator(); s.type = 'sine';
-      s.frequency.setValueAtTime(w === 'shotgun' ? 72 : 50, t); s.frequency.exponentialRampToValueAtTime(15, t + 0.24);
-      const sg = this.ctx.createGain(); sg.gain.setValueAtTime(w === 'shotgun' ? 0.7 : 0.40, t); sg.gain.exponentialRampToValueAtTime(0.001, t + 0.30);
-      s.connect(sg); sg.connect(out); s.start(t); s.stop(t + 0.32);
+  // Gun reports. Each shot layers a transient crack, a band-limited
+  // blast (the body), a low thump and, for some guns, receiver clatter,
+  // then sends into the shared tail of the space it was fired in
+  // (`indoor`: rooms and buildings on sorties). Pitch, decay, level and
+  // the noise read position change on every shot so sustained fire
+  // never sounds like a loop. Found guns without their own entry fall
+  // back on their handling class.
+  shot(wk, pan, indoor) {
+    const key = GUN[wk] ? wk : GUN[wbase(wk)] ? wbase(wk) : 'rifle', G = GUN[key];
+    const t = this.ctx.currentTime;
+    const p = vary(0.05), dk = vary(0.1), lv = vary(0.09) * (G.lvl || 1);
+    const q = this._shotGate(key, t + G.body[2] * 2 * dk);
+    if (!q) return;
+    const out = this._out(pan);
+    const [cf, cd, cv] = G.crack;
+    this._burst(t, 'highpass', cf * p, 0.7, cd * dk, cv * lv, out);
+    const [bf, bq, bd, bv, bf1] = G.body, ft = G.boom ? 'lowpass' : 'bandpass';
+    const body = this._burst(t + Math.random() * 0.002, ft, bf * p, bq, bd * dk, bv * lv, out, bf1 && bf1 * p);
+    if (G.body2) { const [f, q2, d, v] = G.body2; this._burst(t, 'bandpass', f * p, q2, d * dk, v * lv, out); }
+    // Second powder burn a hair later: the double barrel's fat report.
+    if (G.doubled) this._burst(t + 0.009, ft, bf * 0.8 * p, bq, bd * 0.7 * dk, bv * 0.5 * lv, out, bf1 && bf1 * p);
+    const [tf0, tf1, td, tv] = G.thump;
+    this._sweep(t, tf0 * p, tf1, td * dk, tv * lv, out);
+    const send = this.ctx.createGain(); send.gain.value = G.tail * lv;
+    body.connect(send); send.connect(indoor ? this.tailIn : this.tailOut);
+    if (q < 2) return;                          // heavy fire: no extras
+    if (G.mech) this._metal(t + 0.012, G.mech.map(f => f * p), 0.03, G.mechV * lv, pan);
+    if (key === 'shotgun') this.pump(pan, 0.33);
+    if (G.bolt) this.boltCycle(pan, G.bolt);
+  }
+  // Live gunshot voices, as end times on the audio clock. Two reports
+  // of the same gun in the same instant play once; past 8 voices the
+  // extras drop, past 16 new shots are skipped.
+  _shotGate(key, end) {
+    const now = this.ctx.currentTime;
+    this._shots = (this._shots || []).filter(s => s.end > now);
+    if (this._shots.length >= 16) return 0;
+    if (this._shots.some(s => s.key === key && now - s.at < 0.016)) return 0;
+    this._shots.push({ key, at: now, end });
+    return this._shots.length > 8 ? 1 : 2;
+  }
+  // Bolt-action rifle cycled after the shot.
+  boltCycle(pan, at = 0.45) {
+    const t = this.ctx.currentTime + at;
+    this._metal(t, [2800, 4200], 0.03, 0.16, pan);
+    this._scrape(t + 0.03, 0.1, 1800, 3200, 0.1, pan); this._scrape(t + 0.16, 0.09, 3200, 1700, 0.1, pan);
+    this._metal(t + 0.25, [2100, 3400, 5200], 0.04, 0.26, pan);
+  }
+  // Noise burst through one filter (optionally swept to f1) with a
+  // fast attack and an exponential decay. Returns its gain for sends.
+  _burst(at, type, f, q, dur, vol, out, f1) {
+    const n = this._ns(), fl = this.ctx.createBiquadFilter(); fl.type = type; fl.Q.value = q;
+    fl.frequency.setValueAtTime(f, at); if (f1) fl.frequency.exponentialRampToValueAtTime(f1, at + dur);
+    const g = this.ctx.createGain(); g.gain.setValueAtTime(0, at); g.gain.linearRampToValueAtTime(vol, at + 0.0015);
+    g.gain.exponentialRampToValueAtTime(0.001, at + dur);
+    n.connect(fl); fl.connect(g); g.connect(out); n.start(at, Math.random() * 3.5); n.stop(at + dur + 0.02);
+    return g;
+  }
+  // Pitch drop from f0 to f1: the thump of a shot, a blow landing.
+  _sweep(at, f0, f1, dur, vol, out, type = 'sine') {
+    const o = this.ctx.createOscillator(); o.type = type;
+    o.frequency.setValueAtTime(f0, at); o.frequency.exponentialRampToValueAtTime(f1, at + dur);
+    const g = this.ctx.createGain(); g.gain.setValueAtTime(vol, at); g.gain.exponentialRampToValueAtTime(0.001, at + dur);
+    o.connect(g); g.connect(out); o.start(at); o.stop(at + dur + 0.02);
+  }
+  // Struck body: a click rung through band-passes. High Q rings like
+  // metal, low Q knocks like wood.
+  _ring(at, freqs, q, dur, vol, out) {
+    if (!this._clicks) {
+      this._clicks = [0, 1, 2, 3].map(() => {
+        const l = Math.ceil(this.ctx.sampleRate * 0.01), b = this.ctx.createBuffer(1, l, this.ctx.sampleRate), d = b.getChannelData(0);
+        for (let i = 0; i < l; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / l);
+        return b;
+      });
     }
-    // Short slap-back off the city blocks gives the shot some space.
-    const echo = this.ctx.createDelay(0.5); echo.delayTime.value = w === 'pistol' ? 0.11 : 0.16;
-    const eg = this.ctx.createGain(); eg.gain.value = w === 'pistol' ? 0.12 : 0.18;
-    const elp = this.ctx.createBiquadFilter(); elp.type = 'lowpass'; elp.frequency.value = 900;
-    gn.connect(echo); echo.connect(elp); elp.connect(eg); eg.connect(out);
-    if (wk === 'shotgun') setTimeout(() => this.pump(pan), 330);
+    const s = this.ctx.createBufferSource(); s.buffer = this._clicks[Math.floor(Math.random() * 4)];
+    freqs.forEach((f, k) => {
+      const bp = this.ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = f * vary(0.03); bp.Q.value = q;
+      const g = this.ctx.createGain(); g.gain.setValueAtTime(vol * Math.sqrt(q) / (k + 1), at); g.gain.exponentialRampToValueAtTime(0.001, at + dur * (1.3 - k * 0.15));
+      s.connect(bp); bp.connect(g); g.connect(out);
+    });
+    s.start(at);
+  }
+  // Shared reverb for one space: a convolver on a decaying noise
+  // impulse (after `pre` s) with a few discrete reflections, darkened
+  // by a low-pass.
+  _space(len, pre, taps, lp, k, vol) {
+    const sr = this.ctx.sampleRate, n = Math.ceil(sr * len), ir = this.ctx.createBuffer(2, n, sr), i0 = Math.floor(pre * sr);
+    for (let c = 0; c < 2; c++) {
+      const d = ir.getChannelData(c);
+      for (let i = i0; i < n; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - (i - i0) / (n - i0), k) * 0.3;
+      taps.forEach(([at, g]) => {
+        const s = Math.floor((at + c * 0.006) * sr);
+        for (let j = 0; j < 240 && s + j < n; j++) d[s + j] += (Math.random() * 2 - 1) * g * (1 - j / 240);
+      });
+    }
+    const cv = this.ctx.createConvolver(); cv.buffer = ir;
+    const f = this.ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = lp;
+    const g = this.ctx.createGain(); g.gain.value = vol;
+    cv.connect(f); f.connect(g); g.connect(this.fx);
+    return cv;
   }
   // Shotgun pump: fore-end racked back, then slammed forward.
   pump(pan, at = 0) {
@@ -316,18 +421,77 @@ export class AudioEngine {
     const g = this.ctx.createGain(); g.gain.setValueAtTime(0.42, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.2);
     s.connect(lp); lp.connect(g); g.connect(this._out(pan)); s.start(t);
   }
-  // Knife swing: quick airy swish + a dull wet impact.
-  slash(pan) {
-    const t = this.ctx.currentTime; const out = this._out(pan);
-    const l = Math.ceil(this.ctx.sampleRate * 0.16);
-    const b = this.ctx.createBuffer(1, l, this.ctx.sampleRate); const d = b.getChannelData(0);
-    for (let i = 0; i < l; i++) { const x = i / l; d[i] = (Math.random() * 2 - 1) * Math.sin(Math.PI * x) * (1 - x); }
-    const s = this.ctx.createBufferSource(); s.buffer = b;
-    const bp = this.ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = 1.2;
-    bp.frequency.setValueAtTime(1800, t); bp.frequency.exponentialRampToValueAtTime(4200, t + 0.12);
-    const g = this.ctx.createGain(); g.gain.value = 0.32;
-    s.connect(bp); bp.connect(g); g.connect(out); s.start(t);
-    setTimeout(() => this.hit(0, pan), 90);
+  // Melee by weapon: the swing, then the blow landing near the end of
+  // it. `miss`: the swing alone. Pitch and level shift a little per
+  // swing; a pile-up of hits in one instant plays three at most.
+  melee(type, pan, miss) {
+    const now = this._t;
+    if (now - (this._melWin ?? -1e9) > 70) { this._melWin = now; this._melN = 0; }
+    if (++this._melN > 3) return;
+    const t = this.ctx.currentTime, out = this._out(pan), p = vary(0.06), v = vary(0.12);
+    if (type === 'machete') {
+      // Long blade: heavier whoosh, a chop and the edge ringing.
+      this._whoosh(t, 0.17, 1500 * p, 4000 * p, 1.1, 0.26 * v, out);
+      if (miss) return;
+      const at = t + 0.1;
+      this._burst(at, 'bandpass', 1700 * p, 1.2, 0.05, 0.28 * v, out);
+      this._burst(at + 0.004, 'lowpass', 900 * p, 0.7, 0.1, 0.24 * v, out, 260);
+      this._sweep(at, 170 * p, 80, 0.08, 0.2 * v, out);
+      this._ring(at, [3100 * p, 4650 * p, 6300 * p], 24, 0.16, 0.04 * v, out);
+    } else if (type === 'bat') {
+      // Wood: low whoosh, a hollow knock (a few low-Q body modes) on a
+      // dry crack. No blade ring.
+      this._whoosh(t, 0.2, 520 * p, 1400 * p, 0.9, 0.3 * v, out);
+      if (miss) return;
+      const at = t + 0.11;
+      this._burst(at, 'bandpass', 2600 * p, 1, 0.012, 0.18 * v, out);
+      this._ring(at, [240 * p, 590 * p, 1120 * p, 1830 * p], 7, 0.11, 0.09 * v, out);
+      this._sweep(at, 125 * p, 60, 0.12, 0.28 * v, out);
+      this._burst(at, 'lowpass', 520 * p, 0.8, 0.07, 0.18 * v, out);
+    } else if (type === 'axe') {
+      // Fire axe: slow heavy whoosh, a deep meaty chop and the head
+      // clanging.
+      this._whoosh(t, 0.27, 380 * p, 1200 * p, 0.8, 0.34 * v, out);
+      if (miss) return;
+      const at = t + 0.14;
+      this._burst(at, 'lowpass', 700 * p, 0.9, 0.15, 0.26 * v, out, 190);
+      this._burst(at, 'bandpass', 1300 * p, 1, 0.05, 0.2 * v, out);
+      this._sweep(at, 96 * p, 40, 0.2, 0.3 * v, out);
+      this._ring(at + 0.003, [1150 * p, 1720 * p, 2580 * p, 3900 * p], 26, 0.22, 0.035 * v, out);
+    } else {
+      // Knife: quick light swish, a short wet stab.
+      this._whoosh(t, 0.1, 2600 * p, 5800 * p, 1.6, 0.17 * v, out);
+      if (miss) return;
+      const at = t + 0.06;
+      this._burst(at, 'lowpass', 1100 * p, 1.4, 0.075, 0.36 * v, out, 300);
+      this._sweep(at, 300 * p, 120, 0.05, 0.14 * v, out, 'triangle');
+    }
+  }
+  // Melee weapon breaking: wood splinters (bat), a blade snapping and
+  // the piece clattering down; the fire axe's handle splinters and the
+  // head drops.
+  meleeBreak(type, pan) {
+    const t = this.ctx.currentTime + 0.12, out = this._out(pan), p = vary(0.05);
+    if (type === 'bat' || type === 'axe') {
+      this._burst(t, 'bandpass', 1400 * p, 2, 0.04, 0.34, out);
+      for (let k = 0; k < 8; k++) this._burst(t + Math.random() * 0.14, 'bandpass', 1800 + Math.random() * 3200, 1.5, 0.006 + Math.random() * 0.01, 0.2 * (1 - k / 10), out);
+      this._ring(t, [330 * p, 760 * p], 5, 0.05, 0.12, out);
+      if (type === 'bat') this._sweep(t + 0.34, 180, 90, 0.06, 0.2, out);
+      else { this._ring(t + 0.34, [900 * p, 1450 * p, 2300 * p], 28, 0.25, 0.05, out); this._sweep(t + 0.34, 150, 70, 0.08, 0.3, out); }
+    } else {
+      this._burst(t, 'bandpass', 5200 * p, 0.9, 0.008, 0.3, out);
+      this._ring(t, [3600 * p, 5400 * p, 7900 * p], 30, 0.09, 0.05, out);
+      this._ring(t + 0.28, [2700 * p, 4100 * p], 22, 0.07, 0.035, out);
+      this._ring(t + 0.41, [2900 * p, 4300 * p], 22, 0.05, 0.022, out);
+    }
+  }
+  // Air moved by a swing: band-passed noise sweeping f0 → f1, swelling
+  // to the middle of the arc.
+  _whoosh(at, dur, f0, f1, q, vol, out) {
+    const n = this._ns(), bp = this.ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = q;
+    bp.frequency.setValueAtTime(f0, at); bp.frequency.exponentialRampToValueAtTime(f1, at + dur);
+    const g = this.ctx.createGain(); g.gain.setValueAtTime(0, at); g.gain.linearRampToValueAtTime(vol, at + dur * 0.55); g.gain.linearRampToValueAtTime(0, at + dur);
+    n.connect(bp); bp.connect(g); g.connect(out); n.start(at, Math.random() * 3.5); n.stop(at + dur + 0.02);
   }
   // Explosion (mines): sub thump + noise burst with a long tail.
   explosion(pan) {
@@ -374,11 +538,6 @@ export class AudioEngine {
     const t = this.ctx.currentTime;
     this._scrape(t, 0.22, 500, 1400, 0.16, pan);
     this._thunk(t + 0.18, 110, 0.12, 0.34, pan);
-  }
-  // Melee swing that hits nothing.
-  swish(pan) {
-    const t = this.ctx.currentTime;
-    this._scrape(t, 0.13, 1800, 4200, 0.18, pan);
   }
   // Gun slung / drawn.
   swap(pan) {
@@ -687,7 +846,7 @@ export function processSounds(q, am, mutedRef, camX = null, zoom = 1) {
   q.forEach(e => {
     switch (e.t) {
       case 'shot':
-      case 'fire':   am.shot(e.w, pan(e));   break;
+      case 'fire':   am.shot(e.w, pan(e), e.in); break;
       case 'shell':  am.shell();             break;
       case 'reload': am.reload(e.w, e.dur);  break;
       case 'hit':    am.hit(e.now, pan(e));  break;
@@ -697,13 +856,15 @@ export function processSounds(q, am, mutedRef, camX = null, zoom = 1) {
       case 'hdie':   am.humanDie(pan(e), e.deep); break;
       case 'hshout': am.humanShout(pan(e), e.deep); break;
       case 'hhurt':  am.humanHurt(pan(e));   break;
-      case 'slash':  am.slash(pan(e));       break;
+      case 'slash':
+      case 'melee':  am.melee(e.m, pan(e));  break;
+      case 'mbreak': am.meleeBreak(e.m, pan(e)); break;
       case 'explosion': am.explosion(pan(e)); break;
       case 'grenade': am.grenade(pan(e)); break;
       case 'pin':    am.pin(pan(e));         break;
       case 'clink':  am.clink(pan(e));       break;
       case 'roll':   am.roll(pan(e));        break;
-      case 'swish':  am.swish(pan(e));       break;
+      case 'swish':  am.melee(e.m, pan(e), true); break;
       case 'swap':   am.swap(pan(e));        break;
       case 'roar':   am.roar(pan(e));        break;
       case 'spit':   am.spit(pan(e));        break;

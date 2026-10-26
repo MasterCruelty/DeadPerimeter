@@ -287,7 +287,7 @@ function tryMelee(m, s, now, H) {
     .sort((a, b) => Math.abs(a.x - s.x) - Math.abs(b.x - s.x))[0];
   if (!tgt) {
     spendStam(s, SWING_COST * 0.5);
-    m.soundQ.push({ t: 'swish', x: s.x });
+    m.soundQ.push({ t: 'swish', m: ms.type, x: s.x });
     return;
   }
   s.facing = tgt.x > s.x ? 1 : -1;
