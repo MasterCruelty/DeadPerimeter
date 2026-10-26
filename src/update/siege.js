@@ -1,4 +1,4 @@
-import { C, WORLD_W, GY, WX, uid, rng, laneY, laneSc } from '../constants.js';
+import { C, WORLD_W, GY, WX, uid, rng, laneY, laneSc, voiceOf } from '../constants.js';
 import { WPN, wbase, MELEE } from '../data/weapons.js';
 import { meleeStats, wearMelee, tickStam } from '../entities/gear.js';
 import { addXp, KILL_XP, BOSS_XP, WAVE_XP } from '../data/progression.js';
@@ -7,7 +7,7 @@ import { BALANCE, RESEARCHES, waveClearAmmoFor, getSoldierPerkEffect } from '../
 import { TRANSMISSION_WAVES } from '../data/transmissions.js';
 import { mkZombie } from '../entities/zombie.js';
 import { mkHuman } from '../entities/human.js';
-import { mkSoldier } from '../entities/soldier.js';
+import { mkSoldier, reserveOpts } from '../entities/soldier.js';
 import { recordDeath } from '../entities/gameState.js';
 import { pushRadio } from '../audio/radio.js';
 import { WAVE_MODS, rollWaveMod } from '../data/waveMods.js';
@@ -202,6 +202,8 @@ export function update(gs, now, dt) {
     const meta = h.h;
 
     if (h.state === 'walk') {
+      // A battle cry as they come into view of the wall.
+      if (!h._cried && h.x < WX + 820) { h._cried = true; if (Math.random() < 0.6) gs.soundQ.push({ t: 'hshout', deep: voiceOf(h), x: h.x }); }
       // Gunmen stop at range; knifemen close to melee.
       const nsAny = gs.soldiers.find(s => s.state !== 'dead' && !s.onExpedition && s.lane === h.lane);
       if (meta.range > 0 && nsAny && Math.abs(h.x - nsAny.x) <= meta.range) {
@@ -533,6 +535,7 @@ export function update(gs, now, dt) {
       }
       hit.hp -= dmg; hit.hurtTimer = 210;
       gs.soundQ.push({ t: 'hit', now, x: b.x });
+      if (gs.isHumanWave && hit.hp > 0) gs.soundQ.push({ t: 'hhurt', x: b.x });
       gs.effects.push({ type: 'blood', x: b.x, y: b.y, drops: Array.from({ length: 7 }, () => ({ x: 0, y: 0, vx: (Math.random() - 0.5) * 3.5, vy: -Math.random() * 2.5 - 0.5, r: 1.5 + Math.random() * 3 })), at: now, dur: 680 });
       gs.effects.push({ type: 'hit', x: b.x, y: b.y, at: now, dur: 200 });
       gs.effects.push({ type: 'txt', x: hit.x, y: laneY(hit.lane) - 60, v: `-${Math.round(dmg)}`, col: C.bld, at: now, dur: 720 });
@@ -686,7 +689,7 @@ export function update(gs, now, dt) {
         const r = gs.reserve.shift();
         const ns = mkSoldier(
           r.name, r.weapon, 270, r.hp ?? undefined,
-          Math.floor(Math.random() * 3), !!r.civilian, false, { veteran: !!r.veteran },
+          Math.floor(Math.random() * 3), !!r.civilian, false, reserveOpts(r),
         );
         ns.ammo = 0;
         gs.soldiers.push(ns);
@@ -725,7 +728,7 @@ function killTarget(gs, target, now, shooter) {
     }
   } else {
     // Human
-    gs.soundQ.push({ t: 'zdie', zt: 'walker', x: target.x });
+    gs.soundQ.push({ t: 'hdie', deep: voiceOf(target), x: target.x });
     gs.kills++;
     gs.score += target.type === 'gunman' ? 25 : 15;
     if (target.type !== 'gunman') {

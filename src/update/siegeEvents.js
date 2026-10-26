@@ -71,7 +71,7 @@ export function tickSiegeEvent(gs, now, dt) {
     if (ev.hp <= 0) { finish(gs, ev, false, now, 'We lost {name}...', { name: ev.name }, 'reyes'); return; }
     if (ev.x <= WX + 30) {
       if (!Array.isArray(gs.reserve)) gs.reserve = [];
-      if (gs.reserve.length < BALANCE.maxReserveSoldiers) gs.reserve.push({ name: ev.name, weapon: 'pistol', civilian: true, hp: Math.max(20, Math.round(ev.hp * 1.5)) });
+      if (gs.reserve.length < BALANCE.maxReserveSoldiers) gs.reserve.push({ name: ev.name, weapon: 'pistol', civilian: true, hp: Math.max(20, Math.round(ev.hp * 1.5)), lookId: 7000 + ev.name.length });   // the runner's look (render/siegeEvents.js)
       gs.score += 150;
       gs.effects.push({ type: 'txt', x: WX + 40, y: laneY(ev.lane) - 70, v: t('+ {name} JOINS THE RESERVE', { name: ev.name }), col: '#88ee99', at: now, dur: 2200 });
       finish(gs, ev, true, now, '{name} is inside! Good work!', { name: ev.name }, 'hale');

@@ -65,6 +65,12 @@ export const BALANCE = {
   evacSniperAmmoPerCiv: 2,
   evacMaterialsPerCiv: 8,
 
+  // Civilian volunteers for sorties (asked only when the fort is short
+  // of men; see update/volunteers.js)
+  volunteerMinAble: 2,              // ASK FOR VOLUNTEERS shows below this many sortie-able people
+  volunteerAimJitter: 6,            // sortie shots leave up to ±6 px off their depth (hit window ±13)
+  volunteerStamMul: 0.8,            // less stamina on sorties
+
   // Story / endgame
   maxWaves: 30,                     // wave 30 = mega-wave + extraction finale
   megaWaveMultiplier: 2.5,          // wave 30 zombie counts scaled by this

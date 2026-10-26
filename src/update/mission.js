@@ -1,4 +1,4 @@
-import { C, CH, uid, rng } from '../constants.js';
+import { C, CH, uid, rng, voiceOf } from '../constants.js';
 import { WPN, wbase, MELEE } from '../data/weapons.js';
 import { meleeStats, wearMelee, gearIcon, gearName, tickStam, spendStam, JUMP_COST, maxStam, winded } from '../entities/gear.js';
 import { ZTP } from '../data/zombies.js';
@@ -92,6 +92,8 @@ function missionModifiers(orig, researchCompleted) {
     rlMul: getSoldierPerkEffect(orig, 'reloadMul', 1) * res('reloadMul', 1),
     rangeBonus: getSoldierPerkEffect(orig, 'rangeBonus', 0) + (isSniper ? res('sniperRangeBonus', 0) : 0),
     tankMul: wbase(orig.weapon) === 'rifle' ? res('rifleVsTankMul', 1) : 1,
+    // Civilian volunteers: untrained aim, less wind.
+    ...(orig.volunteer ? { aimJitter: BALANCE.volunteerAimJitter, stamMul: BALANCE.volunteerStamMul } : {}),
   };
 }
 const effRl = (who, w) => w.rl * (who.rlMul || 1);
@@ -484,6 +486,7 @@ export function mkMission(soldier, dest, wave = 1, magsPerSoldier = 2, researchC
 
   const buildMissionSoldier = (orig, offset) => ({
     id: uid(), origId: orig.id, name: orig.name, weapon: orig.weapon,
+    ...(orig.lookId != null ? { lookId: orig.lookId } : {}),
     x: 80 - offset * 30, depth: formationDepth(Math.round(BAND / 2), offset - 1, BAND), lane: 0, hp: orig.hp, maxHp: orig.maxHp,
     ammo: Math.max(0, orig.ammo | 0),
     maxAmmo: orig.maxAmmo,
@@ -698,7 +701,8 @@ function meleeHit(m, who, tgt, now) {
     m.killedCount++;
     who._kills = (who._kills || 0) + 1;
     if (tgt.type) m.soundQ.push({ t: 'zdie', zt: tgt.type, x: tgt.x });
-    else if (tgt.colonel) {
+    else m.soundQ.push({ t: 'hdie', deep: voiceOf(tgt), x: tgt.x });
+    if (!tgt.type && tgt.colonel) {
       m.effects.push({ type: 'txt', x: tgt.x, y: MGY - 110, v: t('★ COL. VOSS DOWN'), col: '#ffd54a', at: now, dur: 2600 });
       pushRadio(m, 'kill', { line: 'The colonel is down! Their line is breaking!', speaker: m.soldier, cooldown: 0 });
     }
@@ -787,7 +791,8 @@ function fireGun(m, who, w, range) {
   // kept on each bullet so the collision pass can match it with
   // targets on the same level.
   const shooterY = (who.standingY || 0);
-  const d = dep(who);
+  // An unsteady hand (volunteers) sends the shot a little off the line.
+  const d = dep(who) + (who.aimJitter ? (Math.random() - 0.5) * 2 * who.aimJitter : 0);
   const bulletY = MGY + d - 42 * depthSc(d) + shooterY;
   for (let p = 0; p < (w.pel || 1); p++) {
     const sp2 = (Math.random() - 0.5) * w.sp * 2;
@@ -1766,6 +1771,7 @@ export function updateMission(m, now, dt) {
       alertHumans(m, humanHit);
       humanHit._hitAt = now;
       m.soundQ.push({ t: 'hit', now, x: b.x });
+      m.soundQ.push(humanHit.hp > 0 ? { t: 'hhurt', x: b.x } : { t: 'hdie', deep: voiceOf(humanHit), x: humanHit.x });
       m.effects.push({ type: 'blood', x: b.x, y: b.y, drops: Array.from({ length: 5 }, () => ({ x: 0, y: 0, vx: (Math.random() - 0.5) * 3, vy: -Math.random() * 2 - 0.5, r: 1.4 + Math.random() * 2.4 })), at: now, dur: 580 });
       m.effects.push({ type: 'hit', x: b.x, y: b.y, at: now, dur: 200 });
       m.effects.push({ type: 'txt', x: humanHit.x, y: MGY - 60 + dep(humanHit), v: `-${Math.round(b.dmg)}`, col: C.bld, at: now, dur: 680 });

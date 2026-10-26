@@ -14,7 +14,7 @@ import { isHumanWaveNumber } from './data/humans.js';
 
 import { getAM, processSounds } from './audio/AudioEngine.js';
 
-import { mkSoldier } from './entities/soldier.js';
+import { mkSoldier, benchEntry, reserveOpts } from './entities/soldier.js';
 import { mkBarricade } from './entities/barricade.js';
 import { mkTurret } from './entities/turret.js';
 import { mkWave, mkHumanWave } from './entities/wave.js';
@@ -26,6 +26,7 @@ import { ensureQuests, refreshOffers, acceptJob, declineJob, deliverJob, canDeli
 import { MAX_ACTIVE, FORT_UNLOCKS, STORY } from './data/quests.js';
 import { cityDests, ensureCity, applyCityVisit } from './data/city.js';
 import { rollSiegeEvent } from './update/siegeEvents.js';
+import { sortieReady, askableCivilians, shortOfMen, askVolunteers } from './update/volunteers.js';
 import { dSiegeEvent } from './render/siegeEvents.js';
 import { WAVE_MODS, rollWaveMod, isBossWave, bossName } from './data/waveMods.js';
 import { mkGS } from './entities/gameState.js';
@@ -41,6 +42,7 @@ import { dBarricade, dBlt, dFx } from './render/effects.js';
 import { dTurret } from './render/turret.js';
 import { dSquadMarker, dHUD, dRadioLog, HUD_MUTE, HUD_SPEED, HUD_RADAR } from './render/hud.js';
 import RadioLog from './ui/RadioLog.jsx';
+import Face from './ui/Face.jsx';
 import { dEvacScene, EVAC_DURATION } from './render/evac.js';
 import { dIntroScene, INTRO_DURATION } from './render/intro.js';
 import { dDefeatScene, DEFEAT_DURATION } from './render/defeat.js';
@@ -213,7 +215,7 @@ export default function DeadPerimeter() {
     const cur = expSolsRef.current;
     if (cur.includes(i)) {
       expSolsRef.current = cur.filter(x => x !== i);
-    } else if (cur.length < BALANCE.maxExpeditionParty) {
+    } else if (cur.length < BALANCE.maxExpeditionParty && sortieReady(gsRef.current?.soldiers?.[i] || {})) {
       expSolsRef.current = [...cur, i];
     } else {
       return;
@@ -221,6 +223,17 @@ export default function DeadPerimeter() {
     setExpSoldierIdxs([...expSolsRef.current]);
   }, []);
   const pickDest = useCallback(i => { expDstRef.current = i; setExpDestIdx(i); }, []);
+  // ASK FOR VOLUNTEERS: who stepped up / who refused, shown under the party.
+  const [volNote, setVolNote] = useState(null);
+  const askVols = useCallback(() => {
+    const gs = gsRef.current; if (!gs) return;
+    const res = askVolunteers(gs);
+    if (res.yes.length) logRadio({ line: 'Volunteers: {names}. Out there, keep the new ones behind you.', params: { names: res.yes.join(', ') }, who: { npc: 'hale' }, npc: true });
+    else logRadio({ line: "Nobody's stepping up. Can't say I blame them.", who: { npc: 'hale' }, npc: true });
+    saveGame(gs); setHasSave(true);
+    setVolNote(res);
+    setUi({ ...gs, soldiers: gs.soldiers.map(s => ({ ...s })) });
+  }, []);
 
   const toggleMute = useCallback(() => {
     const am = getAM();
@@ -477,7 +490,7 @@ export default function DeadPerimeter() {
     const gs = gsRef.current;
     if ((gs.expeditionsToday || 0) >= sortiesPerDay(gs)) return;
 
-    const party = idxs.map(i => gs.soldiers[i]).filter(s => s && s.state !== 'dead');
+    const party = idxs.map(i => gs.soldiers[i]).filter(s => s && s.state !== 'dead' && sortieReady(s));
     if (party.length === 0) return;
     const dest = expDestsRef.current[di];
     if (!dest) return;
@@ -756,7 +769,7 @@ export default function DeadPerimeter() {
     if (s.onRoof) return;
     if ((gs.reserve?.length || 0) >= BALANCE.maxReserveSoldiers) return;
     gs.reserve = gs.reserve || [];
-    gs.reserve.push({ name: s.name, weapon: s.weapon, civilian: !!s.civilian, veteran: !!s.veteran, hp: s.hp });
+    gs.reserve.push(benchEntry(s));
     gs.soldiers.splice(idx, 1);
     saveGame(gs); setHasSave(true);
     setUi({ ...gs, soldiers: gs.soldiers.map(s => ({ ...s })) });
@@ -766,7 +779,7 @@ export default function DeadPerimeter() {
     const gs = gsRef.current; if (!gs) return;
     const r = (gs.reserve || [])[idx]; if (!r) return;
     if (gs.soldiers.filter(s => s.state !== 'dead').length >= BALANCE.maxActiveSoldiers) return;
-    const ns = mkSoldier(r.name, r.weapon, 270, r.hp ?? 100, Math.floor(Math.random() * 3), !!r.civilian, false, { veteran: !!r.veteran });
+    const ns = mkSoldier(r.name, r.weapon, 270, r.hp ?? 100, Math.floor(Math.random() * 3), !!r.civilian, false, reserveOpts(r));
     ns.ammo = 0;
     gs.soldiers.push(ns);
     gs.reserve.splice(idx, 1);
@@ -1730,7 +1743,7 @@ export default function DeadPerimeter() {
   const resetExp = () => {
     setExpResult(null); setExpPhase(null); setExpEvents([]); setExpVisible(0);
     expSolsRef.current = []; expDstRef.current = null;
-    setExpSoldierIdxs([]); setExpDestIdx(null);
+    setExpSoldierIdxs([]); setExpDestIdx(null); setVolNote(null);
     // Destinations = every discovered location on the city map.
     expDestsRef.current = gsRef.current ? cityDests(gsRef.current) : [];
     setExpDests(expDestsRef.current);
@@ -1787,15 +1800,39 @@ export default function DeadPerimeter() {
               if (s.state === 'dead') return null;
               const picked = expSoldierIdxs.includes(i);
               const order = picked ? expSoldierIdxs.indexOf(i) + 1 : null;
+              // Civilians wait for the helicopter; only volunteers go out.
+              if (!sortieReady(s)) return (
+                <div key={s.id} title={t('Civilians are not sent on sorties. Ask for volunteers when the fort is short of men.')}
+                  style={{ ...card, cursor: 'not-allowed', borderColor: '#2a2a26', opacity: 0.4 }}>
+                  <div style={{ color: '#88ddff', fontWeight: 'bold', fontSize: '11px' }}>{s.name}</div>
+                  <div style={{ fontSize: '9px', color: C.txt }}>{t(WPN[s.weapon]?.name)}</div>
+                  <div style={{ fontSize: '9px', color: '#88ddff' }}>{t('civilian — to evacuate')}</div>
+                </div>
+              );
               return (
                 <div key={s.id} onClick={() => toggleSoldier(i)} style={{ ...card, cursor: 'pointer', borderColor: picked ? C.acc : C.uib, opacity: picked ? 1 : 0.7, position: 'relative' }}>
                   {order && <div style={{ position: 'absolute', top: 4, right: 6, background: C.acc, color: '#061006', fontSize: '9px', fontWeight: 'bold', borderRadius: '50%', width: '14px', height: '14px', textAlign: 'center', lineHeight: '14px' }}>{order}</div>}
                   <div style={{ color: C.acc, fontWeight: 'bold', fontSize: '11px' }}>{s.name}</div>
                   <div style={{ fontSize: '9px', color: C.txt }}>{t(WPN[s.weapon]?.name)}</div>
-                  <div style={{ fontSize: '9px', color: s.hp > 60 ? C.acc : s.hp > 30 ? C.wrn : C.dng }}>{s.hp}HP</div>
+                  <div style={{ fontSize: '9px', color: s.hp > 60 ? C.acc : s.hp > 30 ? C.wrn : C.dng }}>{s.hp}HP{s.volunteer && <span style={{ color: '#88ddff', marginLeft: '4px' }}>{t('· volunteer')}</span>}</div>
                 </div>
               );
             })}</div>
+            {gs && shortOfMen(gs) && (askableCivilians(gs).length > 0 || volNote) && (
+              <div style={{ marginTop: '6px', display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                {askableCivilians(gs).length > 0 && (
+                  <button style={{ ...btn('#1a2a3a', '#4488aa'), fontSize: '11px', padding: '4px 12px' }} onClick={askVols}>{t('🙋 ASK FOR VOLUNTEERS')}</button>
+                )}
+                <span style={{ fontSize: '9px', color: C.txt, opacity: 0.7 }}>{t('Fewer than {n} men fit for a sortie: the civilians in the squad can be asked to go out.', { n: BALANCE.volunteerMinAble })}</span>
+              </div>
+            )}
+            {volNote && (
+              <div style={{ fontSize: '10px', marginTop: '4px', lineHeight: '1.5' }}>
+                {volNote.yes.length > 0 && <div style={{ color: C.acc }}>{t('Stepped up: {names}', { names: volNote.yes.join(', ') })}</div>}
+                {volNote.no.length > 0 && <div style={{ color: C.wrn }}>{t('Refused: {names}', { names: volNote.no.join(', ') })}</div>}
+                {volNote.yes.length === 0 && <div style={{ color: C.dng }}>{t('Nobody volunteered today.')}</div>}
+              </div>
+            )}
             <div style={h2}>{t('CHOOSE DESTINATION')}</div>
             {gs && <CityMap city={ensureCity(gsRef.current || gs)} dests={expDests} selected={expDestIdx} onPick={pickDest} day={gs.day} jobs={ensureQuests(gsRef.current || gs).active} />}
             {gs && expDestIdx !== null && expDests[expDestIdx] && expDests[expDestIdx].locId === 'compound' && (
@@ -2287,12 +2324,18 @@ export default function DeadPerimeter() {
             <div style={row}>
               {gs?.soldiers?.map((s, i) => (
                 <div key={s.id} style={{ ...card, opacity: s.state === 'dead' ? 0.34 : 1, borderColor: s.state === 'dead' ? C.dng : C.uib, minWidth: '130px' }}>
-                  <div style={{ color: s.state === 'dead' ? C.dng : C.acc, fontWeight: 'bold', fontSize: '11px' }}>
-                    {s.name} {s.state === 'dead' && '†'}
-                    {s.civilian && s.state !== 'dead' && <span style={{ color: '#88ddff', fontSize: '9px', marginLeft: '2px' }}>{t('· civ')}</span>}
-                    {s.veteran && s.state !== 'dead' && <span style={{ color: '#ffd54a', fontSize: '9px', marginLeft: '2px' }}>{t('· vet')}</span>}
+                  <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                    <Face who={{ soldier: s }} size={30} />
+                    <div>
+                      <div style={{ color: s.state === 'dead' ? C.dng : C.acc, fontWeight: 'bold', fontSize: '11px' }}>
+                        {s.name} {s.state === 'dead' && '†'}
+                        {s.civilian && s.state !== 'dead' && <span style={{ color: '#88ddff', fontSize: '9px', marginLeft: '2px' }}>{t('· civ')}</span>}
+                        {s.volunteer && s.state !== 'dead' && <span style={{ color: '#88ddff', fontSize: '9px', marginLeft: '2px' }}>{t('· volunteer')}</span>}
+                        {s.veteran && s.state !== 'dead' && <span style={{ color: '#ffd54a', fontSize: '9px', marginLeft: '2px' }}>{t('· vet')}</span>}
+                      </div>
+                      <div style={{ fontSize: '9px', color: C.txt }}>{t(WPN[s.weapon]?.name)} · {t('Lane')} {t('FMB')[s.lane || 0]}</div>
+                    </div>
                   </div>
-                  <div style={{ fontSize: '9px', color: C.txt }}>{t(WPN[s.weapon]?.name)} · {t('Lane')} {t('FMB')[s.lane || 0]}</div>
                   {s.state !== 'dead' && (() => {
                     const L = s.level || 1, x0 = xpForLevel(L), x1 = xpForLevel(L + 1);
                     const pct = L >= 10 ? 1 : Math.max(0, Math.min(1, ((s.xp || 0) - x0) / (x1 - x0)));
@@ -2661,12 +2704,18 @@ export default function DeadPerimeter() {
                     const activeFull = gs.soldiers.filter(s => s.state !== 'dead').length >= BALANCE.maxActiveSoldiers;
                     return (
                       <div key={i} style={{ ...card, minWidth: '110px', borderColor: '#1a3a52', background: 'rgba(12,20,30,0.85)' }}>
-                        <div style={{ color: '#88ddff', fontWeight: 'bold', fontSize: '11px' }}>
-                          {r.name}
-                          {r.civilian && <span style={{ color: '#88ddff', fontSize: '8px', marginLeft: '2px' }}>{t('· civ')}</span>}
-                          {r.veteran && <span style={{ color: '#ffd54a', fontSize: '8px', marginLeft: '2px' }}>{t('· vet')}</span>}
+                        <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                          <Face who={{ soldier: r }} size={30} />
+                          <div>
+                            <div style={{ color: '#88ddff', fontWeight: 'bold', fontSize: '11px' }}>
+                              {r.name}
+                              {r.civilian && <span style={{ color: '#88ddff', fontSize: '8px', marginLeft: '2px' }}>{t('· civ')}</span>}
+                              {r.volunteer && <span style={{ color: '#88ddff', fontSize: '8px', marginLeft: '2px' }}>{t('· volunteer')}</span>}
+                              {r.veteran && <span style={{ color: '#ffd54a', fontSize: '8px', marginLeft: '2px' }}>{t('· vet')}</span>}
+                            </div>
+                            <div style={{ fontSize: '9px', color: C.txt }}>{t(WPN[r.weapon]?.name)}</div>
+                          </div>
                         </div>
-                        <div style={{ fontSize: '9px', color: C.txt }}>{t(WPN[r.weapon]?.name)}</div>
                         <div style={{ fontSize: '8px', color: C.txt, opacity: 0.6, marginTop: '2px' }}>{t('standby')}</div>
                         <button
                           style={{ ...btn('#1a3028', '#338866'), fontSize: '8px', padding: '2px 6px', marginTop: '3px', marginRight: 0 }}

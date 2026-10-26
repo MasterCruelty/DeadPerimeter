@@ -2,7 +2,7 @@ import { ammoPool } from '../data/weapons.js';
 import { hasUnlock } from '../update/quests.js';
 import { mkMission } from '../update/mission.js';
 import { VACCINE_SCENARIOS } from '../data/vaccineMission.js';
-import { mkSoldier } from '../entities/soldier.js';
+import { mkSoldier, benchEntry, reserveOpts } from '../entities/soldier.js';
 import { recordDeath } from '../entities/gameState.js';
 import { KIND_HP, RECRUIT_WEAPONS } from '../data/expeditions.js';
 
@@ -20,7 +20,7 @@ function gatherVaccineParty(gs) {
   for (const r of (gs.reserve || [])) {
     const weapon = r.weapon || RECRUIT_WEAPONS[0];
     const hp = r.hp ?? (r.civilian ? KIND_HP.civilian : r.veteran ? KIND_HP.veteran : KIND_HP.recruit);
-    const s = mkSoldier(r.name, weapon, 200, hp, 0, !!r.civilian, false, { veteran: !!r.veteran });
+    const s = mkSoldier(r.name, weapon, 200, hp, 0, !!r.civilian, false, reserveOpts(r));
     s.state = 'idle';
     s.fromReserve = true;
     promoted.push(s);
@@ -238,11 +238,7 @@ export function finishVaccineCampaign(campaign, gs) {
     const idx = gs.soldiers.indexOf(s);
     if (idx >= 0) gs.soldiers.splice(idx, 1);
     if (s.state !== 'dead') {
-      gs.reserve.push({
-        name: s.name, weapon: s.weapon,
-        civilian: !!s.civilian, veteran: !!s.veteran,
-        hp: s.hp,
-      });
+      gs.reserve.push(benchEntry(s));
     }
   }
   // advanceVaccineScenario already counted the last act when it ran out

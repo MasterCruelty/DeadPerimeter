@@ -172,9 +172,9 @@ button).
 
 **Persisted fields (v3)**
 `day, wave, baseHp, baseMaxHp, resources, soldiers (with upgrades, kind,
-veteran, civilian, onRoof, hp, maxHp, ammo, maxAmmo, weapon, lane, x,
-destX, facing, state, name, id), barricades, turrets, score, kills,
-reserve (name/weapon/civilian/veteran/hp), expeditionsToday,
+veteran, civilian, volunteer, onRoof, hp, maxHp, ammo, maxAmmo, weapon, lane, x,
+destX, facing, state, name, id, lookId), barricades, turrets, score, kills,
+reserve (name/weapon/civilian/veteran/volunteer/lookId/hp), expeditionsToday,
 lastEvacWave, lastFoodReport, transmissionsDone, lastSupplyDrop,
 usedNames (serialised as Array), workbench, researchLab, research,
 playMs, soldiersLost, civiliansLost, savedAt, v.`
@@ -281,7 +281,8 @@ Five exports:
   `maxWaves (30)`, `maxActiveSoldiers (6)`, `maxReserveSoldiers (10)`,
   `expeditionsPerDay (2)`, `maxExpeditionParty (3)`, `maxTurrets (2)`,
   `maxBarricades (4)`, `evacMinReserve (3)`, `evacWaveCooldown (3)`,
-  `evac*PerCiv`, `foodPerPersonPerDay (2)`, `starveDmg (15)`,
+  `evac*PerCiv`, `volunteerMinAble (2)`, `volunteerAimJitter (6)`,
+  `volunteerStamMul (0.8)`, `foodPerPersonPerDay (2)`, `starveDmg (15)`,
   `wallRepairCost (8)`, `wallRepairHp (30)`, `waveClearAmmo (15 + 2×wave, max 60)`,
   `sortieFoodCostPerSoldier (3)`, `missionGoalKillRatio (0.45)`,
   `missionActivationRange (700)`, `behindBarricadeDmgMul (0.30)`,
@@ -388,7 +389,7 @@ Pure factory functions. No rendering, no audio.
 
 | Module | Export | Returns |
 | --- | --- | --- |
-| `soldier.js` | `mkSoldier(name, weapon, destX, hp?, lane?, civilian?, onRoof?, opts?)` | Soldier object. Stamps `kind` (recruit / civilian / veteran), `maxHp` from `KIND_HP`, deterministic `voicePitch`, empty `upgrades: {}` perk map, all transient state zeroed. |
+| `soldier.js` | `mkSoldier(name, weapon, destX, hp?, lane?, civilian?, onRoof?, opts?)` | Soldier object. Stamps `kind` (recruit / civilian / veteran), `maxHp` from `KIND_HP`, deterministic `voicePitch`, empty `upgrades: {}` perk map, all transient state zeroed. `opts`: `veteran`, `volunteer`, `lookId` (the look is seeded from `name` + `lookId ?? origId ?? id`; `benchEntry` keeps the soldier's id as `lookId`, reserve entries without one use 0, so a face never changes between squad, bench, wall and sortie). Also `benchEntry(s)` (soldier → reserve entry) and `reserveOpts(r)` (reserve entry → `mkSoldier` opts). |
 | `zombie.js` | `mkZombie(type)` | Zombie object spawning at `x = WORLD_W` (siege edge), random lane, jittered speed. |
 | `human.js` | `mkHuman(type)` | Hostile human with `hostile: true`. |
 | `barricade.js` | `mkBarricade(x)` | 140-HP perspective wall spanning all lanes. |
@@ -688,6 +689,23 @@ in charge:
 Rooms reset everyone to the room's floor (`placeParty`), so a climb
 in progress ends there. A follower carrying the vaccine climbs like
 the rest; if they fall up there the vial drops on that floor.
+
+#### `update/volunteers.js` — civilians on sorties
+
+Civilians (`civilian: true`) hold the wall but don't go on sorties;
+they're waiting for the helicopter. `sortieReady(s)` is the picker's
+filter (`!civilian || volunteer`). `shortOfMen(gs)` is true when fewer
+than `BALANCE.volunteerMinAble` alive, at-the-fort soldiers are
+sortie-ready; the expedition screen then shows ASK FOR VOLUNTEERS.
+`askVolunteers(gs)` asks each non-volunteer civilian in the squad (not
+the reserve: those are queued for the evac). Willingness is a fixed
+per-name trait (25–75 %), the roll is seeded by name + day, so asking
+again the same day gives the same answers. Accepting sets
+`volunteer: true` for good (saved, carried to and from the bench by
+`benchEntry` / `reserveOpts` in `entities/soldier.js`). On a sortie
+`missionModifiers` gives volunteers `aimJitter` (shots leave up to
+±`volunteerAimJitter` px off their depth) and `stamMul`
+(`volunteerStamMul`, read by `maxStam`).
 
 ### 2.7 `src/expedition/`
 
@@ -1016,6 +1034,7 @@ are right next to the constants.
 | City map + explore missions | `data/city.js` (locations, `gs.city` state, `cityDests`, `cityDayTick`, `applyCityVisit`), `ui/CityMap.jsx`, `update/cityMission.js` (seeded layout, locked doors, van exit, `isIndoorAt`), `render/cityMission.js`, `data/expeditions.js` (`MISSION_W` live binding + `setMissionWidth`), `update/mission.js` (explore branches), `DeadPerimeter.jsx` (expedition screen, travel cost, `applyCityVisit` + save on finalize) |
 | Hostile human waves | `data/humans.js`, `entities/{human,wave,gameState}.js`, `render/human.js`, `update/siege.js`, `render/hud.js` (banner) |
 | Helicopter EVAC | `render/evac.js`, `DeadPerimeter.jsx` (`callEvac`, `applyEvac`, `skipEvac`, `evacRef`) |
+| Civilian volunteers (civilians stay off sorties unless they step up) | `update/volunteers.js`, `DeadPerimeter.jsx` (party picker, `askVols`, `volNote`), `update/mission.js` (`missionModifiers`: `aimJitter`, `stamMul`; `fireGun`), `entities/gear.js` (`maxStam`), `entities/soldier.js` (`benchEntry`, `reserveOpts`), `entities/persistence.js`, `data/difficulty.js` (`volunteer*`) |
 | Opening intro | `render/intro.js`, `DeadPerimeter.jsx` (`newGame` → `introRef`, `finishIntro`) |
 | Defeat cinematic | `render/defeat.js`, `DeadPerimeter.jsx` (siege transition → `defeatRef`, `finishDefeat`) |
 | Transmission cinematics | `data/transmissions.js`, `render/transmission.js`, `audio/radioVoice.js`, `update/siege.js` (queue at wave 10/20/25), `DeadPerimeter.jsx` (`transmissionRef`, `finishTransmission`) |
@@ -1034,7 +1053,8 @@ are right next to the constants.
 | Objectives HUD | `update/objectives.js` (`tickObjectives`: primary / job / side lines with live counters, toasts), `render/objectives.js` (`dObjectives`) |
 | Reports, grades, records | `expedition/report.js` (sortie / wave / finale stats and S-A-B-C grade, records in localStorage `dp-records`), `render/report.js` (grade box on the end overlay), `ui/ReportCard.jsx`, `update/siege.js` (wave report), `entities/persistence.js` (`lastWaveReport`) |
 | Finale checkpoints | `expedition/vaccineCampaign.js` (`saveVaccineCheckpoint` at each act start, `retryVaccineCheckpoint`, `vaccineActFailure`, `retries`), `render/checkpoint.js` (banner), `DeadPerimeter.jsx` (retry / accept panel) |
-| Radio panel + log | `audio/radio.js` (`pushRadio` with `from` for named speakers, radio log), `render/portrait.js` (cached head-and-shoulders portraits from the humanoid painter), `render/hud.js` (`dRadioSubtitle` panel), `ui/RadioLog.jsx` |
+| Radio panel + log | `audio/radio.js` (`pushRadio` with `from` for named speakers, radio log), `render/portrait.js` (cached head-and-shoulders portraits from the humanoid painter), `render/hud.js` (`dRadioSubtitle` panel), `ui/RadioLog.jsx`, `ui/Face.jsx` |
+| Soldier faces in the command center (squad + reserve) | `ui/Face.jsx` (portrait canvas + scanlines), `render/portrait.js`, `render/actors/people.js` (`lookId`, `lookSeed`), `entities/soldier.js` (`lookId` through `benchEntry` / `reserveOpts`), `entities/persistence.js` |
 | Music | `audio/music.js` (tracks per state, scheduled on the AudioContext clock, crossfades, siege / sortie intensity, ducking under radio voices), `DeadPerimeter.jsx` (`tickMusic` interval, MUSIC toggle `dp-music`) |
 | Daily food consumption + starvation | `update/siege.js` (wave-clear tally + per-person deduction + `starveDmg` on zero) |
 

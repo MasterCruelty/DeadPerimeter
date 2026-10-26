@@ -6,7 +6,7 @@ import { getSoldierPerkEffect } from '../data/difficulty.js';
 // over time. A winded soldier swings much slower. Endurance skill
 // raises both the pool and the recovery.
 export const SWING_COST = 12, JUMP_COST = 18;
-export const maxStam = sol => 100 * getSoldierPerkEffect(sol, 'stamMul', 1);
+export const maxStam = sol => 100 * getSoldierPerkEffect(sol, 'stamMul', 1) * (sol.stamMul || 1);
 export function tickStam(sol, dt) {
   const mx = maxStam(sol);
   sol.stam = Math.min(mx, (sol.stam ?? mx) + 0.022 * dt * getSoldierPerkEffect(sol, 'stamMul', 1));

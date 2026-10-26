@@ -339,4 +339,12 @@ export default {
   'EXTRACTION COMPLETE': 'ESTRAZIONE COMPLETATA',
   'You held the wall for 30 waves. Whoever made it out of Fort Omega is on the road now.': "Avete tenuto il muro per 30 ondate. Chi è uscito vivo da Fort Omega ora è in viaggio.",
   '🍺 Buy me a beer': '🍺 Offrimi una birra',
+  'civilian — to evacuate': 'civile — da evacuare',
+  'Civilians are not sent on sorties. Ask for volunteers when the fort is short of men.': 'I civili non vanno in sortita. Chiedi volontari quando al forte mancano uomini.',
+  '· volunteer': '· volontario',
+  '🙋 ASK FOR VOLUNTEERS': '🙋 CHIEDI VOLONTARI',
+  'Fewer than {n} men fit for a sortie: the civilians in the squad can be asked to go out.': 'Meno di {n} uomini in grado di uscire: si può chiedere ai civili della squadra di andare in sortita.',
+  'Stepped up: {names}': 'Si sono offerti: {names}',
+  'Refused: {names}': 'Hanno rifiutato: {names}',
+  'Nobody volunteered today.': 'Oggi nessuno si è offerto.',
 };

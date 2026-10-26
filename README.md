@@ -62,6 +62,10 @@ points before the next wave.
   or tear it down (loud — it draws a pack). There's no finish line:
   **walk back to the van** when you've had enough. Deeper means richer
   loot — and a longer way home.
+- Civilians don't go on sorties. When fewer than two soldiers are fit
+  to go, **ask for volunteers**: each civilian in the squad says yes or
+  no (same answer all day, a new chance the next). Volunteers keep
+  their civilian HP, aim worse and tire sooner.
 - Armed survivors and Compact soldiers react like soldiers: they wake
   up when you come within their range, answer fire when shot from afar
   and alert each other.
@@ -88,6 +92,10 @@ points before the next wave.
   siege wave and the finale get a grade too.
 
 ### Soldiers and gear
+- Rescued **civilians** join the reserve and are there to be brought to
+  safety: call the **helicopter evac** from the command center once
+  three are waiting, for supplies in return. Civilians moved into the
+  squad help hold the wall.
 - **Found guns** (AK-47, MP5, .357 Revolver, Hunting Rifle, Double
   Barrel) and **melee weapons** that wear out (bat, machete, fire axe).
   Spares go to the **armory**.
@@ -137,7 +145,9 @@ accept the outcome. Retries count against the finale's grade.
   flashlights, fires, bloom, grading — always at full quality.
 - Rigged, shaded characters and zombies drawn in code; no image assets.
   Dozens of outfits for civilians, soldiers and the dead, and every
-  named mini-boss has its own look.
+  named mini-boss has its own look. Each soldier keeps the same face at
+  the wall, on sorties, on the radio and in the squad and reserve lists.
+  Raiders and Compact troopers have human voices, not the zombies'.
 - Opening, transmission, evacuation and game-over **cinematics**.
 - **Procedural audio** (no sound files): zombies snarl, growl and shriek
   through a synthesized vocal tract; reloads are built from real
