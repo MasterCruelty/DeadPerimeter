@@ -3,7 +3,7 @@ import { WPN, wbase, MELEE } from '../data/weapons.js';
 import { meleeStats, wearMelee, gearIcon, gearName, tickStam, spendStam, JUMP_COST, maxStam, winded } from '../entities/gear.js';
 import { ZTP } from '../data/zombies.js';
 import { MISSION_W, MISSION_VIEW, MGY, objIcons, rollEncounter, setMissionWidth } from '../data/expeditions.js';
-import { setupCityMission, tickCity, clampCity, barricadeStops, barricadeBetween, onContainerSearched } from './cityMission.js';
+import { setupCityMission, tickCity, clampCity, barricadeStops, barricadeBetween, onContainerSearched, isIndoorAt } from './cityMission.js';
 import { dCityWorld, dCityHUD, dCityBack, cityDrawables } from '../render/cityMission.js';
 import { dRoomDecor, dRoomDoors, prompt } from '../render/rooms.js';
 import { roomKind } from './rooms.js';
@@ -687,14 +687,18 @@ function aliveTargets(m) {
   return out;
 }
 
+// Shots fired in a room or a building get the short indoor tail.
+const indoorAt = (m, x) => !!(m.room || isIndoorAt(m, x));
+
 // One melee swing (knife / bat / machete / axe) with wear and credit.
 function meleeHit(m, who, tgt, now) {
   const ms = meleeStats(who);
   tgt.hp -= ms.dmg; tgt.hurtTimer = 220;
-  m.soundQ.push({ t: ms.type === 'knife' || ms.type === 'machete' ? 'slash' : 'hit', now, x: who.x });
+  m.soundQ.push({ t: 'melee', m: ms.type, x: who.x });
   m.effects.push({ type: 'slash', x: tgt.x + who.facing * 10, y: MGY - 28 + dep(tgt) + (tgt.standingY || 0), at: now, dur: 230 });
   m.effects.push({ type: 'txt', x: tgt.x, y: MGY - 58 + dep(tgt) + (tgt.standingY || 0), v: `-${ms.dmg}`, col: '#ffcc44', at: now, dur: 600 });
   const broke = wearMelee(who);
+  if (broke) m.soundQ.push({ t: 'mbreak', m: broke, x: who.x });
   if (broke) m.effects.push({ type: 'txt', x: who.x, y: MGY - 90 + dep(who), v: t('{w} BROKE', { w: t(MELEE[broke].name).toUpperCase() }), col: C.dng, at: now, dur: 1200 });
   if (tgt.hp <= 0) {
     tgt.hp = 0; tgt.state = 'dead'; tgt.deadAt = now;
@@ -763,7 +767,7 @@ function aiShoot(m, who, now, dt) {
   if (dGap(tgt, who) > (w.pel ? 14 : 9) || coverBetween(m, who.x, tgt.x, dep(who))) return;
   if (now - who.lastShot >= w.rate) {
     who.state = 'shoot'; who.lastShot = now; who.shootAt = now; who.ammo--;
-    m.soundQ.push({ t: 'shot', w: who.weapon, x: who.x }); m.soundQ.push({ t: 'shell' });
+    m.soundQ.push({ t: 'shot', w: who.weapon, x: who.x, in: indoorAt(m, who.x) }); m.soundQ.push({ t: 'shell' });
     fireGun(m, who, w, range);
     m.effects.push({ type: 'shell', x: who.x - who.facing * 8, y: MGY - 26 + dep(who), vx: -who.facing * (1.4 + Math.random()), at: now, dur: 780 });
     if (who.ammo === 0) {
@@ -1295,7 +1299,7 @@ export function updateMission(m, now, dt) {
   if (m.inputShoot && s.state !== 'reload' && s.ammo > 0 && !s.knifeReady && !dodging(s)) {
     if (now - s.lastShot >= w.rate) {
       s.state = 'shoot'; s.lastShot = now; s.shootAt = now; s.ammo--;
-      m.soundQ.push({ t: 'shot', w: s.weapon, x: s.x }); m.soundQ.push({ t: 'shell' });
+      m.soundQ.push({ t: 'shot', w: s.weapon, x: s.x, in: indoorAt(m, s.x) }); m.soundQ.push({ t: 'shell' });
       kick(m, s.weapon);
       const bulletY = fireGun(m, s, w, effRange(s, w));
       m.effects.push({ type: 'shell', x: s.x - s.facing * 8, y: bulletY, vx: -s.facing * (1.4 + Math.random()), at: now, dur: 780 });
@@ -1559,7 +1563,7 @@ export function updateMission(m, now, dt) {
             hostile: true,
           });
         }
-        m.soundQ.push({ t: 'fire', w: h.weapon, x: h.x });
+        m.soundQ.push({ t: 'fire', w: h.weapon, x: h.x, in: indoorAt(m, h.x) });
       }
     }
   });
@@ -1633,7 +1637,7 @@ export function updateMission(m, now, dt) {
           friendlyHuman: true,
         });
       }
-      m.soundQ.push({ t: 'fire', w: h.weapon, x: h.x });
+      m.soundQ.push({ t: 'fire', w: h.weapon, x: h.x, in: indoorAt(m, h.x) });
     }
   });
   // ── HAZARDS ──────────────────────────────────────────────────
