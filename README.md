@@ -256,6 +256,10 @@ See [`CODE.md`](./CODE.md) for the module-by-module reference, invariants
 and recipes (adding a weapon, a zombie, a destination…), and
 [`PROJECT_STATE.md`](./PROJECT_STATE.md) for design notes.
 
+## Support
+
+If you enjoy the game, you can [buy me a beer](https://paypal.me/mastercruelty) 🍺.
+
 ## License
 
 [MIT](./LICENSE) © 2026 MasterCruelty.

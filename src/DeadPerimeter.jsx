@@ -4,6 +4,7 @@ import { C, CW, CH, GY, WX, WORLD_W, DPR, laneY, clickToLane, ZOOM_FY, zoomOf, c
 import { setZoom } from './update/zoom.js';
 import { t, onLangChange } from './i18n/index.js';
 import LangSelect from './ui/LangSelect.jsx';
+import DonateLink from './ui/DonateLink.jsx';
 import { leaveRoomIfInside } from './update/rooms.js';
 import { WPN, wbase, ammoPool, MELEE } from './data/weapons.js';
 import { stashGear, ensureArmory, magSize } from './entities/gear.js';
@@ -2121,6 +2122,7 @@ export default function DeadPerimeter() {
               <div style={{ marginTop: '14px', display: 'flex', gap: '8px', justifyContent: 'center', alignItems: 'center', flexWrap: 'wrap' }}>
                 <LangSelect />
                 <button style={{ ...mbtn, opacity: musicOn ? 1 : 0.6 }} onClick={toggleMusic} title={t('Music on / off')}>{musicOn ? t('🎵 MUSIC') : t('🎵 MUSIC OFF')}</button>
+                <DonateLink />
               </div>
               <div style={{ color: '#4a5a40', fontSize: '9px', marginTop: '10px', letterSpacing: '.05em' }}>{t('🔊 click once to enable audio · auto-saves between waves')}</div>
             </div>
@@ -2843,6 +2845,7 @@ export default function DeadPerimeter() {
             </div>
             <hr style={hr} />
             <button style={btn('#1a3a5a', '#4474aa')} onClick={newGame}>{t('↻ NEW OPERATION')}</button>
+            <div style={{ marginTop: '14px' }}><DonateLink /></div>
           </div>
         </div>
         );
