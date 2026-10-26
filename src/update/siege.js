@@ -7,7 +7,7 @@ import { BALANCE, RESEARCHES, waveClearAmmoFor, getSoldierPerkEffect } from '../
 import { TRANSMISSION_WAVES } from '../data/transmissions.js';
 import { mkZombie } from '../entities/zombie.js';
 import { mkHuman } from '../entities/human.js';
-import { mkSoldier } from '../entities/soldier.js';
+import { mkSoldier, reserveOpts } from '../entities/soldier.js';
 import { recordDeath } from '../entities/gameState.js';
 import { pushRadio } from '../audio/radio.js';
 import { WAVE_MODS, rollWaveMod } from '../data/waveMods.js';
@@ -686,7 +686,7 @@ export function update(gs, now, dt) {
         const r = gs.reserve.shift();
         const ns = mkSoldier(
           r.name, r.weapon, 270, r.hp ?? undefined,
-          Math.floor(Math.random() * 3), !!r.civilian, false, { veteran: !!r.veteran },
+          Math.floor(Math.random() * 3), !!r.civilian, false, reserveOpts(r),
         );
         ns.ammo = 0;
         gs.soldiers.push(ns);

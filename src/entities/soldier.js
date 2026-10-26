@@ -14,7 +14,7 @@ function pickVoicePitch(name, kind) {
 }
 
 // mkSoldier(name, weapon, destX, hp?, lane?, civilian?, onRoof?, opts?)
-//   opts = { veteran?: bool }
+//   opts = { veteran?: bool, volunteer?: bool }
 // HP cap depends on the kind: civilians 70, veterans 120, recruits 100.
 // hp defaults to that cap when not explicitly passed.
 export const mkSoldier = (name, weapon, destX, hp, lane = 0, civilian = false, onRoof = false, opts = {}) => {
@@ -29,6 +29,7 @@ export const mkSoldier = (name, weapon, destX, hp, lane = 0, civilian = false, o
     kind,
     ammo: 0, maxAmmo: w.ammo, state: 'walk', facing: 1,
     civilian, veteran, onRoof,
+    ...(civilian && opts.volunteer ? { volunteer: true } : {}),
     voicePitch: pickVoicePitch(name, kind),
     lastShot: 0, reloadStart: 0, shootAt: 0, knifeTimer: 0, recoil: 0,
     walkPhase: Math.random() * Math.PI * 2, hurtTimer: 0, reloadTriggered: false,
@@ -38,3 +39,11 @@ export const mkSoldier = (name, weapon, destX, hp, lane = 0, civilian = false, o
     upgrades: {},
   };
 };
+
+// Bench entry (gs.reserve) for a soldier, and the mkSoldier opts to
+// bring one back.
+export const benchEntry = s => ({
+  name: s.name, weapon: s.weapon, civilian: !!s.civilian, veteran: !!s.veteran,
+  ...(s.volunteer ? { volunteer: true } : {}), hp: s.hp,
+});
+export const reserveOpts = r => ({ veteran: !!r.veteran, volunteer: !!r.volunteer });

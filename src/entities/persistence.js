@@ -35,6 +35,7 @@ export function saveGame(gs) {
         state: s.state === 'dead' ? 'dead' : 'idle',
         facing: s.facing,
         civilian: !!s.civilian, veteran: !!s.veteran,
+        ...(s.volunteer ? { volunteer: true } : {}),
         kind: s.kind,
         onRoof: !!s.onRoof,
         upgrades: { ...(s.upgrades || {}) },
@@ -48,6 +49,7 @@ export function saveGame(gs) {
       reserve: (gs.reserve || []).map(r => ({
         name: r.name, weapon: r.weapon,
         civilian: !!r.civilian, veteran: !!r.veteran,
+        ...(r.volunteer ? { volunteer: true } : {}),
         hp: r.hp ?? 100,
       })),
       expeditionsToday: gs.expeditionsToday || 0,
@@ -106,6 +108,8 @@ export function loadGame(mkGS) {
         ammo: s.ammo, maxAmmo: s.maxAmmo,
         state: s.state, facing: s.facing,
         civilian, veteran, kind,
+        // Civilians who stepped up for sorties; absent in older saves.
+        ...(civilian && s.volunteer ? { volunteer: true } : {}),
         onRoof: s.onRoof,
         lastShot: 0, reloadStart: 0, shootAt: 0, knifeTimer: 0, recoil: 0,
         walkPhase: Math.random() * Math.PI * 2, hurtTimer: 0,

@@ -66,4 +66,6 @@ export default {
   'Tell my family...': 'Dite alla mia famiglia...',
   'Hold the line!': 'Tenete la linea!',
   'No more rounds!': 'Niente più colpi!',
+  'Volunteers: {names}. Out there, keep the new ones behind you.': 'Volontari: {names}. Là fuori tenete i nuovi dietro di voi.',
+  "Nobody's stepping up. Can't say I blame them.": 'Nessuno si fa avanti. Non posso dargli torto.',
 };

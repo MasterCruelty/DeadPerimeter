@@ -92,6 +92,8 @@ function missionModifiers(orig, researchCompleted) {
     rlMul: getSoldierPerkEffect(orig, 'reloadMul', 1) * res('reloadMul', 1),
     rangeBonus: getSoldierPerkEffect(orig, 'rangeBonus', 0) + (isSniper ? res('sniperRangeBonus', 0) : 0),
     tankMul: wbase(orig.weapon) === 'rifle' ? res('rifleVsTankMul', 1) : 1,
+    // Civilian volunteers: untrained aim, less wind.
+    ...(orig.volunteer ? { aimJitter: BALANCE.volunteerAimJitter, stamMul: BALANCE.volunteerStamMul } : {}),
   };
 }
 const effRl = (who, w) => w.rl * (who.rlMul || 1);
@@ -787,7 +789,8 @@ function fireGun(m, who, w, range) {
   // kept on each bullet so the collision pass can match it with
   // targets on the same level.
   const shooterY = (who.standingY || 0);
-  const d = dep(who);
+  // An unsteady hand (volunteers) sends the shot a little off the line.
+  const d = dep(who) + (who.aimJitter ? (Math.random() - 0.5) * 2 * who.aimJitter : 0);
   const bulletY = MGY + d - 42 * depthSc(d) + shooterY;
   for (let p = 0; p < (w.pel || 1); p++) {
     const sp2 = (Math.random() - 0.5) * w.sp * 2;
