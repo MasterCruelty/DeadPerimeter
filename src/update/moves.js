@@ -18,7 +18,7 @@
 // hitstop on melee hits and kills, slow motion when a Brute, Col.
 // Voss or the lead goes down, and screen shake per weapon / blast.
 // AI followers keep their old behaviour.
-import { uid, C } from '../constants.js';
+import { uid, C, voiceOf } from '../constants.js';
 import { WPN, wbase } from '../data/weapons.js';
 import { meleeStats, spendStam, SWING_COST } from '../entities/gear.js';
 import { MISSION_W, MGY } from '../data/expeditions.js';
@@ -241,6 +241,7 @@ function blast(m, x, y, d, now, src, H) {
     m.effects.push({ type: 'txt', x: h.x, y: MGY - 60 + dep(h), v: `-${dmg}`, col: '#ffaa33', at: now, dur: 700 });
     if (h.hp <= 0) {
       h.hp = 0; h.state = 'dead'; h.deadAt = now; credit();
+      m.soundQ.push({ t: 'hdie', deep: voiceOf(h), x: h.x });
       if (h.colonel) {
         m.effects.push({ type: 'txt', x: h.x, y: MGY - 110 + dep(h), v: t('★ COL. VOSS DOWN'), col: '#ffd54a', at: now, dur: 2600 });
         pushRadio(m, 'kill', { line: 'The colonel is down! Their line is breaking!', speaker: lead, cooldown: 0 });

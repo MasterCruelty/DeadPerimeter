@@ -53,4 +53,6 @@ export const C = {
 // Misc helpers
 let _id = 200;
 export const uid = () => ++_id;
+// Stable 0..1 voice depth per enemy, so a raider keeps the same voice.
+export const voiceOf = e => ((e.id || 0) * 0.618034) % 1;
 export const rng = (a, b) => Math.floor(Math.random() * (b - a + 1)) + a;

@@ -222,7 +222,8 @@ export class AudioEngine {
     o.frequency.setValueAtTime(f[0], t); o.frequency.linearRampToValueAtTime(f[1], t + dur * 0.4); o.frequency.linearRampToValueAtTime(f[2], t + dur);
     // Pitch tremor: slow noise into the frequency.
     const jn = this._ns(), jl = this.ctx.createBiquadFilter(); jl.type = 'lowpass'; jl.frequency.value = 16;
-    const jg = this.ctx.createGain(); jg.gain.value = f[0] * 5;   // filtered noise is ~0.02 RMS → ~±10% pitch wander jn.connect(jl); jl.connect(jg); jg.connect(o.frequency);
+    const jg = this.ctx.createGain(); jg.gain.value = f[0] * 5;   // filtered noise is ~0.02 RMS → ~±10% pitch wander
+    jn.connect(jl); jl.connect(jg); jg.connect(o.frequency);
     const src = this.ctx.createGain(); src.gain.value = 1; o.connect(src);
     let so = null;
     if (sub) { so = this.ctx.createOscillator(); so.type = 'square'; so.frequency.setValueAtTime(f[0] / 2, t); so.frequency.linearRampToValueAtTime(f[2] / 2, t + dur);
@@ -278,6 +279,29 @@ export class AudioEngine {
         ? { f: [110 + r * 40, 150 + r * 30, 90], dur: 0.9, v0: 'A', v1: 'O', rasp: 7, gurgle: 0.4, gRate: 20, breath: 0.3, vol: 0.32, pan }
         : { f: [85 + r * 25, 68, 78], dur: 1.3, v0: 'U', v1: 'O', rasp: 4.5, gurgle: 0.55, gRate: 18, breath: 0.4, vol: 0.3, sub: 0.25, pan });
     }
+  }
+  // Human enemies (bandits, raiders, Compact troopers): clean voices,
+  // no gurgle or rattle. `deep` lowers the pitch a little for variety.
+  humanDie(pan, deep = Math.random()) {
+    const now = this._t;
+    if (now - (this._hDieWin ?? -1e9) > 90) { this._hDieWin = now; this._hDieN = 0; }
+    if (++this._hDieN > 2) { this._thunk(this.ctx.currentTime + 0.1, 90, 0.18, 0.4, pan); return; }
+    const k = 1.15 - deep * 0.3;
+    // Cry cut short, then the body hitting the ground.
+    this._voice({ f: [170 * k, 135 * k, 85 * k], dur: 0.5, v0: 'A', v1: 'U', rasp: 1.6, breath: 0.2, vol: 0.34, pan });
+    this._thunk(this.ctx.currentTime + 0.4, 90, 0.18, 0.4, pan);
+  }
+  humanShout(pan, deep = Math.random()) {
+    const now = this._t;
+    if (now - (this._lastShout ?? -1e9) < 900) return; this._lastShout = now;
+    const k = 1.1 - deep * 0.25;
+    // Battle cry while charging: rising "HAA".
+    this._voice({ f: [125 * k, 185 * k, 160 * k], dur: 0.55, v0: 'E', v1: 'A', rasp: 2.4, breath: 0.25, vol: 0.32, pan });
+  }
+  humanHurt(pan) {
+    const now = this._t;
+    if (now - (this._lastHHurt ?? -1e9) < 220) return; this._lastHHurt = now;
+    this._voice({ f: [150, 130, 115], dur: 0.2, v0: 'U', v1: 'U', rasp: 1.4, breath: 0.25, vol: 0.28, pan });
   }
   zombieAtk(pan) {
     const now = this._t;
@@ -670,6 +694,9 @@ export function processSounds(q, am, mutedRef, camX = null, zoom = 1) {
       case 'zdie':   am.zombieDie(e.zt, pan(e)); break;
       case 'groan':  am.groan(e.now, e.zt, pan(e)); break;
       case 'zatk':   am.zombieAtk(pan(e));   break;
+      case 'hdie':   am.humanDie(pan(e), e.deep); break;
+      case 'hshout': am.humanShout(pan(e), e.deep); break;
+      case 'hhurt':  am.humanHurt(pan(e));   break;
       case 'slash':  am.slash(pan(e));       break;
       case 'explosion': am.explosion(pan(e)); break;
       case 'grenade': am.grenade(pan(e)); break;
