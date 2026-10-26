@@ -1,19 +1,19 @@
-// Northgate Compact panel on the expedition screen (data/faction.js):
-// relations, intel on their armory / treasury, the trade stock, and what
-// an assault would mean.
+// Northgate Compact panel (data/faction.js): relations, intel on their
+// armory / treasury, the trade stock, and what an assault would mean.
+// Shown on the expedition screen and, for trade on any day, in the
+// command center (`atFort`).
 import { C } from '../constants.js';
 import { WPN } from '../data/weapons.js';
 import { COMPACT, tierOf } from '../data/faction.js';
-import { ensureCompact, stockFor, priceOf, canAfford, envoyNeeded, buy } from '../update/faction.js';
+import { ensureCompact, stockFor, priceOf, canAfford, envoyNeeded, envoyFood, withEnvoy, buy } from '../update/faction.js';
 import { t } from '../i18n/index.js';
 
 const ICON = { materials: '🔧', food: '🥫', medicine: '💊', ammo: '🔫', sniperAmmo: '🎯', turretAmmo: '🟠' };
 const fmt = o => Object.entries(o).map(([k, v]) => `${v}${ICON[k] || k}`).join(' ');
 
-export default function CompactPanel({ gs, sortiesPerDay, onChange }) {
+export default function CompactPanel({ gs, atFort = false, onChange }) {
   const c = ensureCompact(gs);
   const tier = tierOf(c.standing);
-  const slotsLeft = sortiesPerDay - (gs.expeditionsToday || 0);
   const envoy = envoyNeeded(gs);
   const tbox = { marginTop: '6px', background: 'rgba(30,24,10,0.9)', border: `1px solid ${COMPACT.color}`, padding: '8px 12px', fontSize: '9px', color: C.txt };
   if (c.status === 'destroyed') {
@@ -39,23 +39,24 @@ export default function CompactPanel({ gs, sortiesPerDay, onChange }) {
       {c.status === 'neutral' ? (
         <>
           <div style={{ marginTop: '6px', opacity: 0.8 }}>
-            {envoy ? t('The first purchase today sends an envoy: it uses 1 sortie ({n} left).', { n: Math.max(0, slotsLeft) }) : t('Envoy already at the compound today: buy freely.')}
+            {envoy ? t('The first purchase today sends an envoy: {n} 🥫 for the trip, no sortie used.', { n: envoyFood() }) : t('Envoy already at the compound today: buy freely.')}
           </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '4px' }}>
             {stockFor(gs).map(it => {
               const price = priceOf(gs, it);
-              const ok = canAfford(gs, price) && (!it.gun || c.guns > 0) && (!envoy || slotsLeft > 0);
+              const ok = canAfford(gs, withEnvoy(gs, price)) && (!it.gun || c.guns > 0);
               const label = it.gun ? `🔫 ${t(WPN[it.gun].name)}` : `📦 ${fmt(it.give)}`;
               return (
                 <button key={it.id} disabled={!ok}
                   style={{ background: '#2a2410', color: C.txt, border: `1px solid ${COMPACT.color}`, padding: '3px 8px', fontSize: '9px', fontFamily: 'monospace', cursor: ok ? 'pointer' : 'default', opacity: ok ? 1 : 0.5 }}
-                  onClick={() => { if (buy(gs, it.id, sortiesPerDay)) onChange(); }}>
+                  onClick={() => { if (buy(gs, it.id)) onChange(); }}>
                   {label}<div style={{ opacity: 0.75 }}>{fmt(price)}</div>
                 </button>
               );
             })}
           </div>
           <div style={{ marginTop: '6px', opacity: 0.7 }}>{t('Better stock at standing 25 and 60. Or pick a squad and launch an assault: kill the colonel or 80% of the garrison to take everything — and lose them as a trade partner for good. Fail, and they turn hostile.')}</div>
+          {atFort && <div style={{ marginTop: '3px', opacity: 0.7 }}>{t('Assaults leave from the EXPEDITION screen, on a sortie day.')}</div>}
         </>
       ) : (
         <div style={{ marginTop: '6px', color: C.dng }}>

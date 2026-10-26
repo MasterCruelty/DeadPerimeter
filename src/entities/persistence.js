@@ -61,6 +61,7 @@ export function saveGame(gs) {
       lastWaveReport: gs.lastWaveReport || null,
       transmissionsDone: Array.isArray(gs.transmissionsDone) ? [...gs.transmissionsDone] : [],
       lastSupplyDrop: gs.lastSupplyDrop || null,
+      lastConvoy: gs.lastConvoy || null,
       city: gs.city || null,
       quests: gs.quests || null,
       compact: gs.compact || null,
@@ -135,6 +136,7 @@ export function loadGame(mkGS) {
     gs.lastWaveReport = data.lastWaveReport || null;
     gs.transmissionsDone = Array.isArray(data.transmissionsDone) ? [...data.transmissionsDone] : [];
     gs.lastSupplyDrop = data.lastSupplyDrop || null;
+    gs.lastConvoy = data.lastConvoy || null;       // absent in older saves
     if (data.city && data.city.locs) gs.city = data.city;
     if (data.quests) gs.quests = data.quests;
     if (data.compact) gs.compact = data.compact;

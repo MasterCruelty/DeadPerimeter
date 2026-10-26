@@ -45,8 +45,13 @@ export const BALANCE = {
   maxActiveSoldiers: 10,             // dispatched to Fort Omega at any one time
   maxReserveSoldiers: 20,           // bench size (extras beyond this are discarded)
 
-  // Expeditions
-  expeditionsPerDay: 2,             // max sorties before the next wave (= one day)
+  // Expeditions. Sorties only go out on a sortie day: the first after
+  // wave 1 (the survivors' first job needs one), then every 3 waves —
+  // the command center before waves 2, 5, 8 ... 29. The other days are
+  // for management (and trade with the Compact).
+  sortieEvery: 3,
+  firstSortieAfterWave: 1,
+  expeditionsPerDay: 3,             // sortie slots on a sortie day (radio room +1)
   maxExpeditionParty: 5,            // soldiers per playable sortie (lead + up to 2 AI followers)
 
   // Turrets (machine-gun fixed emplacements)
@@ -94,6 +99,12 @@ export const BALANCE = {
   waveClearAmmoMax: 60,
   waveClearSniperAmmo: 2,           // Delta's 15 starting rounds lasted ~3 waves
   waveClearFood: 0,
+  // Days without sorties: Command's convoy on top of the wave-clear
+  // ammo, so the two days between sortie days aren't pure drain. Still
+  // less than a wave burns: the stash grows on sortie days.
+  quietDayAmmoMul: 0.5,             // x waveClearAmmoFor
+  quietDayFood: 15,
+  quietDayMaterials: 10,
 
   // Per-sortie fatigue: each surviving party member eats this much
   // food when they return from an expedition (lunch on the road,
@@ -110,6 +121,19 @@ export const BALANCE = {
 // Ammo issued on clearing wave `wave`.
 export const waveClearAmmoFor = wave =>
   Math.min(BALANCE.waveClearAmmoMax, BALANCE.waveClearAmmo + BALANCE.waveClearAmmoPerWave * wave);
+
+// Is the command center before wave `wave` a sortie day?
+export const isSortieWave = wave => {
+  const k = wave - 1 - BALANCE.firstSortieAfterWave;
+  return k >= 0 && k % BALANCE.sortieEvery === 0;
+};
+// The next wave (from `wave` on) whose command center is a sortie day;
+// past maxWaves when there is none left.
+export const nextSortieWave = wave => {
+  let w = Math.max(1, wave);
+  while (!isSortieWave(w)) w++;
+  return w;
+};
 
 // Craft recipes — material conversion at the workbench. Each recipe
 // is "one click" and consumes the cost / produces the output. The

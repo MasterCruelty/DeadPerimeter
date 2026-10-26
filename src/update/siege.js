@@ -3,7 +3,7 @@ import { WPN, wbase, MELEE } from '../data/weapons.js';
 import { meleeStats, wearMelee, tickStam } from '../entities/gear.js';
 import { addXp, KILL_XP, BOSS_XP, WAVE_XP } from '../data/progression.js';
 import { HUMAN_AMMO_DROP, isHumanWaveNumber } from '../data/humans.js';
-import { BALANCE, RESEARCHES, waveClearAmmoFor, getSoldierPerkEffect } from '../data/difficulty.js';
+import { BALANCE, RESEARCHES, waveClearAmmoFor, isSortieWave, getSoldierPerkEffect } from '../data/difficulty.js';
 import { TRANSMISSION_WAVES } from '../data/transmissions.js';
 import { mkZombie } from '../entities/zombie.js';
 import { mkHuman } from '../entities/human.js';
@@ -621,6 +621,12 @@ export function update(gs, now, dt) {
     gs.resources.ammo = Math.min(999, gs.resources.ammo + waveClearAmmoFor(gs.wave - 1));
     gs.resources.sniperAmmo = Math.min(99, (gs.resources.sniperAmmo || 0) + BALANCE.waveClearSniperAmmo);
     gs.resources.food = Math.min(999, gs.resources.food + BALANCE.waveClearFood);
+    // No sorties today: Command's convoy covers part of the gap.
+    if (!isSortieWave(gs.wave)) {
+      const conv = { ammo: Math.round(waveClearAmmoFor(gs.wave - 1) * BALANCE.quietDayAmmoMul), food: BALANCE.quietDayFood, materials: BALANCE.quietDayMaterials };
+      Object.entries(conv).forEach(([k, v]) => { gs.resources[k] = Math.min(999, (gs.resources[k] || 0) + v); });
+      gs.lastConvoy = { wave: gs.wave, breakdown: conv };
+    }
     // Barricades that survived the wave get patched back up to full HP
     // for free (squad maintenance between waves). Destroyed ones stay
     // gone — the player has to rebuild manually.

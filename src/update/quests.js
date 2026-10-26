@@ -3,7 +3,7 @@
 // and rewards, and the fort upgrades unlocked by the main story.
 import { NPCS, STORY, MAX_ACTIVE, FORT_UNLOCKS, SIDE_THANKS, sideJob, withArticle, FETCH_OFFER, CLEAR_OFFER, DELIVER_OFFER } from '../data/quests.js';
 import { LOCATIONS, ensureCity } from '../data/city.js';
-import { BALANCE } from '../data/difficulty.js';
+import { BALANCE, isSortieWave } from '../data/difficulty.js';
 import { FOUND_GUNS, WPN } from '../data/weapons.js';
 import { stashGear } from '../entities/gear.js';
 import { mkSoldier } from '../entities/soldier.js';
@@ -24,7 +24,10 @@ export function ensureQuests(gs) {
 }
 
 export const hasUnlock = (gs, k) => !!(gs && gs.quests && gs.quests.unlocks && gs.quests.unlocks[k]);
+// Slots on a sortie day (data/difficulty.js isSortieWave); none on the others.
 export const sortiesPerDay = gs => BALANCE.expeditionsPerDay + (hasUnlock(gs, 'radio') ? 1 : 0);
+export const sortieDay = gs => isSortieWave((gs && gs.wave) || 1);
+export const sortiesLeftToday = gs => (sortieDay(gs) ? Math.max(0, sortiesPerDay(gs) - (gs.expeditionsToday || 0)) : 0);
 export const healCost = gs => (hasUnlock(gs, 'infirmary') ? 3 : 5);
 export const turretMaterials = gs => Math.round(BALANCE.turretCostMaterials * (hasUnlock(gs, 'generator') ? 0.6 : 1));
 

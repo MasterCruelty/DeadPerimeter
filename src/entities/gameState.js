@@ -39,12 +39,13 @@ export const mkGS = () => {
     // Items shape: { name, weapon, civilian, hp? }
     reserve: [],
     // Day economy / cooldowns
-    expeditionsToday: 0,      // increments per dispatch; resets on wave clear
+    expeditionsToday: 0,      // sortie slots used today; resets on wave clear
     lastEvacWave: -10,        // wave number of the last helicopter evac
     transmissionsDone: [],    // story-beat cinematic waves already shown
     pendingTransmission: null,
     lastFoodReport: null,
     lastSupplyDrop: null,     // { wave, breakdown } banner data
+    lastConvoy: null,         // { wave, breakdown } Command convoy on a day without sorties
     usedNames: new Set(['Alpha', 'Bravo', 'Charlie', 'Delta']),
     // Workshop progression (see data/difficulty.js for recipes / nodes).
     // workbench.built unlocks the crafting panel; researchLab.built unlocks

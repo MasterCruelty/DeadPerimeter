@@ -24,7 +24,7 @@ export const NPCS = {
 // What each story step unlocks at the fort.
 export const FORT_UNLOCKS = {
   infirmary: { name: 'Infirmary',       desc: 'Heals cost 3 💊 instead of 5.' },
-  radio:     { name: 'Radio room',      desc: '+1 sortie per day.' },
+  radio:     { name: 'Radio room',      desc: '+1 sortie on sortie days.' },
   generator: { name: 'Generator',       desc: 'MG turrets cost 40% fewer materials.' },
   lab:       { name: 'Field lab',       desc: 'Research advances twice per wave clear.' },
   cole:      { name: 'Pvt. Cole',       desc: 'A veteran rifleman joins the squad.' },

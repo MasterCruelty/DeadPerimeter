@@ -175,7 +175,7 @@ button).
 veteran, civilian, volunteer, onRoof, hp, maxHp, ammo, maxAmmo, weapon, lane, x,
 destX, facing, state, name, id, lookId), barricades, turrets, score, kills,
 reserve (name/weapon/civilian/veteran/volunteer/lookId/hp), expeditionsToday,
-lastEvacWave, lastFoodReport, transmissionsDone, lastSupplyDrop,
+lastEvacWave, lastFoodReport, transmissionsDone, lastSupplyDrop, lastConvoy,
 usedNames (serialised as Array), workbench, researchLab, research,
 playMs, soldiersLost, civiliansLost, savedAt, v.`
 
@@ -279,7 +279,9 @@ Five exports:
   these).
 - `BALANCE` — gameplay caps + rewards + costs. Notable keys:
   `maxWaves (30)`, `maxActiveSoldiers (6)`, `maxReserveSoldiers (10)`,
-  `expeditionsPerDay (2)`, `maxExpeditionParty (3)`, `maxTurrets (2)`,
+  `sortieEvery (3)`, `firstSortieAfterWave (1)`, `expeditionsPerDay (3,
+  slots on a sortie day)`, `quietDayAmmoMul (0.5)`, `quietDayFood (15)`,
+  `quietDayMaterials (10)`, `maxExpeditionParty (3)`, `maxTurrets (2)`,
   `maxBarricades (4)`, `evacMinReserve (3)`, `evacWaveCooldown (3)`,
   `evac*PerCiv`, `volunteerMinAble (2)`, `volunteerAimJitter (6)`,
   `volunteerStamMul (0.8)`, `foodPerPersonPerDay (2)`, `starveDmg (15)`,
@@ -298,6 +300,11 @@ Five exports:
   reloadMul`).
 
 Helpers:
+- `waveClearAmmoFor(wave)` — Command's ammo after clearing `wave`.
+- `isSortieWave(wave)` / `nextSortieWave(wave)` — sortie days. The
+  command center before wave `w` is one when `w - 1 - firstSortieAfterWave`
+  is a non-negative multiple of `sortieEvery`: before waves 2, 5, 8 … 29.
+  `nextSortieWave` returns a number past `maxWaves` when none is left.
 - `getSoldierPerkEffect(sol, key, defaultValue)` — sums perk effects on
   that soldier (mul keys compound, bonus keys add).
 - `getResearchEffect(gs, key, defaultValue)` — sums completed-research
@@ -537,10 +544,11 @@ Order of operations in one call:
 11. Reserve auto-promotion: if active count < `BALANCE.maxActiveSoldiers`
     and reserve has entries, promote one.
 12. Wave-clear check: spawn queue empty + no live enemies → `waveComplete`.
-    After 3 s: increment day/wave, give bonus ammo, tally + apply daily
-    food consumption, tick active research progress, climb Delta back
-    up, possibly queue a transmission (wave 10/20/25), switch
-    `gs.phase` to `'management'` — **or** to `'vaccine-briefing'` if
+    After 3 s: increment day/wave, give bonus ammo (plus Command's
+    convoy — `quietDay*`, `gs.lastConvoy` — when the coming day is not a
+    sortie day), tally + apply daily food consumption, tick active
+    research progress, climb Delta back up, possibly queue a
+    transmission (wave 10/20/25), switch `gs.phase` to `'management'` — **or** to `'vaccine-briefing'` if
     `gs.wave > BALANCE.maxWaves`.
 13. Game-over check: base HP ≤ 0 OR every non-expedition soldier dead.
 
@@ -1022,8 +1030,9 @@ are right next to the constants.
 | Siege mid-wave events (survivor, supply crate) | `update/siegeEvents.js`, `render/siegeEvents.js`, `update/siege.js` (tick + wave-clear hold) |
 | Mission conditions / side objectives / car alarm | `data/missionExtras.js`, `update/missionExtras.js` (`setupMissionExtras`, `tickMissionExtras`, `bulletHitsSide`), `render/missionExtras.js`, `data/expeditions.js` (`rollDestinations`), `DeadPerimeter.jsx` (destination cards) |
 | Found weapons / melee / armory / XP | `data/weapons.js` (`WPN` base + pool, `MELEE`, `GEAR_LOOT`, `rollGear`), `data/progression.js` (XP, levels, skills), `entities/gear.js` (melee stats + wear, armory, `magSize`), `render/weapons.js` (gun art), `render/actors/people.js` (`paintMelee`, base-class handling), `update/siege.js` + `update/mission.js` (melee, XP credit), `update/cityMission.js` (gear pickups, container finds), `expedition/missionFinish.js` (XP, melee wear, gear → armory), `DeadPerimeter.jsx` (armory panel, equip, skills UI, crafting) |
-| Fort survivors, jobs & story | `data/quests.js` (NPCs, `STORY`, `FORT_UNLOCKS`, side-job templates), `update/quests.js` (offers, accept/decline, `jobsAt`, completion + rewards, unlock helpers `sortiesPerDay` / `healCost` / `turretMaterials` / `hasUnlock`), `data/city.js` (`dest.quests`), `update/cityMission.js` (quest items / people placed), `update/mission.js` (quest pickup), `render/missionExtras.js` (HUD tags), `ui/CityMap.jsx` (`!` markers), `DeadPerimeter.jsx` (survivors panel, result lines) |
-| Northgate Compact (faction) | `data/faction.js` (`COMPACT`, `COMPACT_STOCK`, standing tiers/discount, `mkCompact`), `update/faction.js` (`buy` + envoy sortie slot, `compactDayTick`, `setupAssault`, `assaultOutcome`, `raidDue` / `raidLaunched`), `ui/CompactPanel.jsx`, `data/city.js` (`compound` location, `dest.faction` / `compactInfo`), `update/cityMission.js` (assault layout), `update/mission.js` (trooper AI, colonel, garrison HUD), `update/siege.js` (raid waves, day tick), `update/quests.js` (radio unlock reveals the compound) |
+| Fort survivors, jobs & story | `data/quests.js` (NPCs, `STORY`, `FORT_UNLOCKS`, side-job templates), `update/quests.js` (offers, accept/decline, `jobsAt`, completion + rewards, unlock helpers `sortiesPerDay` / `sortieDay` / `sortiesLeftToday` / `healCost` / `turretMaterials` / `hasUnlock`), `data/city.js` (`dest.quests`), `update/cityMission.js` (quest items / people placed), `update/mission.js` (quest pickup), `render/missionExtras.js` (HUD tags), `ui/CityMap.jsx` (`!` markers), `DeadPerimeter.jsx` (survivors panel, result lines) |
+| Northgate Compact (faction) | `data/faction.js` (`COMPACT`, `COMPACT_STOCK`, standing tiers/discount, `mkCompact`), `update/faction.js` (`buy` + envoy rations — no sortie slot, `compactDayTick`, `setupAssault`, `assaultOutcome`, `raidDue` / `raidLaunched`), `ui/CompactPanel.jsx` (expedition screen, and command center with `atFort`), `data/city.js` (`compound` location, `dest.faction` / `compactInfo`), `update/cityMission.js` (assault layout), `update/mission.js` (trooper AI, colonel, garrison HUD), `update/siege.js` (raid waves, day tick), `update/quests.js` (radio unlock reveals the compound) |
+| Sortie days (sorties every 3 waves, management in between) | `data/difficulty.js` (`sortieEvery`, `firstSortieAfterWave`, `expeditionsPerDay`, `quietDay*`, `isSortieWave` / `nextSortieWave`), `update/quests.js` (`sortieDay`, `sortiesLeftToday`), `update/siege.js` (convoy on days without sorties), `DeadPerimeter.jsx` (header line, EXPEDITION button and note, `playMission` slot check, convoy banner, Compact panel in the command center), `update/faction.js` (envoy takes no slot) |
 | Stamina, travel time, journal | `entities/gear.js` (`maxStam`, `tickStam`, `spendStam`, `winded`), `data/progression.js` (Endurance → `stamMul`), `data/city.js` (`travelSlots`), `update/quests.js` (`q.log`), `DeadPerimeter.jsx` (journal block, slot check) |
 | Rooms + barricades (explore) | `update/rooms.js` (`placeRoomDoors`, seeded `buildRoom`, `enterRoom` / `exitRoom` swap the mission's world fields, `tickRooms` on the E key, `leaveRoomIfInside` before the result), `render/rooms.js` (street doors, room decor per kind, E prompts; doors are reached from the back of the band, `BACK_REACH`), `data/biomes.js` (`apartment_interior`, `clinic_interior`), `update/cityMission.js` (barricades: `clampCity` keeps the dead pounding on it, `barricadeStops` blocks bullets; bolt cutters), `render/cityMission.js` (`dBarricade` at the wall + a line of sandbag stacks across the band) |
 | Siege zoom | `constants.js` (`ZOOM_*`, `zoomOf`, `clampCam`), `update/zoom.js` (`setZoom` keeps the anchor point fixed), `render/lighting.js` (`zoomLights`), `DeadPerimeter.jsx` (world transform, click mapping, wheel / +/−), `render/hud.js` (radar window, off-screen arrows) |
