@@ -1,8 +1,8 @@
 # Dead Perimeter
 
 > A 2D side-scrolling **zombie siege survival** game in React + Canvas 2D.
-> Hold **Fort Omega** for **30 waves**. Between waves, send squads into the
-> ruined city to scavenge, take jobs from the survivors at the fort, deal
+> Hold **Fort Omega** for **30 waves**. Every third day, send squads into
+> the ruined city to scavenge, take jobs from the survivors at the fort, deal
 > with — or wipe out — a rogue military faction, and finally carry the
 > vaccine out in a playable three-act finale.
 
@@ -26,8 +26,12 @@
 ## The game
 
 Every day has two halves: **the siege** at night, and **the command
-center** during the day, where you spend sorties, resources and skill
-points before the next wave.
+center** during the day, where you spend resources and skill points
+before the next wave. Squads go into the city only on **sortie days**:
+the first after wave 1, then every 3 waves (before waves 2, 5, 8 … 29).
+The days in between are for the fort: build, research, heal, repair the
+wall, craft, recruit, call the evac and trade with the Compact. The
+command center shows when the next sortie window opens.
 
 ### The siege
 - Hold the wall across **three depth lanes** with up to 6 soldiers, a
@@ -42,13 +46,18 @@ points before the next wave.
   the dead.
 - Ammo, food and wall HP carry over: the run is an economy as much as a
   shooter. Holding the wall burns more ammo than Command sends after
-  each wave, so the stash only grows if you go out and get it.
+  each wave, so the stash only grows if you go out and get it. On days
+  without sorties a **Command convoy** adds half the wave's ammo again,
+  15 food and 10 materials — still short of what a wave burns.
 
 ### Sorties into the city
 - A **city map** of 17 places in five districts. Each keeps its
   **infestation** (it grows; killing thins it), **loot left** (what you
   take stays taken) and whether you've **discovered** it yet. Far places
-  cost more food and take the whole day (two sortie slots).
+  cost more food and take two sortie slots.
+- A sortie day has **3 sortie slots** (4 with the radio room); the other
+  days have none. Places keep changing every day, so after three days
+  the dead have spread a little and the shelves have restocked a bit.
 - A sortie is a **side-scrolling mission** played live with up to 5
   soldiers (the others follow as AI). The street has **depth**, like a
   beat-'em-up: walk across it with `W` / `S`. Shots, bites and blows
@@ -108,9 +117,9 @@ points before the next wave.
 Three survivors at the fort — **Dr. Elena Reyes**, **Sgt. Marcus Hale**
 and **Jun Park** — hand out jobs: recover an item, rescue someone, clear
 a place, hand over supplies. Their **six-step main story** unlocks
-permanent upgrades: an infirmary, a radio room (+1 sortie a day), a
-generator, faster research, a veteran rifleman, and a better shot at the
-finale. The **journal** keeps track.
+permanent upgrades: an infirmary, a radio room (+1 sortie on sortie
+days), a generator, faster research, a veteran rifleman, and a better
+shot at the finale. The **journal** keeps track.
 
 ### The Northgate Compact
 The radio room's first catch is a broadcast from **National Guard
@@ -118,10 +127,12 @@ deserters** who walled off a depot and declared their own government,
 led by **Col. Adaeze Voss**. They're neutral, and the only place to buy
 guns.
 
-- **Trade**: one envoy a day (it costs a sortie). Buying raises your
-  standing: better stock, then a discount. Everything you pay ends up in
-  their treasury, which also grows on its own.
-- **Assault**: hit the compound with a squad. Kill Voss or most of the
+- **Trade**: any day, from the command center or the expedition screen.
+  The first purchase of the day sends an envoy: he eats 4 food on the
+  road but takes no sortie slot. Buying raises your standing: better
+  stock, then a discount. Everything you pay ends up in their treasury,
+  which also grows on its own.
+- **Assault**: hit the compound with a squad, on a sortie day. Kill Voss or most of the
   garrison and their armory and treasury are yours — and they're gone
   for good. Fail, and they raid the fort every few days.
 

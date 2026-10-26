@@ -3,7 +3,7 @@ import { WPN, wbase, MELEE } from '../data/weapons.js';
 import { meleeStats, wearMelee, tickStam } from '../entities/gear.js';
 import { addXp, KILL_XP, BOSS_XP, WAVE_XP } from '../data/progression.js';
 import { HUMAN_AMMO_DROP, isHumanWaveNumber } from '../data/humans.js';
-import { BALANCE, RESEARCHES, waveClearAmmoFor, getSoldierPerkEffect } from '../data/difficulty.js';
+import { BALANCE, RESEARCHES, waveClearAmmoFor, isSortieWave, getSoldierPerkEffect } from '../data/difficulty.js';
 import { TRANSMISSION_WAVES } from '../data/transmissions.js';
 import { mkZombie } from '../entities/zombie.js';
 import { mkHuman } from '../entities/human.js';
@@ -226,7 +226,8 @@ export function update(gs, now, dt) {
           h.state = 'walk'; h.targetSolId = null;
         } else if (now - (h.lastShot || 0) >= meta.rate) {
           h.lastShot = now;
-          gs.soundQ.push({ t: 'shot', w: 'pistol', x: h.x });
+          // Street gunmen carry a pistol; Compact raiders their rifles.
+          gs.soundQ.push({ t: 'shot', w: h.compact ? 'rifle' : 'pistol', x: h.x });
           const by0 = laneY(h.lane) - Math.round(20 * laneSc(h.lane));
           const by1 = laneY(sol.lane) - Math.round(28 * laneSc(sol.lane));
           gs.bullets.push({
@@ -262,7 +263,7 @@ export function update(gs, now, dt) {
               const dmg = isBehindBarricade(gs, sol, h.x)
                 ? Math.max(1, Math.round(meta.dmg * BALANCE.behindBarricadeDmgMul))
                 : meta.dmg;
-              sol.hp -= dmg; sol.hurtTimer = 360; gs.soundQ.push({ t: 'slash', x: h.x });
+              sol.hp -= dmg; sol.hurtTimer = 360; gs.soundQ.push({ t: 'melee', m: 'knife', x: h.x });
               if (sol.hp > 0) hurtCallout(gs, sol);
               gs.effects.push({ type: 'slash', x: sol.x - h.facing * 10, y: laneY(sol.lane) - 28, at: now, dur: 230 });
               if (sol.hp <= 0) { sol.hp = 0; sol.state = 'dead'; h.targetSolId = null; h.state = 'walk'; recordDeath(gs, sol); }
@@ -295,7 +296,7 @@ export function update(gs, now, dt) {
     if (!tgt) return;
     t.lastShot = now;
     gs.resources.turretAmmo = Math.max(0, gs.resources.turretAmmo - 1);
-    gs.soundQ.push({ t: 'shot', w: 'rifle', x: t.x });
+    gs.soundQ.push({ t: 'shot', w: 'mg', x: t.x });
     gs.soundQ.push({ t: 'shell' });
     const by0 = t.y - 8;
     const by1 = laneY(tgt.lane) - Math.round(24 * laneSc(tgt.lane));
@@ -360,7 +361,7 @@ export function update(gs, now, dt) {
       s.facing = 1;
       if (now - s.lastShot >= w.rate) {
         s.state = 'shoot'; s.lastShot = now; s.shootAt = now; s.recoil = 200; s.ammo--;
-        gs.soundQ.push({ t: 'shot', w: 'rifle', x: s.x });
+        gs.soundQ.push({ t: 'shot', w: s.weapon, x: s.x });
         // Muzzle of the kneeling rooftop sniper's rifle.
         const sx = s.x + 20, sy = GY - 184;
         const by1 = laneY(tgt.lane) - Math.round(24 * laneSc(tgt.lane));
@@ -439,10 +440,11 @@ export function update(gs, now, dt) {
         if (s.knifeTimer >= ms.rate) {
           s.knifeTimer = 0; s.state = 'knife'; s.shootAt = now;
           meleeTgt.hp -= ms.dmg; meleeTgt.hurtTimer = 220;
-          gs.soundQ.push({ t: ms.type === 'knife' || ms.type === 'machete' ? 'slash' : 'hit', now, x: s.x });
+          gs.soundQ.push({ t: 'melee', m: ms.type, x: s.x });
           gs.effects.push({ type: 'slash', x: meleeTgt.x + s.facing * 10, y: laneY(meleeTgt.lane) - 28, at: now, dur: 230 });
           gs.effects.push({ type: 'txt', x: meleeTgt.x, y: laneY(meleeTgt.lane) - 58, v: `-${ms.dmg}`, col: '#ffcc44', at: now, dur: 600 });
           const broke = wearMelee(s);
+          if (broke) gs.soundQ.push({ t: 'mbreak', m: broke, x: s.x });
           if (broke) gs.effects.push({ type: 'txt', x: s.x, y: laneY(s.lane) - 84, v: t('{w} BROKE', { w: t(MELEE[broke].name).toUpperCase() }), col: C.dng, at: now, dur: 1200 });
           if (meleeTgt.hp <= 0) killTarget(gs, meleeTgt, now, s);
         }
@@ -621,6 +623,12 @@ export function update(gs, now, dt) {
     gs.resources.ammo = Math.min(999, gs.resources.ammo + waveClearAmmoFor(gs.wave - 1));
     gs.resources.sniperAmmo = Math.min(99, (gs.resources.sniperAmmo || 0) + BALANCE.waveClearSniperAmmo);
     gs.resources.food = Math.min(999, gs.resources.food + BALANCE.waveClearFood);
+    // No sorties today: Command's convoy covers part of the gap.
+    if (!isSortieWave(gs.wave)) {
+      const conv = { ammo: Math.round(waveClearAmmoFor(gs.wave - 1) * BALANCE.quietDayAmmoMul), food: BALANCE.quietDayFood, materials: BALANCE.quietDayMaterials };
+      Object.entries(conv).forEach(([k, v]) => { gs.resources[k] = Math.min(999, (gs.resources[k] || 0) + v); });
+      gs.lastConvoy = { wave: gs.wave, breakdown: conv };
+    }
     // Barricades that survived the wave get patched back up to full HP
     // for free (squad maintenance between waves). Destroyed ones stay
     // gone — the player has to rebuild manually.

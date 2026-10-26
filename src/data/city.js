@@ -83,7 +83,7 @@ export const riskOf = infest => infest < 0.42 ? 'LOW' : infest < 0.75 ? 'MED' : 
 export const distOf = l => Math.hypot(l.x - FORT_POS.x, l.y - FORT_POS.y);
 // Food per party member for the round trip.
 export const travelCost = l => Math.max(1, Math.ceil(distOf(l) / 210));
-// Far places (3+ legs) take the whole day: both sortie slots.
+// Far places (3+ legs) take two sortie slots.
 export const travelSlots = l => (travelCost(l) >= 3 ? 2 : 1);
 
 // Today's condition + side objective (stable for the whole day).
@@ -127,6 +127,8 @@ export function cityDests(gs) {
 }
 
 // One day passes (wave cleared): the dead spread, shelves restock a bit.
+// Every day, sortie day or not: the three days between visits are what
+// makes a place worth going back to (and more dangerous).
 export function cityDayTick(gs) {
   ensureCity(gs);
   Object.values(gs.city.locs).forEach(st => {

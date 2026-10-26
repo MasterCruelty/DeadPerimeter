@@ -22,7 +22,7 @@ import { dWaveCondition } from './render/weather.js';
 import CityMap from './ui/CityMap.jsx';
 import CompactPanel from './ui/CompactPanel.jsx';
 import { raidDue, raidLaunched, assaultOutcome } from './update/faction.js';
-import { ensureQuests, refreshOffers, acceptJob, declineJob, deliverJob, canDeliver, completeAfterSortie, jobGoal, jobText, jobTitle, offerReward, logTitle, logReward, unlockName, sortiesPerDay, healCost, turretMaterials, NPC_LIST } from './update/quests.js';
+import { ensureQuests, refreshOffers, acceptJob, declineJob, deliverJob, canDeliver, completeAfterSortie, jobGoal, jobText, jobTitle, offerReward, logTitle, logReward, unlockName, sortiesPerDay, sortieDay, sortiesLeftToday, healCost, turretMaterials, NPC_LIST } from './update/quests.js';
 import { MAX_ACTIVE, FORT_UNLOCKS, STORY } from './data/quests.js';
 import { cityDests, ensureCity, applyCityVisit } from './data/city.js';
 import { rollSiegeEvent } from './update/siegeEvents.js';
@@ -31,7 +31,7 @@ import { dSiegeEvent } from './render/siegeEvents.js';
 import { WAVE_MODS, rollWaveMod, isBossWave, bossName } from './data/waveMods.js';
 import { mkGS } from './entities/gameState.js';
 import { hasSavedGame, saveGame, loadGame, clearSave, peekSave } from './entities/persistence.js';
-import { BALANCE, CRAFT_RECIPES, RESEARCHES, PERKS, getResearchEffect } from './data/difficulty.js';
+import { BALANCE, CRAFT_RECIPES, RESEARCHES, PERKS, getResearchEffect, nextSortieWave } from './data/difficulty.js';
 
 import { dBg } from './render/background.js';
 import { dBase } from './render/base.js';
@@ -147,6 +147,7 @@ const mkSnap = gs => ({
   lastFoodReport:  gs.lastFoodReport  ?? null,
   lastWaveReport:  gs.lastWaveReport  ?? null,
   lastSupplyDrop:  gs.lastSupplyDrop  ?? null,
+  lastConvoy:      gs.lastConvoy      ?? null,
   cameraX: gs.cameraX || 0,
   workbench: gs.workbench, researchLab: gs.researchLab, research: gs.research,
   soldiersLost: gs.soldiersLost || 0, civiliansLost: gs.civiliansLost || 0,
@@ -488,14 +489,14 @@ export default function DeadPerimeter() {
     const idxs = expSolsRef.current, di = expDstRef.current;
     if (!idxs || idxs.length === 0 || di === null) return;
     const gs = gsRef.current;
-    if ((gs.expeditionsToday || 0) >= sortiesPerDay(gs)) return;
+    if (sortiesLeftToday(gs) <= 0) return;
 
     const party = idxs.map(i => gs.soldiers[i]).filter(s => s && s.state !== 'dead' && sortieReady(s));
     if (party.length === 0) return;
     const dest = expDestsRef.current[di];
     if (!dest) return;
-    // Far places take the whole day (both sortie slots).
-    if ((gs.expeditionsToday || 0) + (dest.slots || 1) > sortiesPerDay(gs)) return;
+    // Far places take two sortie slots.
+    if ((dest.slots || 1) > sortiesLeftToday(gs)) return;
     // Travel rations for the round trip across the city (replaces the
     // per-survivor sortie ration). No food, no trip.
     const rations = (dest.travel || 0) * party.length;
@@ -1749,11 +1750,15 @@ export default function DeadPerimeter() {
     setExpDests(expDestsRef.current);
   };
 
-  const sortiesLeft = gs ? sortiesPerDay(gs) - (gs.expeditionsToday || 0) : 0;
-  // Expeditions unlock after the first wave is cleared so the player
-  // gets a controlled "tutorial" wave before adding the off-map layer.
-  const expeditionsUnlocked = !gs || gs.wave >= 2;
-  const canSortie = sortiesLeft > 0 && expeditionsUnlocked;
+  // Sorties go out only on sortie days (data/difficulty.js isSortieWave):
+  // after wave 1, then every few waves. The other days are management.
+  const isSortieDay = !!gs && sortieDay(gs);
+  const sortiesLeft = gs ? sortiesLeftToday(gs) : 0;
+  const nextSortie = gs ? nextSortieWave(gs.wave) : 0;   // its command center is the next sortie day
+  const noSortiesLeft = !gs || nextSortie > BALANCE.maxWaves;
+  const canSortie = sortiesLeft > 0;
+  const nextSortieNote = noSortiesLeft ? t('No sortie days left before the final wave.')
+    : t('Next sortie window: after wave {n}.', { n: nextSortie - 1 });
   const partyValid = expSoldierIdxs.length > 0 && expSoldierIdxs.length <= BALANCE.maxExpeditionParty;
   const rationsNeed = expDestIdx !== null && expDests[expDestIdx] ? (expDests[expDestIdx].travel || 0) * expSoldierIdxs.length : 0;
   const rationsOk = !gs || (gs.resources.food || 0) >= rationsNeed;
@@ -1786,7 +1791,8 @@ export default function DeadPerimeter() {
           <div>
             <div style={h1}>{t('🗺 EXPEDITION')}</div>
             <div style={{ color: C.txt, opacity: 0.5, fontSize: '10px', marginTop: '3px' }}>
-              {t('DAY {day} — {left}/{max} sorties left before nightfall', { day: gs?.day, left: sortiesLeft, max: sortiesPerDay(gs) })}
+              {isSortieDay ? t('DAY {day} — {left}/{max} sorties left before nightfall', { day: gs?.day, left: sortiesLeft, max: sortiesPerDay(gs) })
+                : t('DAY {day} — no sorties today', { day: gs?.day })}
             </div>
           </div>
           <div style={{ color: C.dng, fontWeight: 'bold', fontSize: '20px' }}>{t('WAVE {n}/{max}', { n: gs?.wave, max: BALANCE.maxWaves })}</div>
@@ -1836,7 +1842,7 @@ export default function DeadPerimeter() {
             <div style={h2}>{t('CHOOSE DESTINATION')}</div>
             {gs && <CityMap city={ensureCity(gsRef.current || gs)} dests={expDests} selected={expDestIdx} onPick={pickDest} day={gs.day} jobs={ensureQuests(gsRef.current || gs).active} />}
             {gs && expDestIdx !== null && expDests[expDestIdx] && expDests[expDestIdx].locId === 'compound' && (
-              <CompactPanel gs={gsRef.current || gs} sortiesPerDay={sortiesPerDay(gsRef.current || gs)}
+              <CompactPanel gs={gsRef.current || gs}
                 onChange={() => { const G = gsRef.current; saveGame(G); setHasSave(true); expDestsRef.current = cityDests(G); setExpDests(expDestsRef.current); setUi({ ...G, soldiers: G.soldiers.map(x => ({ ...x })) }); }} />
             )}
             {/* Loadout selector — how many magazines each soldier carries */}
@@ -1872,13 +1878,13 @@ export default function DeadPerimeter() {
                 disabled={!partyValid || expDestIdx === null || !canSortie || !rationsOk || !slotsOk}
                 onClick={playMission}
               >{expDestIdx !== null && expDests[expDestIdx] && expDests[expDestIdx].faction ? t('⚔ ASSAULT THE COMPOUND') : t('🎮 LAUNCH SORTIE')}</button>
-              {rationsOk && !slotsOk && <span style={{ alignSelf: 'center', fontSize: '10px', color: C.dng }}>{t('Too far for today: this trip takes the whole day (2 sorties)')}</span>}
+              {isSortieDay && rationsOk && !slotsOk && <span style={{ alignSelf: 'center', fontSize: '10px', color: C.dng }}>{t('Too far for the sorties left today: this trip takes {n}', { n: slotsNeed })}</span>}
               {!rationsOk && <span style={{ alignSelf: 'center', fontSize: '10px', color: C.dng }}>{t('Not enough food for the trip: need {n} 🥫', { n: rationsNeed })}</span>}
             </div>
             <div style={{ fontSize: '9px', color: C.txt, opacity: 0.5, marginTop: '8px', lineHeight: '1.5' }}>
               {t('You control the first picked soldier; the others follow as AI (auto-shoot in range, knife on dry mag). Lead death = mission failed — but a surviving follower takes point. When a soldier burns through every magazine they holster the firearm and switch to a knife.')}
-              {!expeditionsUnlocked && <><br /><b style={{ color: C.dng }}>{t('LOCKED')}</b>: {t('expeditions unlock from wave 2 onward.')}</>}
-              {expeditionsUnlocked && sortiesLeft <= 0 && <><br /><b style={{ color: C.dng }}>{t('NIGHTFALL')}</b>: {t('no more sorties today — survive the next wave to dispatch again.')}</>}
+              {!isSortieDay && <><br /><b style={{ color: C.dng }}>{t('NO SORTIES TODAY')}</b>: {nextSortieNote}</>}
+              {isSortieDay && sortiesLeft <= 0 && <><br /><b style={{ color: C.dng }}>{t('NIGHTFALL')}</b>: {t('no more sorties today.')} {nextSortieNote}</>}
             </div>
           </>
         )}
@@ -2171,7 +2177,13 @@ export default function DeadPerimeter() {
         <div style={wrap}>
           <div style={panel}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-              <div><div style={h1}>{t('COMMAND CENTER')}</div><div style={{ color: C.txt, opacity: 0.5, fontSize: '10px', marginTop: '3px' }}>{t('DAY {day} — Wave {n}/{max} incoming', { day: gs?.day || 1, n: gs?.wave, max: BALANCE.maxWaves })}</div></div>
+              <div>
+                <div style={h1}>{t('COMMAND CENTER')}</div>
+                <div style={{ color: C.txt, opacity: 0.5, fontSize: '10px', marginTop: '3px' }}>{t('DAY {day} — Wave {n}/{max} incoming', { day: gs?.day || 1, n: gs?.wave, max: BALANCE.maxWaves })}</div>
+                <div style={{ color: isSortieDay ? C.acc : '#88aacc', fontSize: '10px', marginTop: '2px' }}>
+                  {isSortieDay ? t('🗺 SORTIE DAY — {left}/{max} sorties', { left: sortiesLeft, max: sortiesPerDay(gs) }) : `🏠 ${nextSortieNote}`}
+                </div>
+              </div>
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '5px' }}>
                 <div style={{ color: C.dng, fontWeight: 'bold', fontSize: '20px' }}>{t('WAVE {n}/{max}', { n: gs?.wave || 1, max: BALANCE.maxWaves })}</div>
                 <div style={{ display: 'flex', gap: '6px' }}>
@@ -2232,6 +2244,16 @@ export default function DeadPerimeter() {
                     return <span key={k} style={{ color: '#88ee99', fontWeight: 'bold' }}>+{v} {icon}{i < arr.length - 1 ? '  ' : ''}</span>;
                   })}
                 </div>
+              </div>
+            )}
+            {/* Command convoy on a day without sorties */}
+            {gs.lastConvoy && gs.lastConvoy.wave === gs.wave && (
+              <div style={{ background: 'rgba(16,30,44,0.9)', border: '1px solid #4a7aa0', padding: '6px 14px', marginTop: '8px', fontSize: '10px', color: C.txt }}>
+                <b style={{ color: '#88bbee', letterSpacing: '.05em' }}>{t('🚚 COMMAND CONVOY')}</b>
+                <span style={{ marginLeft: '8px', opacity: 0.85 }}>{t('No sorties today: Command sent a truck.')}</span>
+                {' '}{Object.entries(gs.lastConvoy.breakdown).map(([k, v]) => (
+                  <b key={k} style={{ color: '#88bbee', marginLeft: '6px' }}>+{v} {k === 'ammo' ? '🔫' : k === 'food' ? '🥫' : '🔧'}</b>
+                ))}
               </div>
             )}
             {/* Wave 30: extraction-day warning */}
@@ -2524,6 +2546,14 @@ export default function DeadPerimeter() {
                 </>
               );
             })()}
+            {gs && ensureCity(gsRef.current || gs).locs.compound.discovered && (gsRef.current || gs).compact?.status !== 'destroyed' && (
+              <>
+                <hr style={hr} />
+                {/* Trade any day: the envoy takes no sortie slot. */}
+                <CompactPanel gs={gsRef.current || gs} atFort
+                  onChange={() => { const G = gsRef.current; saveGame(G); setHasSave(true); setUi({ ...G, soldiers: G.soldiers.map(x => ({ ...x })) }); }} />
+              </>
+            )}
             <RadioLog />
             {gs && (() => {
               const a = ensureArmory(gsRef.current || gs);
@@ -2759,15 +2789,15 @@ export default function DeadPerimeter() {
               style={btn('#1a1a3e', '#4444aa')}
               onClick={() => { resetExp(); setScr('expedition'); }}
               disabled={!canSortie}
-              title={!expeditionsUnlocked ? t('Unlocks after the first wave') : sortiesLeft <= 0 ? t('No sorties left today') : ''}
+              title={!isSortieDay ? nextSortieNote : sortiesLeft <= 0 ? t('No sorties left today') : ''}
             >{t('🗺 EXPEDITION')}{
-              !expeditionsUnlocked ? ` — ${t('LOCKED')}`
+              !isSortieDay ? ` — ${t('NO SORTIES TODAY')}`
               : sortiesLeft > 0 ? ` (${sortiesLeft}/${sortiesPerDay(gs)})`
               : ` — ${t('NIGHTFALL')}`
             }</button>
-            {!expeditionsUnlocked && (
+            {!isSortieDay && (
               <div style={{ fontSize: '9px', color: C.txt, opacity: 0.55, marginTop: '4px', lineHeight: '1.4' }}>
-                {t('Expeditions unlock from')} <b>{t('WAVE {n}', { n: 2 })}</b>. {t('Survive the first wave to deploy sorties off-base.')}
+                <b>{nextSortieNote}</b> {t('Squads go into the city every {n} waves. Days in between are for the fort: build, research, heal, repair, craft, recruit, evac, trade with the Compact.', { n: BALANCE.sortieEvery })}
               </div>
             )}
             <button style={btn()} onClick={startWave} disabled={aliveSols.length === 0}>{t('⚔ DEPLOY')}</button>

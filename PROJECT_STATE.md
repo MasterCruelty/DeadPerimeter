@@ -389,7 +389,11 @@ persisted).
 ## 12. Expedition system
 
 ### Sortie limit
-`BALANCE.expeditionsPerDay = 2`. Counter resets on wave-clear.
+Sorties go out only on sortie days: the first after wave 1, then every
+`BALANCE.sortieEvery = 3` waves (before waves 2, 5, 8 … 29). A sortie
+day has `BALANCE.expeditionsPerDay = 3` slots (+1 radio room); far places
+take two. Counter resets on wave-clear. Days without sorties get a
+Command convoy (`quietDayAmmoMul`, `quietDayFood`, `quietDayMaterials`).
 `BALANCE.maxExpeditionParty = 3` — pick up to three soldiers per sortie.
 
 ### Location pool (`data/expeditions.js`)
