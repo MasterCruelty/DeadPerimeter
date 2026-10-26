@@ -338,4 +338,5 @@ export default {
   'Fort Omega held. The road did not. The vial is somewhere on the asphalt of Highway 17, and Central Command is calling for volunteers from another garrison. You bought them everything you had.': "Fort Omega ha retto. La strada no. La fiala è da qualche parte sull'asfalto della Highway 17 e il Comando Centrale chiama volontari da un'altra guarnigione. Gli avete dato tutto quello che avevate.",
   'EXTRACTION COMPLETE': 'ESTRAZIONE COMPLETATA',
   'You held the wall for 30 waves. Whoever made it out of Fort Omega is on the road now.': "Avete tenuto il muro per 30 ondate. Chi è uscito vivo da Fort Omega ora è in viaggio.",
+  '🍺 Buy me a beer': '🍺 Offrimi una birra',
 };
