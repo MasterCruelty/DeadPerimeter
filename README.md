@@ -145,7 +145,9 @@ accept the outcome. Retries count against the finale's grade.
   flashlights, fires, bloom, grading — always at full quality.
 - Rigged, shaded characters and zombies drawn in code; no image assets.
   Dozens of outfits for civilians, soldiers and the dead, and every
-  named mini-boss has its own look.
+  named mini-boss has its own look. Each soldier keeps the same face at
+  the wall, on sorties, on the radio and in the squad and reserve lists.
+  Raiders and Compact troopers have human voices, not the zombies'.
 - Opening, transmission, evacuation and game-over **cinematics**.
 - **Procedural audio** (no sound files): zombies snarl, growl and shriek
   through a synthesized vocal tract; reloads are built from real
