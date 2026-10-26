@@ -210,7 +210,7 @@ export default {
   'Infirmary': 'Infermeria',
   'Heals cost 3 💊 instead of 5.': 'Le cure costano 3 💊 invece di 5.',
   'Radio room': 'Sala radio',
-  '+1 sortie per day.': '+1 sortita al giorno.',
+  '+1 sortie on sortie days.': '+1 sortita nei giorni di sortita.',
   'Generator': 'Generatore',
   'MG turrets cost 40% fewer materials.': 'Le torrette mitragliatrici costano il 40% di materiali in meno.',
   'Field lab': 'Laboratorio da campo',

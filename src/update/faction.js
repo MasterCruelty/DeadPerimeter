@@ -4,7 +4,7 @@ import { uid } from '../constants.js';
 import { WPN, FOUND_GUNS } from '../data/weapons.js';
 import { COMPACT, COMPACT_STOCK, STANDING_PER_BUY, tierOf, discountOf, mkCompact } from '../data/faction.js';
 import { stashGear } from '../entities/gear.js';
-import { ensureCity } from '../data/city.js';
+import { ensureCity, LOCATIONS, travelCost } from '../data/city.js';
 import { anyDepth, BAND } from './depth.js';
 import { t } from '../i18n/index.js';
 
@@ -20,19 +20,22 @@ export const priceOf = (gs, item) => {
 export const stockFor = gs => COMPACT_STOCK.filter(i => i.tier <= tierOf(ensureCompact(gs).standing));
 export const canAfford = (gs, price) => Object.entries(price).every(([k, v]) => (gs.resources[k] || 0) >= v);
 
-// The first purchase of a day sends an envoy: one sortie slot.
+// The first purchase of a day sends an envoy. One man on a known road,
+// not a squad: he takes no sortie slot (trade works on any day), only
+// the rations for the round trip.
 export const envoyNeeded = gs => ensureCompact(gs).envoyDay !== gs.day;
+export const envoyFood = () => travelCost(LOCATIONS.find(l => l.id === COMPACT.locId));
+export const withEnvoy = (gs, price) => (envoyNeeded(gs) ? { ...price, food: (price.food || 0) + envoyFood() } : price);
 
-export function buy(gs, itemId, sortiesPerDay) {
+export function buy(gs, itemId) {
   const c = ensureCompact(gs);
   const item = stockFor(gs).find(i => i.id === itemId);
   if (!item || c.status !== 'neutral') return null;
   if (item.gun && c.guns <= 0) return null;
   const price = priceOf(gs, item);
-  if (!canAfford(gs, price)) return null;
+  if (!canAfford(gs, withEnvoy(gs, price))) return null;
   if (envoyNeeded(gs)) {
-    if ((gs.expeditionsToday || 0) >= sortiesPerDay) return null;
-    gs.expeditionsToday = (gs.expeditionsToday || 0) + 1;
+    gs.resources.food -= envoyFood();
     c.envoyDay = gs.day;
   }
   Object.entries(price).forEach(([k, v]) => {
